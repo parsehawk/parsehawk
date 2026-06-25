@@ -485,16 +485,26 @@ just setup
 The hooks run Ruff, ty, Python tests, Web UI typecheck, and Web UI tests. CI
 should still run the same checks; hooks are just the fast local feedback loop.
 
-Development mode:
+#### Development mode:
+
+Includes hot reload for the web UI.
 
 ```bash
-parsehawk dev
+parsehawk dev   
 ```
 
-Product-like local mode:
+```bash
+parsehawk dev --runtime none  # starts the API and Web UI without local inference
+```
+
+#### Product-like local mode:
 
 ```bash
 parsehawk start
+```
+
+```bash
+parsehawk start --runtime none  # starts the API and Web UI without local inference
 ```
 
 ## Troubleshooting
@@ -533,12 +543,6 @@ parsehawk start
 
 If the Model Runtime is slow to become ready, give it a few minutes on first
 startup while vLLM loads model weights, profiles memory, and warms kernels.
-
-To start only the API and Web UI without local inference:
-
-```bash
-parsehawk start --runtime none
-```
 
 ## Credits
 
