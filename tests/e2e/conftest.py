@@ -1,12 +1,12 @@
 """End-to-end API test harness.
 
-Runs the real API + worker as subprocesses against an isolated temp data dir,
-reusing whatever model runtime is already up (the GPU only hosts one). Speaks
-HTTP over the wire via ``httpx`` — never the in-process ``TestClient``.
+Runs the real API + worker as subprocesses against an isolated temp data dir and
+speaks HTTP over the wire via ``httpx`` — never the in-process ``TestClient``.
 
 It reuses the already-running model runtime rather than starting a second one
-(the GPU hosts only one), and asserts response shape rather than exact extracted
-values (NuExtract has no seed and samples at the configured temperature).
+(the GPU hosts only one). The runtime-dependent job tests fail (rather than skip)
+when the runtime is down; the other endpoint tests still pass. Assertions are
+shape-only, since NuExtract has no seed and samples at the configured temperature.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -32,24 +31,10 @@ JOB_TIMEOUT = float(os.environ.get("PARSEHAWK_E2E_JOB_TIMEOUT", "120"))
 JOB_POLL_INTERVAL = float(os.environ.get("PARSEHAWK_E2E_POLL_INTERVAL", "1.0"))
 
 
-@dataclass(frozen=True)
-class Stack:
-    base_url: str
-    engine_available: bool
-
-
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
-
-
-def _runtime_reachable(runtime_url: str) -> bool:
-    try:
-        response = httpx.get(f"{runtime_url.rstrip('/')}/models", timeout=3.0)
-    except httpx.HTTPError:
-        return False
-    return response.status_code == 200
 
 
 def _wait_for_health(base_url: str, timeout: float) -> bool:
@@ -83,19 +68,20 @@ def _seed_temp_database(data_dir: Path, database_path: Path) -> None:
 
 
 @pytest.fixture(scope="session")
-def _stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
+def base_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     runtime_url = os.environ.get("PARSEHAWK_VLLM_BASE_URL", DEFAULT_RUNTIME_URL)
 
     external = os.environ.get("PARSEHAWK_E2E_BASE_URL")
     if external:
         base_url = external.rstrip("/")
         if not _wait_for_health(base_url, timeout=5.0):
-            pytest.skip(f"PARSEHAWK_E2E_BASE_URL={base_url} is not serving /health")
-        yield Stack(base_url=base_url, engine_available=True)
+            pytest.fail(f"PARSEHAWK_E2E_BASE_URL={base_url} is not serving /health")
+        yield base_url
         return
 
-    engine_available = _runtime_reachable(runtime_url)
-
+    # Always bring up the full stack (API + worker). The runtime is intentionally
+    # NOT required to be up: runtime-dependent job tests then fail (their jobs
+    # error out) rather than skip, while the other endpoint tests still pass.
     data_dir = tmp_path_factory.mktemp("e2e-data")
     database_path = data_dir / "parsehawk.db"
     _seed_temp_database(data_dir, database_path)
@@ -109,7 +95,7 @@ def _stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     env = os.environ.copy()
     env["PARSEHAWK_DATA_DIR"] = str(data_dir)
     env["PARSEHAWK_DATABASE_PATH"] = str(database_path)
-    env["PARSEHAWK_INFERENCE_ENGINE"] = "vllm" if engine_available else "none"
+    env["PARSEHAWK_INFERENCE_ENGINE"] = "vllm"
     env["PARSEHAWK_VLLM_BASE_URL"] = runtime_url
     env["PARSEHAWK_VLLM_TEMPERATURE"] = "0"
     env["PARSEHAWK_LOG_LEVEL"] = "WARNING"
@@ -143,7 +129,7 @@ def _stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
             if not _wait_for_health(base_url, timeout=API_HEALTH_TIMEOUT):
                 tail = api_log_path.read_text(encoding="utf-8", errors="replace")[-2000:]
                 pytest.fail(f"e2e API never became healthy at {base_url}\n--- api.log ---\n{tail}")
-            yield Stack(base_url=base_url, engine_available=engine_available)
+            yield base_url
         finally:
             for process in (worker, api):
                 process.terminate()
@@ -153,25 +139,10 @@ def _stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
                     process.kill()
 
 
-@pytest.fixture(scope="session")
-def base_url(_stack: Stack) -> str:
-    return _stack.base_url
-
-
 @pytest.fixture
 def client(base_url: str) -> Iterator[httpx.Client]:
     with httpx.Client(base_url=base_url, timeout=30.0) as client:
         yield client
-
-
-@pytest.fixture
-def requires_engine(_stack: Stack) -> None:
-    if not _stack.engine_available:
-        runtime_url = os.environ.get("PARSEHAWK_VLLM_BASE_URL", DEFAULT_RUNTIME_URL)
-        pytest.skip(
-            f"model runtime not reachable at {runtime_url}; "
-            "start it (e.g. `parsehawk start`) to run job-execution tests"
-        )
 
 
 @pytest.fixture
