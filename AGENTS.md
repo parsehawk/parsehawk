@@ -35,3 +35,21 @@ Recommended conventions:
 - `chore(...)` for maintenance that does not change behavior.
 
 For multi-line commit messages, preserve real newlines in the body. Do not use literal `\n` escape sequences.
+
+## Verification
+
+For changes that affect runtime startup, model serving, extraction behavior,
+Docker Compose, platform detection, or end-to-end workflows, verify the full
+local runtime path before opening or updating a pull request:
+
+```bash
+parsehawk restart
+just e2e
+```
+
+When feasible, run this verification on both supported local-runtime platforms:
+
+- macOS Apple Silicon, which uses vLLM Metal on the host
+- Linux with an NVIDIA GPU, which uses the Docker Compose vLLM runtime service
+
+If one platform is not available, say so explicitly in the PR or final summary.
