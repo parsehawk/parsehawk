@@ -879,6 +879,9 @@ export default function App() {
                       <PlayCircle data-icon="inline-start" />
                       Use this extractor
                     </Button>
+                    {draftExtractorId ? (
+                      <CopyTextButton value={draftExtractorId} label="Copy extractor ID" />
+                    ) : null}
                     {draftExtractorId && !draftExtractorIsPrebuilt ? (
                       <Button variant="destructive" onClick={() => setConfirmDeleteExtractor(true)}>
                         <Trash2 data-icon="inline-start" />
@@ -1792,9 +1795,12 @@ function ExtractorList(props: {
                 >
                   {isSelected ? <span className="size-1.5 rounded-full bg-primary" /> : null}
                 </span>
-                <span className="flex min-w-0 flex-1 items-center gap-2">
-                  <span className="min-w-0 truncate font-medium">{extractor.name}</span>
-                  {isPrebuilt ? <Badge variant="outline" className="shrink-0">Prebuilt</Badge> : null}
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 truncate font-medium">{extractor.name}</span>
+                    {isPrebuilt ? <Badge variant="outline" className="shrink-0">Prebuilt</Badge> : null}
+                  </span>
+                  <CopyableId id={extractor.id} label="extractor ID" className="text-xs" />
                 </span>
                 <Button
                   variant="outline"
@@ -1893,26 +1899,19 @@ function JobHistory(props: {
                         />
                         <span className="min-w-0">
                           <span className="flex flex-wrap items-center gap-2">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="font-mono text-sm font-medium">{shortId(historyJob.id)}</span>
-                              </TooltipTrigger>
-                              <TooltipContent className="font-mono">{historyJob.id}</TooltipContent>
-                            </Tooltip>
+                            <CopyableId
+                              id={historyJob.id}
+                              label="job ID"
+                              className="text-sm font-medium text-foreground"
+                            />
                           </span>
                           <span className="mt-1 block text-xs text-muted-foreground">
                             {formatDateTime(historyJob.created_at)} ·{" "}
                             {historyJob.file_id ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span>{shortId(historyJob.file_id)}</span>
-                                </TooltipTrigger>
-                                <TooltipContent className="font-mono">{historyJob.file_id}</TooltipContent>
-                              </Tooltip>
+                              <CopyableId id={historyJob.file_id} label="file ID" className="text-xs" />
                             ) : (
                               "Inline text"
-                            )}{" "}
-                            · {formatJobDuration(historyJob)}
+                            )}
                           </span>
                         </span>
                       </div>
@@ -2226,6 +2225,69 @@ function CopyButton(props: { value: string; label: string }) {
     >
       <Icon />
     </Button>
+  );
+}
+
+function CopyTextButton(props: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const Icon = copied ? Check : Copy;
+
+  async function onCopy() {
+    await copyToClipboard(props.value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <Button variant="secondary" onClick={() => void onCopy()}>
+      <Icon data-icon="inline-start" />
+      {/* Stack both labels in one grid cell so the width stays put when the
+          text swaps to "Copied!" and the surrounding row doesn't shift. */}
+      <span className="grid place-items-center">
+        <span className={cn("col-start-1 row-start-1", copied && "invisible")}>{props.label}</span>
+        <span className={cn("col-start-1 row-start-1", !copied && "invisible")} aria-hidden={!copied}>
+          Copied ID!
+        </span>
+      </span>
+    </Button>
+  );
+}
+
+function CopyableId(props: { id: string; label?: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  async function onCopy(event: React.MouseEvent) {
+    // Stop the click from toggling the surrounding row's selection.
+    event.stopPropagation();
+    await copyToClipboard(props.id);
+    setCopied(true);
+    // Radix dismisses the tooltip on click, so keep it open to surface the
+    // "Copied!" confirmation, then close after a short beat.
+    setOpen(true);
+    window.setTimeout(() => {
+      setCopied(false);
+      setOpen(false);
+    }, 1200);
+  }
+
+  return (
+    <Tooltip open={open} onOpenChange={(next) => setOpen(next || copied)}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Copy ${props.label ?? "ID"} ${props.id}`}
+          onClick={(event) => void onCopy(event)}
+          className={cn(
+            "inline-flex w-fit max-w-full items-center font-mono text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:text-foreground",
+            props.className
+          )}
+        >
+          <span className="truncate">{shortId(props.id)}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{copied ? "Copied!" : "Click to copy full ID"}</TooltipContent>
+    </Tooltip>
   );
 }
 
