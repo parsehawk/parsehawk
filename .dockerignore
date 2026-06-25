@@ -1,0 +1,16 @@
+.git
+.venv
+.ruff_cache
+.pytest_cache
+.coverage
+.DS_Store
+__pycache__
+*.pyc
+
+data
+examples/Testdaten
+node_modules
+apps/web/dist
+apps/web/tsconfig.tsbuildinfo
+
+*.log

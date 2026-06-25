@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://docs.parsehawk.com/schemas/parsehawk-extraction-schema.schema.json",
+  "title": "ParseHawk Extraction Schema",
+  "description": "The public schema dialect accepted by ParseHawk extractors and /v1/schemas/validate.",
+  "$ref": "#/$defs/objectSchema",
+  "$defs": {
+    "schema": {
+      "oneOf": [
+        { "$ref": "#/$defs/objectSchema" },
+        { "$ref": "#/$defs/arraySchema" },
+        { "$ref": "#/$defs/plainStringSchema" },
+        { "$ref": "#/$defs/semanticStringSchema" },
+        { "$ref": "#/$defs/numberSchema" },
+        { "$ref": "#/$defs/integerSchema" },
+        { "$ref": "#/$defs/booleanSchema" },
+        { "$ref": "#/$defs/enumSchema" },
+        { "$ref": "#/$defs/enumUnionSchema" },
+        { "$ref": "#/$defs/nullableUnionSchema" }
+      ]
+    },
+    "metadataProperties": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "nullableStringType": {
+      "oneOf": [
+        { "const": "string" },
+        {
+          "type": "array",
+          "prefixItems": [{ "const": "string" }, { "const": "null" }],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        {
+          "type": "array",
+          "prefixItems": [{ "const": "null" }, { "const": "string" }],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      ]
+    },
+    "objectType": {
+      "oneOf": [
+        { "const": "object" },
+        {
+          "type": "array",
+          "prefixItems": [{ "const": "object" }, { "const": "null" }],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        {
+          "type": "array",
+          "prefixItems": [{ "const": "null" }, { "const": "object" }],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      ]
+    },
+    "objectSchema": {
+      "type": "object",
+      "properties": {
+        "$schema": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "$ref": "#/$defs/objectType" },
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/schema" }
+        },
+        "required": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "additionalProperties": { "const": false }
+      },
+      "required": ["type", "properties"],
+      "additionalProperties": false
+    },
+    "arraySchema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "const": "array" },
+        "items": { "$ref": "#/$defs/schema" }
+      },
+      "required": ["type", "items"],
+      "additionalProperties": false
+    },
+    "plainStringSchema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "$ref": "#/$defs/nullableStringType" },
+        "pattern": { "type": "string" },
+        "minLength": { "type": "integer", "minimum": 0 },
+        "maxLength": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "semanticStringSchema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "$ref": "#/$defs/nullableStringType" },
+        "x-parsehawk": { "$ref": "#/$defs/parsehawkExtension" }
+      },
+      "required": ["type", "x-parsehawk"],
+      "additionalProperties": false
+    },
+    "numberSchema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": {
+          "oneOf": [
+            { "const": "number" },
+            {
+              "type": "array",
+              "prefixItems": [{ "const": "number" }, { "const": "null" }],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "array",
+              "prefixItems": [{ "const": "null" }, { "const": "number" }],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ]
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "integerSchema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": {
+          "oneOf": [
+            { "const": "integer" },
+            {
+              "type": "array",
+              "prefixItems": [{ "const": "integer" }, { "const": "null" }],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "array",
+              "prefixItems": [{ "const": "null" }, { "const": "integer" }],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ]
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "booleanSchema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": {
+          "oneOf": [
+            { "const": "boolean" },
+            {
+              "type": "array",
+              "prefixItems": [{ "const": "boolean" }, { "const": "null" }],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            },
+            {
+              "type": "array",
+              "prefixItems": [{ "const": "null" }, { "const": "boolean" }],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          ]
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "enumSchema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "$ref": "#/$defs/nullableStringType" },
+        "enum": {
+          "type": "array",
+          "items": { "type": ["string", "null"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "x-parsehawk": { "$ref": "#/$defs/parsehawkExtension" }
+      },
+      "required": ["type", "enum"],
+      "additionalProperties": false
+    },
+    "enumUnionSchema": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["oneOf"] },
+        { "required": ["anyOf"] }
+      ],
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "oneOf": { "$ref": "#/$defs/enumUnionBranches" },
+        "anyOf": { "$ref": "#/$defs/enumUnionBranches" }
+      },
+      "additionalProperties": false
+    },
+    "enumUnionBranches": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "description": { "type": "string" },
+              "const": { "type": "string" }
+            },
+            "required": ["const"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "description": { "type": "string" },
+              "enum": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "required": ["enum"],
+            "additionalProperties": false
+          },
+          { "$ref": "#/$defs/nullBranch" }
+        ]
+      }
+    },
+    "nullableUnionSchema": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["oneOf"] },
+        { "required": ["anyOf"] }
+      ],
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "oneOf": { "$ref": "#/$defs/nullableUnionBranches" },
+        "anyOf": { "$ref": "#/$defs/nullableUnionBranches" }
+      },
+      "additionalProperties": false
+    },
+    "nullableUnionBranches": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "contains": { "$ref": "#/$defs/nullBranch" },
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/plainStringSchema" },
+          { "$ref": "#/$defs/semanticStringSchema" },
+          { "$ref": "#/$defs/numberSchema" },
+          { "$ref": "#/$defs/integerSchema" },
+          { "$ref": "#/$defs/booleanSchema" },
+          { "$ref": "#/$defs/objectSchema" },
+          { "$ref": "#/$defs/nullBranch" }
+        ]
+      }
+    },
+    "nullBranch": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "const": "null" }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "parsehawkExtension": {
+      "type": "object",
+      "properties": {
+        "semantic": {
+          "type": "string",
+          "enum": [
+            "string",
+            "verbatim-string",
+            "integer",
+            "number",
+            "boolean",
+            "date",
+            "time",
+            "date-time",
+            "duration",
+            "country",
+            "currency",
+            "language",
+            "language-tag",
+            "script",
+            "url",
+            "email-address",
+            "phone-number",
+            "iban",
+            "bic",
+            "unit-code",
+            "region:US",
+            "region:FR",
+            "region:IE",
+            "region:GB",
+            "region:IT",
+            "region:ES",
+            "region:DE",
+            "region:PT",
+            "region:CA",
+            "region:MX",
+            "region:BR",
+            "region:AU",
+            "region:JP",
+            "region:KR"
+          ]
+        }
+      },
+      "required": ["semantic"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+import re
+
+import pytest
+
+from parsehawk.core.application.ports import ExtractionRequest, ExtractionResponse
+
+
+class MockInference:
+    """Deterministic in-process extraction engine for tests.
+
+    Replaces the former production heuristic engine: it returns predictable
+    receipt output so the API/worker integration tests can run without a real
+    model runtime.
+    """
+
+    def extract(self, request: ExtractionRequest) -> ExtractionResponse:
+        text = request.source_text
+        if "receipt_id" in request.schema.get("properties", {}):
+            data: dict[str, object] = {
+                "merchant_name": _first_non_empty_line(text),
+                "receipt_id": _first_match(text, [r"Receipt\s*#\s*([A-Z0-9-]+)"]),
+                "date": _first_match(text, [r"Date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})"]),
+                "total": _first_number(text, [r"^Total\s+EUR\s+([0-9]+(?:\.[0-9]+)?)"]),
+                "currency": _first_match(text, [r"^Total\s+(EUR|USD|GBP)\s+"]),
+            }
+            return _response(data)
+
+        return _response({})
+
+
+def _response(data: dict[str, object]) -> ExtractionResponse:
+    return ExtractionResponse(data=data)
+
+
+def _first_match(text: str, patterns: list[str]) -> str | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _first_number(text: str, patterns: list[str]) -> float | None:
+    value = _first_match(text, patterns)
+    return float(value) if value is not None else None
+
+
+def _first_non_empty_line(text: str) -> str | None:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
+
+
+@pytest.fixture(autouse=True)
+def _disable_telemetry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the suite hermetic: no usage analytics are sent during tests.
+
+    Telemetry-specific tests opt back in by clearing these vars themselves.
+    """
+    monkeypatch.setenv("PARSEHAWK_TELEMETRY_DISABLED", "1")
+
+
+@pytest.fixture
+def mock_inference(monkeypatch: pytest.MonkeyPatch) -> MockInference:
+    """Route build_container/create_app through the deterministic MockInference engine."""
+    engine = MockInference()
+    monkeypatch.setattr("parsehawk.server.container.build_engine", lambda settings: engine)
+    return engine

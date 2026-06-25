@@ -1,0 +1,15 @@
+PARSEHAWK COFFEE
+42 Falcon Street
+Sample City
+
+Receipt #R-1001
+Date: 2026-06-21
+
+1x Espresso        EUR 3.20
+2x Croissant       EUR 7.00
+
+Subtotal           EUR 10.20
+Tax                EUR 1.02
+Total              EUR 11.22
+
+Paid by card

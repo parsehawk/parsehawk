@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Annotated, cast
+
+from fastapi import APIRouter, Depends, FastAPI, File, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse as FastAPIFileResponse
+from fastapi.responses import JSONResponse
+
+from parsehawk import telemetry
+from parsehawk.core.domain.errors import NotFoundError, ValidationFailure
+from parsehawk.core.domain.schemas import (
+    MODE_JSON_SCHEMA,
+    validate_extraction_schema,
+)
+from parsehawk.core.domain.schemas import (
+    SchemaDiagnostic as CoreSchemaDiagnostic,
+)
+from parsehawk.logging import configure_logging
+from parsehawk.server.api.fastapi.schemas import (
+    CreateExtractorRequest,
+    CreateJobRequest,
+    ExtractorResponse,
+    FileResponse,
+    JobResponse,
+    SchemaDiagnostic,
+    UpdateExtractorRequest,
+    ValidateSchemaRequest,
+    ValidateSchemaResponse,
+)
+from parsehawk.server.container import Container, build_container
+
+configure_logging("parsehawk", configure_uvicorn=True)
+
+
+def get_container(request: Request) -> Container:
+    return cast(Container, request.app.state.container)
+
+
+ContainerDep = Annotated[Container, Depends(get_container)]
+UploadFileDep = Annotated[UploadFile, File()]
+
+files_router = APIRouter(prefix="/files", tags=["files"])
+extractors_router = APIRouter(prefix="/extractors", tags=["extractors"])
+jobs_router = APIRouter(prefix="/jobs", tags=["jobs"])
+schemas_router = APIRouter(prefix="/schemas", tags=["schemas"])
+health_router = APIRouter(tags=["health"])
+
+
+def create_app() -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        container = build_container()
+        app.state.container = container
+        try:
+            yield
+        finally:
+            container.close()
+
+    app = FastAPI(title="ParseHawk", version="0.1.0", lifespan=lifespan)
+
+    @app.exception_handler(NotFoundError)
+    async def not_found_handler(_: Request, exc: NotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(ValidationFailure)
+    async def validation_handler(_: Request, exc: ValidationFailure) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    api_router = APIRouter(prefix="/v1")
+    api_router.include_router(files_router)
+    api_router.include_router(extractors_router)
+    api_router.include_router(jobs_router)
+    api_router.include_router(schemas_router)
+    app.include_router(health_router)
+    app.include_router(api_router)
+    return app
+
+
+@health_router.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@health_router.get("/")
+async def root() -> dict[str, str]:
+    return {
+        "message": "Welcome to the ParseHawk API! Documentation is available at https://docs.parsehawk.com"
+    }
+
+
+@schemas_router.post(
+    "/validate",
+    openapi_extra={
+        "externalDocs": {
+            "description": "ParseHawk extraction schema dialect",
+            "url": "https://docs.parsehawk.com/schemas/parsehawk-extraction-schema.schema.json",
+        }
+    },
+)
+def validate_schema(request: ValidateSchemaRequest) -> ValidateSchemaResponse:
+    result = validate_extraction_schema(
+        mode=MODE_JSON_SCHEMA,
+        json_schema=request.schema_,
+    )
+
+    return ValidateSchemaResponse(
+        valid=result.valid,
+        schema=result.json_schema,
+        warnings=[_schema_diagnostic(warning) for warning in result.warnings],
+        errors=[_schema_diagnostic(error) for error in result.errors],
+    )
+
+
+@files_router.post("", status_code=status.HTTP_201_CREATED)
+async def upload_file(upload: UploadFileDep, container: ContainerDep) -> FileResponse:
+    content = await upload.read()
+    record = container.file_service.upload(
+        file_name=upload.filename or "upload.bin",
+        content_type=upload.content_type or "application/octet-stream",
+        content=content,
+    )
+    return FileResponse.from_domain(record)
+
+
+@files_router.get("")
+def list_files(container: ContainerDep) -> list[FileResponse]:
+    return [FileResponse.from_domain(file) for file in container.file_service.list()]
+
+
+@files_router.get("/{file_id}")
+def get_file(file_id: str, container: ContainerDep) -> FileResponse:
+    return FileResponse.from_domain(container.file_service.get(file_id))
+
+
+@files_router.get("/{file_id}/content")
+def get_file_content(file_id: str, container: ContainerDep) -> FastAPIFileResponse:
+    file = container.file_service.get(file_id)
+    path = container.storage.resolve_path(file.storage_path)
+    if not path.is_file():
+        raise NotFoundError("file content", file_id)
+    return FastAPIFileResponse(
+        path=path,
+        filename=file.file_name,
+        media_type=file.content_type,
+        content_disposition_type="inline",
+    )
+
+
+@files_router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_file(file_id: str, container: ContainerDep) -> None:
+    container.file_service.delete(file_id)
+
+
+@extractors_router.post("", status_code=status.HTTP_201_CREATED)
+def create_extractor(request: CreateExtractorRequest, container: ContainerDep) -> ExtractorResponse:
+    extractor = container.extractor_service.create(
+        name=request.name,
+        instructions=request.instructions,
+        enable_thinking=request.enable_thinking,
+        schema=request.schema_,
+        examples=[example.model_dump() for example in request.examples],
+    )
+    return ExtractorResponse.from_domain(extractor)
+
+
+@extractors_router.get("")
+def list_extractors(container: ContainerDep) -> list[ExtractorResponse]:
+    return [
+        ExtractorResponse.from_domain(extractor) for extractor in container.extractor_service.list()
+    ]
+
+
+@extractors_router.get("/{extractor_id}")
+def get_extractor(extractor_id: str, container: ContainerDep) -> ExtractorResponse:
+    return ExtractorResponse.from_domain(container.extractor_service.get(extractor_id))
+
+
+@extractors_router.patch("/{extractor_id}")
+def update_extractor(
+    extractor_id: str,
+    request: UpdateExtractorRequest,
+    container: ContainerDep,
+) -> ExtractorResponse:
+    extractor = container.extractor_service.update(
+        extractor_id,
+        name=request.name,
+        instructions=request.instructions,
+        enable_thinking=request.enable_thinking,
+        schema=request.schema_,
+        examples=[example.model_dump() for example in request.examples]
+        if request.examples is not None
+        else None,
+    )
+    return ExtractorResponse.from_domain(extractor)
+
+
+@extractors_router.delete("/{extractor_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_extractor(extractor_id: str, container: ContainerDep) -> None:
+    container.extractor_service.delete(extractor_id)
+
+
+@jobs_router.post("", status_code=status.HTTP_201_CREATED)
+def create_job(request: CreateJobRequest, container: ContainerDep) -> JobResponse:
+    job = container.job_service.create(
+        extractor_id=request.extractor_id,
+        file_id=request.file_id,
+        text=request.text,
+    )
+    telemetry.track_run_started(
+        input_type="file" if request.file_id is not None else "text",
+        data_dir=container.settings.data_dir,
+    )
+    return JobResponse.from_domain(job)
+
+
+@jobs_router.get("")
+def list_jobs(
+    container: ContainerDep,
+    extractor_id: Annotated[str | None, Query()] = None,
+) -> list[JobResponse]:
+    return [
+        JobResponse.from_domain(job)
+        for job in container.job_service.list(extractor_id=extractor_id)
+    ]
+
+
+@jobs_router.get("/{job_id}")
+def get_job(job_id: str, container: ContainerDep) -> JobResponse:
+    return JobResponse.from_domain(container.job_service.get(job_id))
+
+
+@jobs_router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_job(job_id: str, container: ContainerDep) -> None:
+    container.job_service.delete(job_id)
+
+
+app = create_app()
+
+
+def _schema_diagnostic(diagnostic: CoreSchemaDiagnostic) -> SchemaDiagnostic:
+    return SchemaDiagnostic(
+        message=diagnostic.message,
+        code=diagnostic.code,
+        path=diagnostic.path,
+    )

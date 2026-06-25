@@ -1,0 +1,46 @@
+services:
+  runtime:
+    image: ${PARSEHAWK_VLLM_IMAGE:-vllm/vllm-openai:v0.23.0}
+    command:
+      - --model
+      - ${PARSEHAWK_VLLM_MODEL:-numind/NuExtract3-W4A16}
+      - --served-model-name
+      - ${PARSEHAWK_VLLM_MODEL:-numind/NuExtract3-W4A16}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --trust-remote-code
+      - --chat-template-content-format
+      - openai
+      - --generation-config
+      - vllm
+      - --reasoning-parser
+      - qwen3
+      - --limit-mm-per-prompt
+      - "{\"image\":${PARSEHAWK_PDF_MAX_PAGES:-25},\"video\":0}"
+      - --gpu-memory-utilization
+      - ${PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION:-0.5}
+      - --max-model-len
+      - ${PARSEHAWK_VLLM_MAX_MODEL_LEN:-8192}
+      - --max-num-seqs
+      - ${PARSEHAWK_VLLM_MAX_NUM_SEQS:-128}
+      - --structured-outputs-config.enable_in_reasoning=True
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_USE_FLASHINFER_SAMPLER: "0"
+    volumes:
+      - ${PARSEHAWK_HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface
+      - ${PARSEHAWK_VLLM_CACHE_HOME:-${HOME}/.cache/vllm}:/root/.cache/vllm
+    ports:
+      - "127.0.0.1:${PARSEHAWK_RUNTIME_PORT:-8080}:8080"
+    ipc: host
+    gpus: all
+
+  api:
+    depends_on:
+      - runtime
+
+  worker:
+    depends_on:
+      - runtime

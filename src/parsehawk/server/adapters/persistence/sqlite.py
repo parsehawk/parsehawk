@@ -1,0 +1,472 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, List
+
+from parsehawk.core.domain.models import (
+    Example,
+    Extractor,
+    ExtractorSource,
+    File,
+    FileSource,
+    Job,
+    JobError,
+    JobResult,
+    JobStatus,
+)
+
+# A single sqlite3.Connection is shared across FastAPI's request threadpool, so
+# multi-statement write transactions (e.g. claim_next_queued's BEGIN IMMEDIATE)
+# can interleave across threads. This process-wide lock serializes writes so each
+# transaction is atomic; busy_timeout/WAL below handle the separate worker process.
+_write_lock = threading.RLock()
+
+
+def connect(database_path: Path) -> sqlite3.Connection:
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(database_path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    # Wait (rather than fail immediately with "database is locked") when another
+    # connection holds the write lock, and use WAL so readers don't block writers.
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA journal_mode = WAL")
+    return conn
+
+
+def init_db(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS files (
+            id TEXT PRIMARY KEY,
+            file_name TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            storage_path TEXT NOT NULL,
+            source TEXT NOT NULL,
+            seed_key TEXT,
+            seed_version INTEGER,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS extractors (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            instructions TEXT NOT NULL,
+            enable_thinking INTEGER NOT NULL,
+            schema TEXT NOT NULL,
+            examples TEXT NOT NULL,
+            source TEXT NOT NULL,
+            seed_key TEXT,
+            seed_version INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS jobs (
+            id TEXT PRIMARY KEY,
+            extractor_id TEXT NOT NULL REFERENCES extractors(id) ON DELETE CASCADE,
+            file_id TEXT REFERENCES files(id) ON DELETE CASCADE,
+            source_text TEXT,
+            status TEXT NOT NULL,
+            result TEXT,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            completed_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_jobs_extractor_id ON jobs(extractor_id);
+        CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs(status, created_at);
+        """
+    )
+    conn.commit()
+
+
+def _dump_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _load_json(value: str) -> Any:
+    return json.loads(value)
+
+
+def _datetime_to_text(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _datetime_from_text(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value) if value is not None else None
+
+
+@dataclass(frozen=True)
+class SQLiteFileRow:
+    id: str
+    file_name: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    storage_path: str
+    source: str
+    seed_key: str | None
+    seed_version: int | None
+    created_at: str
+
+    @classmethod
+    def from_domain(cls, file: File) -> SQLiteFileRow:
+        return cls(
+            id=file.id,
+            file_name=file.file_name,
+            content_type=file.content_type,
+            size_bytes=file.size_bytes,
+            sha256=file.sha256,
+            storage_path=file.storage_path,
+            source=file.source.value,
+            seed_key=file.seed_key,
+            seed_version=file.seed_version,
+            created_at=file.created_at.isoformat(),
+        )
+
+    @classmethod
+    def from_sqlite(cls, row: sqlite3.Row) -> SQLiteFileRow:
+        return cls(**dict(row))
+
+    def to_domain(self) -> File:
+        created_at = _datetime_from_text(self.created_at)
+        assert created_at is not None
+        return File(
+            id=self.id,
+            file_name=self.file_name,
+            content_type=self.content_type,
+            size_bytes=self.size_bytes,
+            sha256=self.sha256,
+            storage_path=self.storage_path,
+            source=FileSource(self.source),
+            seed_key=self.seed_key,
+            seed_version=self.seed_version,
+            created_at=created_at,
+        )
+
+
+@dataclass(frozen=True)
+class SQLiteExtractorRow:
+    id: str
+    name: str
+    instructions: str
+    enable_thinking: int
+    schema: str
+    examples: str
+    source: str
+    seed_key: str | None
+    seed_version: int | None
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_domain(cls, extractor: Extractor) -> SQLiteExtractorRow:
+        return cls(
+            id=extractor.id,
+            name=extractor.name,
+            instructions=extractor.instructions,
+            enable_thinking=1 if extractor.enable_thinking else 0,
+            schema=_dump_json(extractor.schema),
+            examples=_dump_json(
+                [example.model_dump(mode="json") for example in extractor.examples]
+            ),
+            source=extractor.source.value,
+            seed_key=extractor.seed_key,
+            seed_version=extractor.seed_version,
+            created_at=extractor.created_at.isoformat(),
+            updated_at=extractor.updated_at.isoformat(),
+        )
+
+    @classmethod
+    def from_sqlite(cls, row: sqlite3.Row) -> SQLiteExtractorRow:
+        return cls(**dict(row))
+
+    def to_domain(self) -> Extractor:
+        created_at = _datetime_from_text(self.created_at)
+        updated_at = _datetime_from_text(self.updated_at)
+        assert created_at is not None
+        assert updated_at is not None
+        return Extractor(
+            id=self.id,
+            name=self.name,
+            instructions=self.instructions,
+            enable_thinking=bool(self.enable_thinking),
+            schema=_load_json(self.schema),
+            examples=[Example.model_validate(example) for example in _load_json(self.examples)],
+            source=ExtractorSource(self.source),
+            seed_key=self.seed_key,
+            seed_version=self.seed_version,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+
+@dataclass(frozen=True)
+class SQLiteJobRow:
+    id: str
+    extractor_id: str
+    file_id: str | None
+    source_text: str | None
+    status: str
+    result: str | None
+    error: str | None
+    created_at: str
+    started_at: str | None
+    completed_at: str | None
+
+    @classmethod
+    def from_domain(cls, job: Job) -> SQLiteJobRow:
+        return cls(
+            id=job.id,
+            extractor_id=job.extractor_id,
+            file_id=job.file_id,
+            source_text=job.source_text,
+            status=job.status.value,
+            result=_dump_json(job.result.model_dump(mode="json")) if job.result else None,
+            error=_dump_json(job.error.model_dump(mode="json")) if job.error else None,
+            created_at=job.created_at.isoformat(),
+            started_at=_datetime_to_text(job.started_at),
+            completed_at=_datetime_to_text(job.completed_at),
+        )
+
+    @classmethod
+    def from_sqlite(cls, row: sqlite3.Row) -> SQLiteJobRow:
+        return cls(**dict(row))
+
+    def to_domain(self) -> Job:
+        created_at = _datetime_from_text(self.created_at)
+        assert created_at is not None
+        return Job(
+            id=self.id,
+            extractor_id=self.extractor_id,
+            file_id=self.file_id,
+            source_text=self.source_text,
+            status=JobStatus(self.status),
+            result=JobResult.model_validate(_load_json(self.result)) if self.result else None,
+            error=JobError.model_validate(_load_json(self.error)) if self.error else None,
+            created_at=created_at,
+            started_at=_datetime_from_text(self.started_at),
+            completed_at=_datetime_from_text(self.completed_at),
+        )
+
+
+class SQLiteFileRepository:
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def save(self, file: File) -> None:
+        row = SQLiteFileRow.from_domain(file)
+        with _write_lock:
+            self._conn.execute(
+                """
+                INSERT INTO files (
+                    id, file_name, content_type, size_bytes, sha256, storage_path,
+                    source, seed_key, seed_version, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    file_name = excluded.file_name,
+                    content_type = excluded.content_type,
+                    size_bytes = excluded.size_bytes,
+                    sha256 = excluded.sha256,
+                    storage_path = excluded.storage_path,
+                    source = excluded.source,
+                    seed_key = excluded.seed_key,
+                    seed_version = excluded.seed_version,
+                    created_at = excluded.created_at
+                """,
+                (
+                    row.id,
+                    row.file_name,
+                    row.content_type,
+                    row.size_bytes,
+                    row.sha256,
+                    row.storage_path,
+                    row.source,
+                    row.seed_key,
+                    row.seed_version,
+                    row.created_at,
+                ),
+            )
+            self._conn.commit()
+
+    def list(self) -> List[File]:
+        rows = self._conn.execute("SELECT * FROM files ORDER BY id").fetchall()
+        return [SQLiteFileRow.from_sqlite(row).to_domain() for row in rows]
+
+    def get(self, file_id: str) -> File | None:
+        row = self._conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+        return SQLiteFileRow.from_sqlite(row).to_domain() if row else None
+
+    def delete(self, file_id: str) -> None:
+        with _write_lock:
+            self._conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
+            self._conn.commit()
+
+
+class SQLiteExtractorRepository:
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def save(self, extractor: Extractor) -> None:
+        row = SQLiteExtractorRow.from_domain(extractor)
+        with _write_lock:
+            self._conn.execute(
+                """
+                INSERT INTO extractors (
+                    id, name, instructions, enable_thinking, schema, examples,
+                    source, seed_key, seed_version, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    instructions = excluded.instructions,
+                    enable_thinking = excluded.enable_thinking,
+                    schema = excluded.schema,
+                    examples = excluded.examples,
+                    source = excluded.source,
+                    seed_key = excluded.seed_key,
+                    seed_version = excluded.seed_version,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    row.id,
+                    row.name,
+                    row.instructions,
+                    row.enable_thinking,
+                    row.schema,
+                    row.examples,
+                    row.source,
+                    row.seed_key,
+                    row.seed_version,
+                    row.created_at,
+                    row.updated_at,
+                ),
+            )
+            self._conn.commit()
+
+    def list(self) -> List[Extractor]:
+        rows = self._conn.execute("SELECT * FROM extractors ORDER BY id").fetchall()
+        return [SQLiteExtractorRow.from_sqlite(row).to_domain() for row in rows]
+
+    def get(self, extractor_id: str) -> Extractor | None:
+        row = self._conn.execute(
+            "SELECT * FROM extractors WHERE id = ?", (extractor_id,)
+        ).fetchone()
+        return SQLiteExtractorRow.from_sqlite(row).to_domain() if row else None
+
+    def delete(self, extractor_id: str) -> None:
+        with _write_lock:
+            self._conn.execute("DELETE FROM extractors WHERE id = ?", (extractor_id,))
+            self._conn.commit()
+
+
+class SQLiteJobRepository:
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def save(self, job: Job) -> None:
+        row = SQLiteJobRow.from_domain(job)
+        with _write_lock:
+            self._conn.execute(
+                """
+                INSERT INTO jobs (
+                    id, extractor_id, file_id, source_text, status, result, error,
+                    created_at, started_at, completed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    extractor_id = excluded.extractor_id,
+                    file_id = excluded.file_id,
+                    source_text = excluded.source_text,
+                    status = excluded.status,
+                    result = excluded.result,
+                    error = excluded.error,
+                    created_at = excluded.created_at,
+                    started_at = excluded.started_at,
+                    completed_at = excluded.completed_at
+                """,
+                (
+                    row.id,
+                    row.extractor_id,
+                    row.file_id,
+                    row.source_text,
+                    row.status,
+                    row.result,
+                    row.error,
+                    row.created_at,
+                    row.started_at,
+                    row.completed_at,
+                ),
+            )
+            self._conn.commit()
+
+    def list(self, extractor_id: str | None = None) -> List[Job]:
+        if extractor_id is None:
+            rows = self._conn.execute("SELECT * FROM jobs ORDER BY created_at").fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM jobs WHERE extractor_id = ? ORDER BY created_at",
+                (extractor_id,),
+            ).fetchall()
+        return [SQLiteJobRow.from_sqlite(row).to_domain() for row in rows]
+
+    def get(self, job_id: str) -> Job | None:
+        row = self._conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return SQLiteJobRow.from_sqlite(row).to_domain() if row else None
+
+    def delete(self, job_id: str) -> None:
+        with _write_lock:
+            self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            self._conn.commit()
+
+    def claim_next_queued(self) -> Job | None:
+        with _write_lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                row = self._conn.execute(
+                    """
+                    SELECT * FROM jobs
+                    WHERE status = ?
+                    ORDER BY created_at
+                    LIMIT 1
+                    """,
+                    (JobStatus.QUEUED.value,),
+                ).fetchone()
+                if row is None:
+                    self._conn.commit()
+                    return None
+                job = SQLiteJobRow.from_sqlite(row).to_domain().mark_running()
+                updated = SQLiteJobRow.from_domain(job)
+                self._conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status = ?, started_at = ?
+                    WHERE id = ? AND status = ?
+                    """,
+                    (
+                        updated.status,
+                        updated.started_at,
+                        updated.id,
+                        JobStatus.QUEUED.value,
+                    ),
+                )
+                self._conn.commit()
+                return job
+            except Exception:
+                self._conn.rollback()
+                raise
+
+
+def dump_debug_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)

@@ -1,0 +1,13 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+.coverage
+data/
+examples/
+node_modules/
+*.tsbuildinfo
+apps/*/dist/
+apps/*/coverage/
+playwright-report/
+test-results/

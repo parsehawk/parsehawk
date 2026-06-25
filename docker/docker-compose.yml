@@ -1,0 +1,66 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    command:
+      - uvicorn
+      - parsehawk.server.api.fastapi.app:create_app
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --no-use-colors
+    environment:
+      PARSEHAWK_DATA_DIR: /data
+      PARSEHAWK_DATABASE_PATH: /data/parsehawk.db
+      PARSEHAWK_LOG_COLORS: "0"
+      PARSEHAWK_LOG_LEVEL: ${PARSEHAWK_LOG_LEVEL:-INFO}
+      PARSEHAWK_LOG_MODEL_IO: ${PARSEHAWK_LOG_MODEL_IO:-false}
+      PARSEHAWK_INFERENCE_ENGINE: ${PARSEHAWK_INFERENCE_ENGINE:-vllm}
+      PARSEHAWK_VLLM_BASE_URL: ${PARSEHAWK_VLLM_BASE_URL:-http://runtime:8080/v1}
+      PARSEHAWK_VLLM_MODEL: ${PARSEHAWK_VLLM_MODEL:-numind/NuExtract3-W4A16}
+      PARSEHAWK_PDF_MAX_PAGES: ${PARSEHAWK_PDF_MAX_PAGES:-25}
+      PARSEHAWK_TELEMETRY_DISABLED: ${PARSEHAWK_TELEMETRY_DISABLED:-0}
+      PARSEHAWK_TELEMETRY_INTERNAL: ${PARSEHAWK_TELEMETRY_INTERNAL:-0}
+      DO_NOT_TRACK: ${DO_NOT_TRACK:-0}
+    volumes:
+      - ${PARSEHAWK_HOST_DATA_DIR:-../data}:/data
+    ports:
+      - "${PARSEHAWK_API_HOST:-127.0.0.1}:${PARSEHAWK_API_PORT:-8000}:8000"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    command:
+      - python
+      - -m
+      - parsehawk.server.worker.main
+    environment:
+      PARSEHAWK_DATA_DIR: /data
+      PARSEHAWK_DATABASE_PATH: /data/parsehawk.db
+      PARSEHAWK_LOG_COLORS: "0"
+      PARSEHAWK_LOG_LEVEL: ${PARSEHAWK_LOG_LEVEL:-INFO}
+      PARSEHAWK_LOG_MODEL_IO: ${PARSEHAWK_LOG_MODEL_IO:-false}
+      PARSEHAWK_INFERENCE_ENGINE: ${PARSEHAWK_INFERENCE_ENGINE:-vllm}
+      PARSEHAWK_VLLM_BASE_URL: ${PARSEHAWK_VLLM_BASE_URL:-http://runtime:8080/v1}
+      PARSEHAWK_VLLM_MODEL: ${PARSEHAWK_VLLM_MODEL:-numind/NuExtract3-W4A16}
+      PARSEHAWK_PDF_MAX_PAGES: ${PARSEHAWK_PDF_MAX_PAGES:-25}
+      PARSEHAWK_TELEMETRY_DISABLED: ${PARSEHAWK_TELEMETRY_DISABLED:-0}
+      PARSEHAWK_TELEMETRY_INTERNAL: ${PARSEHAWK_TELEMETRY_INTERNAL:-0}
+      DO_NOT_TRACK: ${DO_NOT_TRACK:-0}
+    volumes:
+      - ${PARSEHAWK_HOST_DATA_DIR:-../data}:/data
+    depends_on:
+      - api
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "${PARSEHAWK_WEB_HOST:-127.0.0.1}:${PARSEHAWK_WEB_PORT:-5173}:80"
+    depends_on:
+      - api

@@ -1,0 +1,62 @@
+[project]
+name = "parsehawk"
+version = "0.1.0"
+description = "Local-first document extraction API."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = "Apache-2.0"
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    "fastapi>=0.115.0",
+    "jsonschema>=4.23.0",
+    "pillow>=11.0.0",
+    "posthog>=3.0.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.14.2",
+    "pypdfium2>=5.10.1",
+    "python-multipart>=0.0.20",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27.0",
+    "pre-commit>=4.6.0",
+    "pytest>=8.3.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.8.0",
+    "ty>=0.0.51",
+]
+
+[project.scripts]
+parsehawk = "parsehawk.cli.main:main"
+parsehawk-worker = "parsehawk.server.worker.main:main"
+
+[tool.uv]
+package = true
+
+[tool.fastapi]
+entrypoint = "parsehawk.server.api.fastapi.app:app"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=parsehawk.core.domain --cov=parsehawk.core.application --cov-report=term-missing --cov-fail-under=100 -m 'not e2e'"
+testpaths = ["tests"]
+markers = [
+    "e2e: local-only API tests; spawn an API+worker on a temp data dir and reuse the running model runtime (run with `just e2e`)",
+]
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

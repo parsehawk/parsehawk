@@ -1,0 +1,1 @@
+"""ParseHawk local document extraction."""

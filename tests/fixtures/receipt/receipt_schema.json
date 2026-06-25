@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "merchant_name": {
+      "type": ["string", "null"],
+      "description": "Merchant or store name exactly as written on the receipt.",
+      "x-parsehawk": { "semantic": "verbatim-string" }
+    },
+    "receipt_id": {
+      "type": ["string", "null"],
+      "description": "Receipt, transaction, or invoice identifier exactly as written.",
+      "x-parsehawk": { "semantic": "verbatim-string" }
+    },
+    "date": {
+      "type": ["string", "null"],
+      "description": "Receipt date.",
+      "x-parsehawk": { "semantic": "date" }
+    },
+    "total": {
+      "type": ["number", "null"],
+      "description": "Final amount paid after taxes, discounts, and fees."
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["EUR", "USD", "GBP", null],
+      "description": "Currency of the final total."
+    }
+  },
+  "required": ["merchant_name", "receipt_id", "date", "total", "currency"]
+}
