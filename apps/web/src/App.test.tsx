@@ -465,7 +465,9 @@ describe("App run workflow", () => {
     expect((await screen.findAllByText("receipt.md")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Uploaded receipt text")).toBeInTheDocument();
 
-    await userEvent.click(await screen.findByText("job_text"));
+    const textJobRow = (await screen.findByLabelText("Copy job ID job_text")).closest("[role='button']");
+    expect(textJobRow).not.toBeNull();
+    await userEvent.click(textJobRow!);
 
     expect(await screen.findByText("Text input")).toBeInTheDocument();
     expect(screen.getAllByText("Archived inline text").length).toBeGreaterThan(0);

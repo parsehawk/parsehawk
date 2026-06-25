@@ -12,6 +12,7 @@ DEFAULT_MODEL = "numind/NuExtract3-W4A16"
 DEFAULT_VLLM_MODEL = DEFAULT_MODEL
 DEFAULT_VLLM_MAX_MODEL_LEN = 8192
 DEFAULT_VLLM_GPU_MEMORY_UTILIZATION = 0.5
+DEFAULT_VLLM_MAX_NUM_SEQS = 1
 DEFAULT_VLLM_PIP_SPEC = "vllm==0.23.0"
 DEFAULT_VLLM_PYTHON_VERSION = "3.12"
 DEFAULT_NUEXTRACT_KEEP_ALIVE_SECONDS = 300
@@ -52,6 +53,7 @@ class Settings(BaseSettings):
     vllm_temperature: float = Field(default=0.2, ge=0)
     vllm_timeout_seconds: int = Field(default=600, ge=1)
     vllm_max_model_len: int = Field(default=DEFAULT_VLLM_MAX_MODEL_LEN, ge=1)
+    vllm_max_num_seqs: int = Field(default=DEFAULT_VLLM_MAX_NUM_SEQS, ge=1)
     vllm_gpu_memory_utilization: float = Field(
         default=DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
         gt=0,

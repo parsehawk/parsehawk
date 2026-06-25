@@ -9,3 +9,4 @@ class ResizeObserverMock {
 globalThis.ResizeObserver = ResizeObserverMock;
 globalThis.scrollTo = () => {};
 Element.prototype.scrollTo = () => {};
+document.execCommand = () => true;

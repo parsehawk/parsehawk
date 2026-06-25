@@ -479,6 +479,7 @@ def test_dev_uses_settings_defaults_for_runtime_process(
     assert runtime_cmd[runtime_cmd.index("--model") + 1] == "model-from-env"
     assert runtime_cmd[runtime_cmd.index("--gpu-memory-utilization") + 1] == "0.5"
     assert runtime_cmd[runtime_cmd.index("--max-model-len") + 1] == "8192"
+    assert runtime_cmd[runtime_cmd.index("--max-num-seqs") + 1] == "1"
     assert spawned[0]["env"]["VLLM_USE_FLASHINFER_SAMPLER"] == "0"
     assert spawned[0]["env"]["VLLM_METAL_MEMORY_FRACTION"] == "0.5"
     assert "--no-use-colors" in spawned[1]["cmd"]
@@ -530,6 +531,7 @@ def test_dev_launches_vllm_runtime_when_selected(
     assert runtime_cmd[runtime_cmd.index("--reasoning-parser") + 1] == "qwen3"
     assert runtime_cmd[runtime_cmd.index("--gpu-memory-utilization") + 1] == "0.5"
     assert runtime_cmd[runtime_cmd.index("--max-model-len") + 1] == "8192"
+    assert runtime_cmd[runtime_cmd.index("--max-num-seqs") + 1] == "1"
     assert "--structured-outputs-config.enable_in_reasoning=True" in runtime_cmd
     assert spawned[0]["env"]["VLLM_USE_FLASHINFER_SAMPLER"] == "0"
     api_env = spawned[1]["env"]
@@ -547,40 +549,75 @@ def test_default_runtime_selects_per_platform(monkeypatch: pytest.MonkeyPatch) -
     assert cli._default_runtime() == cli.UNSUPPORTED_RUNTIME
 
 
-def test_vllm_max_model_len_defaults_to_memory_tier(
+def test_vllm_settings_default_to_macos_memory_tier(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("PARSEHAWK_VLLM_MAX_MODEL_LEN", raising=False)
+    monkeypatch.delenv("PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION", raising=False)
+    monkeypatch.delenv("PARSEHAWK_VLLM_MAX_NUM_SEQS", raising=False)
     monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: True)
+    monkeypatch.setattr(cli, "_is_linux_x86_64", lambda: False)
     settings = cli.Settings()
 
     monkeypatch.setattr(cli, "_system_memory_bytes", lambda: 36_000_000_000)
-    assert (
-        cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16").vllm_max_model_len
-        == 32768
-    )
+    resolved = cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16")
+    assert resolved.vllm_max_model_len == 32768
+    assert resolved.vllm_gpu_memory_utilization == 0.5
+    assert resolved.vllm_max_num_seqs == 4
 
     monkeypatch.setattr(cli, "_system_memory_bytes", lambda: 18_000_000_000)
-    assert (
-        cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16").vllm_max_model_len
-        == 8192
-    )
+    resolved = cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16")
+    assert resolved.vllm_max_model_len == 8192
+    assert resolved.vllm_gpu_memory_utilization == 0.7
+    assert resolved.vllm_max_num_seqs == 1
 
 
-def test_vllm_max_model_len_env_override_wins(
+def test_vllm_settings_default_to_linux_vram_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PARSEHAWK_VLLM_MAX_MODEL_LEN", raising=False)
+    monkeypatch.delenv("PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION", raising=False)
+    monkeypatch.delenv("PARSEHAWK_VLLM_MAX_NUM_SEQS", raising=False)
+    monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: False)
+    monkeypatch.setattr(cli, "_is_linux_x86_64", lambda: True)
+    settings = cli.Settings()
+
+    monkeypatch.setattr(cli, "_nvidia_gpu_memory_bytes", lambda: 12 * 1024**3)
+    resolved = cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16")
+    assert resolved.vllm_max_model_len == 8192
+    assert resolved.vllm_gpu_memory_utilization == 0.9
+    assert resolved.vllm_max_num_seqs == 1
+
+    monkeypatch.setattr(cli, "_nvidia_gpu_memory_bytes", lambda: 24 * 1024**3)
+    resolved = cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16")
+    assert resolved.vllm_max_model_len == 16384
+    assert resolved.vllm_gpu_memory_utilization == 0.85
+    assert resolved.vllm_max_num_seqs == 4
+
+    monkeypatch.setattr(cli, "_nvidia_gpu_memory_bytes", lambda: 48 * 1024**3)
+    resolved = cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16")
+    assert resolved.vllm_max_model_len == 32768
+    assert resolved.vllm_gpu_memory_utilization == 0.75
+    assert resolved.vllm_max_num_seqs == 8
+
+
+def test_vllm_settings_env_overrides_win(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PARSEHAWK_VLLM_MAX_MODEL_LEN", "16384")
+    monkeypatch.setenv("PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION", "0.6")
+    monkeypatch.setenv("PARSEHAWK_VLLM_MAX_NUM_SEQS", "2")
     monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: True)
+    monkeypatch.setattr(cli, "_is_linux_x86_64", lambda: False)
     monkeypatch.setattr(cli, "_system_memory_bytes", lambda: 36_000_000_000)
 
-    assert (
-        cli._resolve_vllm_settings(
-            cli.Settings.from_env(),
-            model="numind/NuExtract3-W4A16",
-        ).vllm_max_model_len
-        == 16384
+    resolved = cli._resolve_vllm_settings(
+        cli.Settings.from_env(),
+        model="numind/NuExtract3-W4A16",
     )
+    assert resolved.vllm_max_model_len == 16384
+    assert resolved.vllm_gpu_memory_utilization == 0.6
+    assert resolved.vllm_max_num_seqs == 2
 
 
 def test_platform_dependencies_skip_runtime_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -803,6 +840,7 @@ def test_start_linux_vllm_uses_internal_runtime_port(
     monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
     monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: False)
     monkeypatch.setattr(cli, "_is_linux_x86_64", lambda: True)
+    monkeypatch.setattr(cli, "_nvidia_gpu_memory_bytes", lambda: 24 * 1024**3)
     monkeypatch.setattr(cli, "_ensure_start_ports_available", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "_ensure_docker_available", lambda: None)
     monkeypatch.setattr(cli, "_ensure_platform_dependencies", lambda runtime: None)
@@ -821,6 +859,9 @@ def test_start_linux_vllm_uses_internal_runtime_port(
     assert compose_ups[0]["env"]["PARSEHAWK_RUNTIME_PORT"] == "18080"
     assert compose_ups[0]["env"]["PARSEHAWK_INFERENCE_ENGINE"] == "vllm"
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_BASE_URL"] == "http://runtime:8080/v1"
+    assert compose_ups[0]["env"]["PARSEHAWK_VLLM_MAX_MODEL_LEN"] == "16384"
+    assert compose_ups[0]["env"]["PARSEHAWK_VLLM_MAX_NUM_SEQS"] == "4"
+    assert compose_ups[0]["env"]["PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION"] == "0.85"
     assert runtime_health_urls == ["http://127.0.0.1:18080/health"]
     state = cli._load_state(data_dir / "parsehawk-state.json")
     assert state.runtime_url == "http://127.0.0.1:18080/v1"
