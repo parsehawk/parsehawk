@@ -12,6 +12,16 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/parsehawk/parsehawk/releases"><img src="https://img.shields.io/github/v/release/parsehawk/parsehawk?sort=semver" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg" alt="Python 3.11 | 3.12"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux-lightgrey.svg" alt="Platform: macOS · Linux">
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Linted with Ruff"></a>
+  <img src="https://img.shields.io/badge/100%25%20local-by%20default-2ea44f.svg" alt="100% local by default">
+  <a href="https://github.com/parsehawk/parsehawk/stargazers"><img src="https://img.shields.io/github/stars/parsehawk/parsehawk?style=social" alt="GitHub stars"></a>
+</p>
+
+<p align="center">
   <a href="#quickstart">Quickstart</a> ·
   <a href="#first-extraction">First extraction</a> ·
   <a href="#api-cli-and-web-ui">API, CLI, and Web UI</a> ·
