@@ -69,7 +69,6 @@ def test_job_crud_delete(
 def test_job_execution_inline_text(
     client: httpx.Client,
     receipt_extractor: str,
-    requires_engine: None,
     poll_job: Callable[..., dict[str, Any]],
     cleanup: Callable[[str], None],
 ) -> None:
@@ -88,7 +87,6 @@ def test_job_execution_inline_text(
 def test_job_execution_file(
     client: httpx.Client,
     receipt_extractor: str,
-    requires_engine: None,
     poll_job: Callable[..., dict[str, Any]],
     cleanup: Callable[[str], None],
     filename: str,
