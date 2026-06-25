@@ -332,16 +332,24 @@ Current defaults:
 | vLLM package | `vllm==0.23.0` |
 | Linux runtime image | `vllm/vllm-openai:v0.23.0` |
 | Model | `numind/NuExtract3-W4A16` |
-| GPU memory utilization | `0.5` |
-| Max model length | `8192` by default, `32768` on larger Apple Silicon Macs |
+| GPU memory utilization | platform- and memory-tier specific |
+| Max model length | platform- and memory-tier specific |
+| Max concurrent sequences | platform- and memory-tier specific |
 | PDF render DPI | `170` |
 | PDF max pages | `25` |
+
+For known bundled models, ParseHawk chooses conservative runtime defaults from
+the detected platform and memory tier. Apple Silicon uses unified memory; Linux
+uses NVIDIA GPU VRAM. These defaults favor reliable local startup over maximum
+throughput. Increase the context length, memory utilization, or concurrent
+sequence limit manually if you are running on a larger machine.
 
 Common overrides:
 
 ```bash
 PARSEHAWK_VLLM_MAX_MODEL_LEN=16384 parsehawk start
 PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION=0.6 parsehawk start
+PARSEHAWK_VLLM_MAX_NUM_SEQS=4 parsehawk start
 PARSEHAWK_VLLM_MODEL=numind/NuExtract3-W4A16 parsehawk start
 PARSEHAWK_VLLM_IMAGE=vllm/vllm-openai:v0.23.0 parsehawk start
 ```
@@ -359,9 +367,9 @@ ParseHawk uses Pydantic settings. Common environment variables:
 | `PARSEHAWK_INFERENCE_ENGINE` | `none` | API/worker inference engine. `parsehawk start` sets this to `vllm` when a runtime is configured. |
 | `PARSEHAWK_VLLM_BASE_URL` | `http://127.0.0.1:8080/v1` | OpenAI-compatible model runtime URL. |
 | `PARSEHAWK_VLLM_MODEL` | `numind/NuExtract3-W4A16` | Model name sent to the runtime. |
-| `PARSEHAWK_VLLM_MAX_MODEL_LEN` | platform-specific | vLLM context length. Overrides the automatic local default. |
-| `PARSEHAWK_VLLM_MAX_NUM_SEQS` | `128` | Linux vLLM maximum concurrent decode sequences. |
-| `PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION` | `0.5` | vLLM memory reservation fraction. |
+| `PARSEHAWK_VLLM_MAX_MODEL_LEN` | platform-specific | vLLM context length. Overrides the automatic runtime-profile default. |
+| `PARSEHAWK_VLLM_MAX_NUM_SEQS` | platform-specific | vLLM maximum concurrent decode sequences. Overrides the automatic runtime-profile default. |
+| `PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION` | platform-specific | vLLM memory reservation fraction. On Apple Silicon this is also mapped to `VLLM_METAL_MEMORY_FRACTION`. |
 | `PARSEHAWK_VLLM_IMAGE` | `vllm/vllm-openai:v0.23.0` | Linux Docker runtime image. |
 | `PARSEHAWK_VLLM_CACHE_HOME` | `~/.cache/vllm` | Linux host cache for vLLM compile artifacts. |
 | `PARSEHAWK_PDF_MAX_PAGES` | `25` | Maximum PDF pages rendered for one extraction. |

@@ -21,10 +21,17 @@ from typing import Any
 
 from parsehawk.config import (
     DEFAULT_DATA_DIR,
+    DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
     DEFAULT_VLLM_MAX_MODEL_LEN,
+    DEFAULT_VLLM_MAX_NUM_SEQS,
     DEFAULT_VLLM_MODEL,
     Settings,
     default_inference_engine,
+)
+from parsehawk.model_profiles import (
+    RuntimePlatform,
+    RuntimeProfileDefaults,
+    runtime_profile_defaults,
 )
 from parsehawk.server.runtime.vllm_env import (
     ensure_vllm_metal_venv,
@@ -33,8 +40,6 @@ from parsehawk.server.runtime.vllm_env import (
 )
 
 UNSUPPORTED_RUNTIME = "unsupported"
-NUEXTRACT3_W4A16_HIGH_MEMORY_THRESHOLD_BYTES = 32_000_000_000
-NUEXTRACT3_W4A16_HIGH_MEMORY_MAX_MODEL_LEN = 32768
 
 
 def _default_runtime() -> str:
@@ -66,22 +71,70 @@ def _system_memory_bytes() -> int | None:
     return pages * page_size
 
 
-def _default_vllm_max_model_len_for_host(model: str) -> int:
-    if model.lower() != DEFAULT_VLLM_MODEL.lower():
-        return DEFAULT_VLLM_MAX_MODEL_LEN
-    if not _is_macos_apple_silicon():
-        return DEFAULT_VLLM_MAX_MODEL_LEN
-    memory_bytes = _system_memory_bytes()
-    if memory_bytes is not None and memory_bytes >= NUEXTRACT3_W4A16_HIGH_MEMORY_THRESHOLD_BYTES:
-        return NUEXTRACT3_W4A16_HIGH_MEMORY_MAX_MODEL_LEN
-    return DEFAULT_VLLM_MAX_MODEL_LEN
+def _nvidia_gpu_memory_bytes() -> int | None:
+    if shutil.which("nvidia-smi") is None:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    memory_mib: list[int] = []
+    for line in result.stdout.splitlines():
+        try:
+            memory_mib.append(int(line.strip()))
+        except ValueError:
+            continue
+    if not memory_mib:
+        return None
+    return max(memory_mib) * 1024 * 1024
+
+
+def _runtime_profile_context() -> tuple[RuntimePlatform, int | None] | None:
+    if _is_macos_apple_silicon():
+        return RuntimePlatform.MACOS_APPLE_SILICON, _system_memory_bytes()
+    if _is_linux_x86_64():
+        return RuntimePlatform.LINUX_NVIDIA, _nvidia_gpu_memory_bytes()
+    return None
 
 
 def _resolve_vllm_settings(settings: Settings, *, model: str) -> Settings:
-    if os.getenv("PARSEHAWK_VLLM_MAX_MODEL_LEN") is not None:
+    context = _runtime_profile_context()
+    if context is None:
+        return settings
+    platform, memory_bytes = context
+    defaults = runtime_profile_defaults(
+        model=model,
+        platform=platform,
+        memory_bytes=memory_bytes,
+        fallback=RuntimeProfileDefaults(
+            max_model_len=DEFAULT_VLLM_MAX_MODEL_LEN,
+            gpu_memory_utilization=DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
+            max_num_seqs=DEFAULT_VLLM_MAX_NUM_SEQS,
+        ),
+    )
+    update: dict[str, int | float] = {}
+    if os.getenv("PARSEHAWK_VLLM_MAX_MODEL_LEN") is None:
+        update["vllm_max_model_len"] = defaults.max_model_len
+    if os.getenv("PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION") is None:
+        update["vllm_gpu_memory_utilization"] = defaults.gpu_memory_utilization
+    if os.getenv("PARSEHAWK_VLLM_MAX_NUM_SEQS") is None:
+        update["vllm_max_num_seqs"] = defaults.max_num_seqs
+    if not update:
         return settings
     return settings.model_copy(
-        update={"vllm_max_model_len": _default_vllm_max_model_len_for_host(model)}
+        update=update,
     )
 
 
@@ -142,6 +195,8 @@ def _vllm_runtime_command(
         str(settings.vllm_gpu_memory_utilization),
         "--max-model-len",
         str(settings.vllm_max_model_len),
+        "--max-num-seqs",
+        str(settings.vllm_max_num_seqs),
         "--structured-outputs-config.enable_in_reasoning=True",
     ]
     if settings.vllm_enable_mtp:
@@ -483,6 +538,7 @@ def dev(args: argparse.Namespace) -> None:
         _progress(
             "Model Runtime limits: "
             f"max_model_len={runtime_settings.vllm_max_model_len}, "
+            f"max_num_seqs={runtime_settings.vllm_max_num_seqs}, "
             f"gpu_memory_utilization={runtime_settings.vllm_gpu_memory_utilization}"
         )
         runtime_cmd = _vllm_runtime_command(
@@ -685,6 +741,7 @@ def start_docker(args: argparse.Namespace) -> None:
         _progress(
             "Model Runtime limits: "
             f"max_model_len={runtime_settings.vllm_max_model_len}, "
+            f"max_num_seqs={runtime_settings.vllm_max_num_seqs}, "
             f"gpu_memory_utilization={runtime_settings.vllm_gpu_memory_utilization}"
         )
         if _is_macos_apple_silicon():
@@ -1217,6 +1274,7 @@ def _compose_env(
             "PARSEHAWK_RUNTIME_PORT": str(args.runtime_port),
             "PARSEHAWK_VLLM_MODEL": model,
             "PARSEHAWK_VLLM_MAX_MODEL_LEN": str(settings.vllm_max_model_len),
+            "PARSEHAWK_VLLM_MAX_NUM_SEQS": str(settings.vllm_max_num_seqs),
             "PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION": str(settings.vllm_gpu_memory_utilization),
             "PARSEHAWK_PDF_MAX_PAGES": str(settings.pdf_max_pages),
             "PARSEHAWK_HF_HOME": str(Path.home() / ".cache" / "huggingface"),

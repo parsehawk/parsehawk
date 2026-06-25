@@ -24,7 +24,7 @@ services:
       - --max-model-len
       - ${PARSEHAWK_VLLM_MAX_MODEL_LEN:-8192}
       - --max-num-seqs
-      - ${PARSEHAWK_VLLM_MAX_NUM_SEQS:-128}
+      - ${PARSEHAWK_VLLM_MAX_NUM_SEQS:-1}
       - --structured-outputs-config.enable_in_reasoning=True
     environment:
       HF_HOME: /root/.cache/huggingface
