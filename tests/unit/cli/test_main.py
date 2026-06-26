@@ -832,6 +832,83 @@ def test_start_uses_docker_compose_mode(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert "ParseHawk started: http://127.0.0.1:8000" in output
 
 
+def test_status_uses_dev_checkout_data_dir_from_any_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    project_dir = tmp_path / "project"
+    other_dir = tmp_path / "elsewhere"
+    project_dir.mkdir()
+    (project_dir / ".git").mkdir()
+    (project_dir / "pyproject.toml").write_text("[project]\nname = 'parsehawk'\n", encoding="utf-8")
+    other_dir.mkdir()
+
+    monkeypatch.setenv("PARSEHAWK_CONFIG_PATH", str(config_path))
+    monkeypatch.setattr(cli, "_repo_root", lambda: project_dir)
+    monkeypatch.setattr(cli, "_print_telemetry_notice", lambda data_dir: None)
+    monkeypatch.setattr(cli, "_ensure_start_ports_available", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_ensure_docker_available", lambda: None)
+    monkeypatch.setattr(cli, "_ensure_platform_dependencies", lambda runtime: None)
+    monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_wait_for_url", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "_compose_service_running", lambda state, service: True)
+    monkeypatch.chdir(project_dir)
+
+    cli.main(["start", "--runtime", "none", "--no-web"])
+
+    data_dir = project_dir / "data"
+    assert not config_path.exists()
+    assert (data_dir / "parsehawk-state.json").is_file()
+
+    capsys.readouterr()
+    monkeypatch.chdir(other_dir)
+
+    cli.main(["status"])
+
+    output = capsys.readouterr().out
+    assert "ParseHawk is not running" not in output
+    assert "ParseHawk API: http://127.0.0.1:8000" in output
+    assert "Docker Compose:" in output
+
+
+def test_start_does_not_persist_env_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    env_data_dir = tmp_path / "env-data"
+    config_path.write_text(json.dumps({"data.dir": "data"}), encoding="utf-8")
+
+    monkeypatch.setenv("PARSEHAWK_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(env_data_dir))
+    monkeypatch.setattr(cli, "_print_telemetry_notice", lambda data_dir: None)
+    monkeypatch.setattr(cli, "_ensure_start_ports_available", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_ensure_docker_available", lambda: None)
+    monkeypatch.setattr(cli, "_ensure_platform_dependencies", lambda runtime: None)
+    monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_wait_for_url", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: None)
+
+    cli.main(["start", "--runtime", "none", "--no-web"])
+
+    assert json.loads(config_path.read_text(encoding="utf-8"))["data.dir"] == "data"
+    assert (env_data_dir / "parsehawk-state.json").is_file()
+
+
+def test_default_data_dir_uses_user_home_outside_dev_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_dir = tmp_path / "installed-package"
+    home_dir = tmp_path / "home"
+    package_dir.mkdir()
+    home_dir.mkdir()
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: package_dir)
+    monkeypatch.setattr(cli.Path, "home", lambda: home_dir)
+
+    assert cli._default_data_dir() == home_dir / ".parsehawk" / "data"
+
+
 def test_start_linux_vllm_uses_internal_runtime_port(
     tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
@@ -1003,7 +1080,7 @@ def test_config_set_and_list_uses_config_path(
     payload = json.loads(capsys.readouterr().out)
     assert payload["server.url"] == "http://api"
     assert payload["runtime.model"] == "numind/NuExtract3-W4A16"
-    assert json.loads(config_path.read_text(encoding="utf-8"))["server.url"] == "http://api"
+    assert json.loads(config_path.read_text(encoding="utf-8")) == {"server.url": "http://api"}
 
 
 def test_runtime_test_checks_health_and_model(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
