@@ -1039,7 +1039,13 @@ def config_command(args: argparse.Namespace) -> None:
 
 
 def doctor(args: argparse.Namespace) -> None:
-    config = load_cli_config(apply_env=True)
+    config = load_cli_config(apply_env=False)
+    for key, env_name in CONFIG_ENV_OVERRIDES.items():
+        if key == "data.dir":
+            continue
+        env_value = os.getenv(env_name)
+        if env_value:
+            config[key] = env_value
     api_url = args.api_url or config["server.url"]
     web_url = args.web_url or config["web.url"]
     runtime_url = args.runtime_url or config["runtime.url"]
