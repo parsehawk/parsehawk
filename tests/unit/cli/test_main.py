@@ -501,6 +501,7 @@ def test_dev_launches_vllm_runtime_when_selected(
     monkeypatch.setenv("PARSEHAWK_VLLM_MODEL", "numind/NuExtract3-W4A16")
     monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: False)
     monkeypatch.setattr(cli, "_has_nvidia_gpu", lambda: True)
+    monkeypatch.setattr(cli, "_nvidia_gpu_memory_bytes", lambda: 24 * 1024**3)
     monkeypatch.setattr(
         cli, "ensure_vllm_venv", lambda *args, **kwargs: Path("/fake/vllm/bin/python")
     )
@@ -529,9 +530,9 @@ def test_dev_launches_vllm_runtime_when_selected(
     assert "vllm.entrypoints.openai.api_server" in runtime_cmd
     assert runtime_cmd[runtime_cmd.index("--model") + 1] == "numind/NuExtract3-W4A16"
     assert runtime_cmd[runtime_cmd.index("--reasoning-parser") + 1] == "qwen3"
-    assert runtime_cmd[runtime_cmd.index("--gpu-memory-utilization") + 1] == "0.5"
-    assert runtime_cmd[runtime_cmd.index("--max-model-len") + 1] == "8192"
-    assert runtime_cmd[runtime_cmd.index("--max-num-seqs") + 1] == "1"
+    assert runtime_cmd[runtime_cmd.index("--gpu-memory-utilization") + 1] == "0.85"
+    assert runtime_cmd[runtime_cmd.index("--max-model-len") + 1] == "16384"
+    assert runtime_cmd[runtime_cmd.index("--max-num-seqs") + 1] == "4"
     assert "--structured-outputs-config.enable_in_reasoning=True" in runtime_cmd
     assert spawned[0]["env"]["VLLM_USE_FLASHINFER_SAMPLER"] == "0"
     api_env = spawned[1]["env"]
