@@ -5,6 +5,7 @@ __pycache__/
 .coverage
 data/
 examples/
+example-applications/
 node_modules/
 *.tsbuildinfo
 apps/*/dist/
