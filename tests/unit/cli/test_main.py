@@ -500,6 +500,7 @@ def test_dev_launches_vllm_runtime_when_selected(
     monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
     monkeypatch.setenv("PARSEHAWK_VLLM_MODEL", "numind/NuExtract3-W4A16")
     monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: False)
+    monkeypatch.setattr(cli, "_is_linux_x86_64", lambda: True)
     monkeypatch.setattr(cli, "_has_nvidia_gpu", lambda: True)
     monkeypatch.setattr(cli, "_nvidia_gpu_memory_bytes", lambda: 24 * 1024**3)
     monkeypatch.setattr(
