@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from parsehawk.config import (
-    DEFAULT_DATA_DIR,
     DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
     DEFAULT_VLLM_MAX_MODEL_LEN,
     DEFAULT_VLLM_MAX_NUM_SEQS,
@@ -212,7 +211,7 @@ DEFAULT_CLI_CONFIG = {
     "web.url": "http://127.0.0.1:5173",
     "runtime.url": "http://127.0.0.1:8080/v1",
     "runtime.model": _default_model(),
-    "data.dir": str(DEFAULT_DATA_DIR),
+    "data.dir": "",
     "log.level": "INFO",
 }
 CONFIG_ENV_OVERRIDES = {
@@ -481,7 +480,7 @@ def dev(args: argparse.Namespace) -> None:
         )
     settings = Settings.from_env()
     config = load_cli_config(apply_env=True)
-    data_dir = Path(args.data_dir).expanduser() if args.data_dir else settings.data_dir
+    data_dir = _resolve_data_dir(args.data_dir)
     model = args.model or settings.vllm_model
     runtime_settings = _resolve_vllm_settings(settings, model=model)
     log_level = args.log_level or config["log.level"]
@@ -686,8 +685,7 @@ def start_docker(args: argparse.Namespace) -> None:
 
     settings = Settings.from_env()
     config = load_cli_config(apply_env=True)
-    data_dir = Path(args.data_dir).expanduser() if args.data_dir else settings.data_dir
-    data_dir = data_dir.resolve()
+    data_dir = _resolve_data_dir(args.data_dir)
     model = args.model or settings.vllm_model
     runtime_settings = _resolve_vllm_settings(settings, model=model)
     log_level = args.log_level or config["log.level"]
@@ -1032,7 +1030,7 @@ def config_command(args: argparse.Namespace) -> None:
         if args.key not in DEFAULT_CLI_CONFIG:
             valid = ", ".join(sorted(DEFAULT_CLI_CONFIG))
             raise SystemExit(f"Unknown config key: {args.key}. Valid keys: {valid}")
-        config = load_cli_config(apply_env=False)
+        config = load_persisted_cli_config()
         config[args.key] = args.value
         write_cli_config(config)
         print(f"Set {args.key}={args.value}")
@@ -1513,18 +1511,8 @@ def print_check_results(checks: list[CheckResult], *, as_json: bool) -> None:
 
 
 def load_cli_config(*, apply_env: bool) -> dict[str, str]:
-    config = dict(DEFAULT_CLI_CONFIG)
-    path = cli_config_path()
-    if path.exists():
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise SystemExit(f"Invalid ParseHawk config at {path}: {exc}") from exc
-        if not isinstance(payload, dict):
-            raise SystemExit(f"Invalid ParseHawk config at {path}: expected object")
-        for key, value in payload.items():
-            if key in DEFAULT_CLI_CONFIG and isinstance(value, str):
-                config[key] = value
+    config = _default_cli_config()
+    config.update(load_persisted_cli_config())
     if apply_env:
         for key, env_name in CONFIG_ENV_OVERRIDES.items():
             env_value = os.getenv(env_name)
@@ -1533,10 +1521,31 @@ def load_cli_config(*, apply_env: bool) -> dict[str, str]:
     return config
 
 
+def load_persisted_cli_config() -> dict[str, str]:
+    path = cli_config_path()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid ParseHawk config at {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Invalid ParseHawk config at {path}: expected object")
+    return {
+        key: value
+        for key, value in payload.items()
+        if key in DEFAULT_CLI_CONFIG and isinstance(value, str)
+    }
+
+
 def write_cli_config(config: dict[str, str]) -> None:
     path = cli_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    persisted = {key: config[key] for key in sorted(DEFAULT_CLI_CONFIG)}
+    persisted = {
+        key: config[key]
+        for key in sorted(config)
+        if key in DEFAULT_CLI_CONFIG and isinstance(config[key], str)
+    }
     path.write_text(json.dumps(persisted, indent=2) + "\n", encoding="utf-8")
 
 
@@ -1750,8 +1759,35 @@ def _add_api_url(parser: argparse.ArgumentParser) -> None:
 
 def _resolve_data_dir(value: str | None) -> Path:
     if value:
-        return Path(value).expanduser()
-    return Settings.from_env().data_dir
+        return Path(value).expanduser().resolve()
+    env_value = os.getenv(CONFIG_ENV_OVERRIDES["data.dir"])
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    persisted = load_persisted_cli_config()
+    configured = persisted.get("data.dir")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return _default_data_dir()
+
+
+def _default_cli_config() -> dict[str, str]:
+    config = dict(DEFAULT_CLI_CONFIG)
+    config["data.dir"] = str(_default_data_dir())
+    return config
+
+
+def _default_data_dir() -> Path:
+    checkout = _dev_checkout_root()
+    if checkout is not None:
+        return checkout / "data"
+    return Path.home() / ".parsehawk" / "data"
+
+
+def _dev_checkout_root() -> Path | None:
+    repo_root = _repo_root()
+    if (repo_root / ".git").exists() and (repo_root / "pyproject.toml").is_file():
+        return repo_root
+    return None
 
 
 def _ensure_start_ports_available(args: argparse.Namespace, *, web_dir: Path) -> None:
