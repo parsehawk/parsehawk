@@ -844,6 +844,7 @@ def test_status_uses_dev_checkout_data_dir_from_any_directory(
     other_dir.mkdir()
 
     monkeypatch.setenv("PARSEHAWK_CONFIG_PATH", str(config_path))
+    monkeypatch.delenv("PARSEHAWK_DATA_DIR", raising=False)
     monkeypatch.setattr(cli, "_repo_root", lambda: project_dir)
     monkeypatch.setattr(cli, "_print_telemetry_notice", lambda data_dir: None)
     monkeypatch.setattr(cli, "_ensure_start_ports_available", lambda *args, **kwargs: None)
@@ -852,6 +853,7 @@ def test_status_uses_dev_checkout_data_dir_from_any_directory(
     monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "_wait_for_url", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "_compose_is_running", lambda state: True)
     monkeypatch.setattr(cli, "_compose_service_running", lambda state, service: True)
     monkeypatch.chdir(project_dir)
 
