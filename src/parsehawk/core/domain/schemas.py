@@ -557,13 +557,14 @@ def _nullable_schema(schema: dict[str, Any], nullable: bool) -> dict[str, Any]:
         return schema
     if ArrayAware.is_array(schema):
         return schema
-    if isinstance(schema.get("enum"), list):
-        enum = schema["enum"]
-        return {**schema, "enum": [*enum, None] if None not in enum else enum}
+    next_schema = schema
     schema_type = schema.get("type")
     if isinstance(schema_type, str):
-        return {**schema, "type": [schema_type, "null"]}
-    return schema  # pragma: no cover - defensive fallback for malformed derived schemas.
+        next_schema = {**next_schema, "type": [schema_type, "null"]}
+    if isinstance(schema.get("enum"), list):
+        enum = schema["enum"]
+        return {**next_schema, "enum": [*enum, None] if None not in enum else enum}
+    return next_schema  # pragma: no cover - defensive fallback for malformed derived schemas.
 
 
 class ArrayAware:
@@ -832,7 +833,19 @@ def _validate_authoring_json_schema_node(
 
     enum_values = schema.get("enum")
     if enum_values is not None:
+        enum_error_count = len(errors)
         _validate_authoring_enum(enum_values, path, errors)
+        if len(errors) == enum_error_count and "type" in schema:
+            enum_allows_null = any(value is None for value in enum_values)
+            type_allows_null = "null" in schema_types
+            if enum_allows_null != type_allows_null:
+                errors.append(
+                    SchemaDiagnostic(
+                        message="nullable enum fields must include null in both type and enum",
+                        code="invalid_json_schema_enum",
+                        path=f"{path}.enum",
+                    )
+                )
         if schema_type not in (None, "string"):
             errors.append(
                 SchemaDiagnostic(

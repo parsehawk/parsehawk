@@ -169,7 +169,7 @@ def schema() -> dict:
 def derived_schema() -> dict:
     return {
         "type": "object",
-        "properties": {"receipt_id": {"type": "string", "enum": ["2", None]}},
+        "properties": {"receipt_id": {"type": ["string", "null"], "enum": ["2", None]}},
         "required": ["receipt_id"],
         "additionalProperties": False,
     }

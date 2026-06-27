@@ -60,7 +60,7 @@ describe("schema helpers", () => {
           "x-parsehawk": { semantic: "verbatim-string" }
         },
         currency: {
-          type: "string",
+          type: ["string", "null"],
           enum: ["EUR", "USD", null],
           "x-parsehawk": { semantic: "currency" }
         },
@@ -90,7 +90,7 @@ describe("schema helpers", () => {
       type: "object",
       properties: {
         currency: {
-          type: "string",
+          type: ["string", "null"],
           enum: ["EUR", "USD", null],
           "x-parsehawk": { semantic: "currency" }
         },

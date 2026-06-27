@@ -31,7 +31,7 @@ RECEIPT_SCHEMA = {
             "description": "Final amount paid after taxes, discounts, and fees.",
         },
         "currency": {
-            "type": "string",
+            "type": ["string", "null"],
             "enum": ["EUR", "USD", "GBP", None],
             "description": "Currency of the final total.",
         },
