@@ -592,13 +592,14 @@ function fieldFromTemplateValue(name: string, value: unknown): SchemaField {
 
 function nullableSchema(schema: Record<string, unknown>, nullable: boolean): Record<string, unknown> {
   if (!nullable) return schema;
+  let next = schema;
+  if (isString(next.type)) {
+    next = { ...next, type: [next.type, "null"] };
+  }
   if (Array.isArray(schema.enum)) {
-    return { ...schema, enum: schema.enum.includes(null) ? schema.enum : [...schema.enum, null] };
+    return { ...next, enum: schema.enum.includes(null) ? schema.enum : [...schema.enum, null] };
   }
-  if (isString(schema.type)) {
-    return { ...schema, type: [schema.type, "null"] };
-  }
-  return schema;
+  return next;
 }
 
 function withoutNull(schema: Record<string, unknown>): Record<string, unknown> {

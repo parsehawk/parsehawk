@@ -101,7 +101,7 @@ def test_field_schema_derives_json_schema_and_nuextract_template() -> None:
                 "x-parsehawk": {"semantic": "verbatim-string"},
             },
             "status": {
-                "type": "string",
+                "type": ["string", "null"],
                 "enum": ["paid", "open", "overdue", None],
             },
             "vendor_account": {
@@ -185,7 +185,7 @@ def test_json_schema_mode_imports_nuextract_semantics_and_enums() -> None:
         "type": "object",
         "properties": {
             "buyer": {"type": ["string", "null"], "x-parsehawk": {"semantic": "verbatim-string"}},
-            "receipt_id": {"type": "string", "enum": ["1", "2", None]},
+            "receipt_id": {"type": ["string", "null"], "enum": ["1", "2", None]},
         },
         "required": ["buyer", "receipt_id"],
         "additionalProperties": False,
@@ -214,7 +214,7 @@ def test_nuextract_template_mode_derives_canonical_schema() -> None:
         "properties": {
             "store": {"type": ["string", "null"], "x-parsehawk": {"semantic": "verbatim-string"}},
             "date": {"type": ["string", "null"], "x-parsehawk": {"semantic": "date-time"}},
-            "currency": {"type": "string", "enum": ["USD", "EUR", "Other", None]},
+            "currency": {"type": ["string", "null"], "enum": ["USD", "EUR", "Other", None]},
             "tags": {
                 "type": "array",
                 "items": {"type": "string", "enum": ["urgent", "paid"]},
@@ -413,7 +413,7 @@ def test_json_schema_mode_accepts_builder_equivalent_schema_subset() -> None:
                 "type": ["string", "null"],
                 "x-parsehawk": {"semantic": "verbatim-string"},
             },
-            "status": {"type": "string", "enum": ["open", "closed", None]},
+            "status": {"type": ["string", "null"], "enum": ["open", "closed", None]},
             "tags": {"type": "array", "items": {"type": "string"}},
         },
         "required": ["vendor_account", "invoice_number", "status", "tags"],
@@ -666,6 +666,20 @@ def test_authoring_json_schema_validator_reports_malformed_subset_nodes() -> Non
         ),
         (
             {"type": "object", "properties": {"status": {"type": "string", "enum": [1]}}},
+            {"invalid_json_schema_enum"},
+        ),
+        (
+            {
+                "type": "object",
+                "properties": {"status": {"type": "string", "enum": ["open", None]}},
+            },
+            {"invalid_json_schema_enum"},
+        ),
+        (
+            {
+                "type": "object",
+                "properties": {"status": {"type": ["string", "null"], "enum": ["open"]}},
+            },
             {"invalid_json_schema_enum"},
         ),
         (
@@ -962,7 +976,8 @@ def test_json_schema_import_handles_nullable_enums_numeric_types_and_unions() ->
         {
             "type": "object",
             "properties": {
-                "nullable_enum": {"type": "string", "enum": ["a", None]},
+                "nullable_enum": {"type": ["string", "null"], "enum": ["a", None]},
+                "nullable_enum_without_type": {"enum": ["b", None]},
                 "amount": {"type": "number"},
                 "multi_type": {"type": ["string", "integer"]},
                 "branch_enum": {"anyOf": [{"enum": ["a", "b"]}, "ignored"]},
@@ -974,11 +989,13 @@ def test_json_schema_import_handles_nullable_enums_numeric_types_and_unions() ->
 
     assert imported["fields"][0]["nullable"] is True
     assert imported["fields"][0]["enum"] == ["a"]
-    assert imported["fields"][1]["nuextract_type"] == "number"
-    assert imported["fields"][2]["json_type"] == "string"
-    assert imported["fields"][3]["enum"] == ["a", "b"]
-    assert imported["fields"][4]["kind"] == "scalar"
+    assert imported["fields"][1]["nullable"] is True
+    assert imported["fields"][1]["enum"] == ["b"]
+    assert imported["fields"][2]["nuextract_type"] == "number"
+    assert imported["fields"][3]["json_type"] == "string"
+    assert imported["fields"][4]["enum"] == ["a", "b"]
     assert imported["fields"][5]["kind"] == "scalar"
+    assert imported["fields"][6]["kind"] == "scalar"
 
 
 def test_json_schema_import_handles_array_scalar_items() -> None:
