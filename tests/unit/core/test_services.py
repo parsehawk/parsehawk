@@ -21,6 +21,7 @@ from parsehawk.core.domain.models import (
     File,
     FileSource,
     Job,
+    JobResult,
     JobStatus,
 )
 
@@ -540,3 +541,60 @@ def test_job_service_missing_file_during_run_fails_job(services) -> None:
     assert completed.status == JobStatus.FAILED
     assert completed.error is not None
     assert "file not found" in completed.error.message
+
+def test_cancel_queued_job(services) -> None:
+    extractor = services["extractor_service"].create(
+        name="receipt",
+        instructions="classify",
+        schema=schema(),
+    )
+
+    job = services["job_service"].create(
+        extractor_id=extractor.id,
+        text="hello",
+    )
+
+    canceled = services["job_service"].cancel(job.id)
+
+    assert canceled.status == JobStatus.CANCELED
+
+
+def test_cancel_running_job(services) -> None:
+    extractor = services["extractor_service"].create(
+        name="receipt",
+        instructions="classify",
+        schema=schema(),
+    )
+
+    job = services["job_service"].create(
+        extractor_id=extractor.id,
+        text="hello",
+    )
+
+    running = job.mark_running()
+    services["jobs"].save(running)
+
+    canceling = services["job_service"].cancel(job.id)
+
+    assert canceling.status == JobStatus.CANCELING
+
+
+def test_cannot_cancel_completed_job(services) -> None:
+    extractor = services["extractor_service"].create(
+        name="receipt",
+        instructions="classify",
+        schema=schema(),
+    )
+
+    job = services["job_service"].create(
+        extractor_id=extractor.id,
+        text="hello",
+    )
+
+    completed = job.mark_completed(JobResult(data={"receipt_id": "2"}))
+    
+
+    services["jobs"].save(completed)
+
+    with pytest.raises(ValidationFailure):
+        services["job_service"].cancel(job.id)
