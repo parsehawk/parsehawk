@@ -27,6 +27,7 @@ from parsehawk.core.domain.models import (
     File,
     FileSource,
     Job,
+    JobResult,
     JobStatus,
     Provider,
     ProviderName,
