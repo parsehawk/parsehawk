@@ -113,3 +113,31 @@ def test_job_execution_file(
     cleanup(f"/v1/jobs/{job_id}")
 
     _assert_completed_receipt(poll_job(job_id))
+
+def test_cancel_queued_job(
+    client: httpx.Client,
+    receipt_extractor: str,
+    cleanup: Callable[[str], None],
+) -> None:
+    created = client.post(
+        "/v1/jobs",
+        json={
+            "extractor_id": receipt_extractor,
+            "text": RECEIPT_TEXT,
+        },
+    )
+
+    assert created.status_code == 201
+
+    job_id = created.json()["id"]
+    cleanup(f"/v1/jobs/{job_id}")
+
+    canceled = client.post(f"/v1/jobs/{job_id}/cancel")
+
+    assert canceled.status_code == 200, canceled.text
+    status = canceled.json()["status"]
+    assert status in ("canceled", "canceling")
+    job = client.get(f"/v1/jobs/{job_id}")
+
+    assert job.status_code == 200
+    assert job.json()["status"] in ("canceled", "canceling")
