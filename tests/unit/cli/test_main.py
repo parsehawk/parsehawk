@@ -472,7 +472,8 @@ def test_dev_uses_settings_defaults_for_runtime_process(
 
     monkeypatch.setattr(cli, "_spawn", spawn)
 
-    cli.main(["dev", "--runtime", "vllm", "--no-web"])
+    monkeypatch.setattr(cli, "_default_runtime", lambda: "vllm")
+    cli.main(["dev", "--no-web"])
 
     assert [process["name"] for process in spawned] == ["runtime", "api", "worker"]
     api_env = spawned[1]["env"]
@@ -525,7 +526,8 @@ def test_dev_launches_vllm_runtime_when_selected(
 
     monkeypatch.setattr(cli, "_spawn", spawn)
 
-    cli.main(["dev", "--runtime", "vllm", "--no-web"])
+    monkeypatch.setattr(cli, "_default_runtime", lambda: "vllm")
+    cli.main(["dev", "--no-web"])
 
     assert [process["name"] for process in spawned] == ["runtime", "api", "worker"]
     runtime_cmd = spawned[0]["cmd"]
@@ -700,7 +702,8 @@ def test_dev_vllm_without_gpu_exits_with_clear_error(
     monkeypatch.setattr(cli, "_spawn", spawn)
 
     with pytest.raises(SystemExit, match="needs an NVIDIA CUDA GPU"):
-        cli.main(["dev", "--runtime", "vllm", "--no-web", "--data-dir", str(tmp_path)])
+        monkeypatch.setattr(cli, "_default_runtime", lambda: "vllm")
+        cli.main(["dev", "--no-web", "--data-dir", str(tmp_path)])
 
 
 def test_start_errors_when_platform_has_no_model_runtime(
@@ -743,7 +746,7 @@ def test_start_refuses_untracked_api_port(tmp_path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(cli, "_spawn", spawn)
 
     with pytest.raises(SystemExit, match="API port 127.0.0.1:8000 is already in use"):
-        cli.main(["start", "--runtime", "none", "--no-web"])
+        cli.main(["start", "-x", "runtime", "--no-web"])
 
 
 def test_dev_discards_partial_stale_state(
@@ -789,8 +792,8 @@ def test_dev_discards_partial_stale_state(
     cli.main(
         [
             "dev",
-            "--runtime",
-            "none",
+            "-x",
+            "runtime",
             "--data-dir",
             str(tmp_path),
             "--no-web",
@@ -818,7 +821,7 @@ def test_start_uses_docker_compose_mode(tmp_path, monkeypatch: pytest.MonkeyPatc
         lambda **kwargs: compose_ups.append(kwargs),
     )
 
-    cli.main(["start", "--runtime", "none"])
+    cli.main(["start", "-x", "runtime"])
 
     assert compose_ups[0]["services"] == ["api", "worker", "web"]
     assert compose_ups[0]["env"]["PARSEHAWK_INFERENCE_ENGINE"] == "none"
@@ -859,7 +862,7 @@ def test_status_uses_dev_checkout_data_dir_from_any_directory(
     monkeypatch.setattr(cli, "_compose_service_running", lambda state, service: True)
     monkeypatch.chdir(project_dir)
 
-    cli.main(["start", "--runtime", "none", "--no-web"])
+    cli.main(["start", "-x", "runtime", "--no-web"])
 
     data_dir = project_dir / "data"
     assert not config_path.exists()
@@ -893,7 +896,7 @@ def test_start_does_not_persist_env_data_dir(
     monkeypatch.setattr(cli, "_wait_for_url", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: None)
 
-    cli.main(["start", "--runtime", "none", "--no-web"])
+    cli.main(["start", "-x", "runtime", "--no-web"])
 
     assert json.loads(config_path.read_text(encoding="utf-8"))["data.dir"] == "data"
     assert (env_data_dir / "parsehawk-state.json").is_file()
@@ -935,7 +938,8 @@ def test_start_linux_vllm_uses_internal_runtime_port(
         lambda **kwargs: compose_ups.append(kwargs),
     )
 
-    cli.main(["start", "--runtime", "vllm", "--runtime-port", "18080", "--no-web"])
+    monkeypatch.setattr(cli, "_default_runtime", lambda: "vllm")
+    cli.main(["start", "--runtime-port", "18080", "--no-web"])
 
     assert compose_ups[0]["services"] == ["runtime", "api", "worker"]
     assert any(path.name == "docker-compose.linux.yml" for path in compose_ups[0]["compose_files"])
@@ -1054,8 +1058,8 @@ def test_restart_stops_tracked_processes_then_starts(
     cli.main(
         [
             "restart",
-            "--runtime",
-            "none",
+            "-x",
+            "runtime",
             "--data-dir",
             str(tmp_path),
             "--no-web",
@@ -1413,7 +1417,117 @@ def test_start_exclude_migrate_propagates_skip_to_containers(
     monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: compose_ups.append(kwargs))
 
-    cli.main(["start", "--runtime", "none", "--no-web", "-x", "migrate"])
+    cli.main(["start", "-x", "runtime", "--no-web", "-x", "migrate"])
 
     assert compose_ups[0]["env"]["PARSEHAWK_SKIP_MIGRATIONS"] == "1"
     assert "Skipping database migrations" in capsys.readouterr().out
+
+
+def test_providers_list_get_and_models_hit_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def api_request(api_url: str, method: str, path: str, **kwargs: Any) -> list[Any]:
+        calls.append((method, path))
+        return []
+
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    cli.main(["providers", "list", "--api-url", "http://api"])
+    cli.main(["providers", "get", "azure_openai", "--api-url", "http://api"])
+    cli.main(["providers", "models", "openai", "--api-url", "http://api"])
+
+    assert calls == [
+        ("GET", "/v1/providers"),
+        ("GET", "/v1/providers/azure_openai"),
+        ("GET", "/v1/providers/openai/models"),
+    ]
+
+
+def test_providers_configure_builds_patch_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def api_request(
+        api_url: str,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        captured.append((method, path, payload))
+        return {"name": "openai", "has_api_key": True}
+
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    cli.main(
+        [
+            "providers",
+            "configure",
+            "openai",
+            "--base-url",
+            "https://api.openai.com/v1",
+            "--api-key",
+            "sk-secret",
+            "--api-url",
+            "http://api",
+        ]
+    )
+
+    assert captured == [
+        (
+            "PATCH",
+            "/v1/providers/openai",
+            {"base_url": "https://api.openai.com/v1", "api_key": "sk-secret"},
+        )
+    ]
+
+
+def test_providers_configure_requires_an_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "api_request", lambda *args, **kwargs: {})
+
+    with pytest.raises(SystemExit):
+        cli.main(["providers", "configure", "openai", "--api-url", "http://api"])
+
+
+def test_extractors_create_includes_provider_and_model(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text('{"type": "object"}', encoding="utf-8")
+    captured: list[dict[str, Any] | None] = []
+
+    def api_request(
+        api_url: str,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        captured.append(payload)
+        return {"id": "extractor_1"}
+
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    cli.main(
+        [
+            "extractors",
+            "create",
+            "--name",
+            "X",
+            "--instructions",
+            "Extract.",
+            "--schema",
+            str(schema_path),
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4o-mini",
+            "--api-url",
+            "http://api",
+        ]
+    )
+
+    assert captured[0] is not None
+    assert captured[0]["provider_name"] == "openai"
+    assert captured[0]["model"] == "gpt-4o-mini"
