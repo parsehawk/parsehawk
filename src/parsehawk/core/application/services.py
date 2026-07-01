@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import asdict
 from typing import Any, List
 
@@ -14,6 +15,8 @@ from parsehawk.core.application.ports import (
     FileStorage,
     JobRepository,
     PreparedDocument,
+    ProviderRepository,
+    SecretStore,
 )
 from parsehawk.core.domain.errors import NotFoundError, ValidationFailure
 from parsehawk.core.domain.ids import new_id
@@ -27,12 +30,18 @@ from parsehawk.core.domain.models import (
     Job,
     JobResult,
     JobStatus,
+    Provider,
+    ProviderName,
     ValidationIssue,
     utc_now,
 )
 from parsehawk.core.domain.schemas import MODE_JSON_SCHEMA, validate_extraction_schema
 
 SUPPORTED_FILE_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".txt", ".md", ".markdown"}
+
+# The provider new extractors default to when none is specified: the bundled
+# OpenAI-compatible runtime that serves NuExtract3.
+DEFAULT_PROVIDER_NAME = ProviderName.OPENAI_COMPATIBLE
 
 
 class FileService:
@@ -92,9 +101,18 @@ class FileService:
 
 
 class ExtractorService:
-    def __init__(self, extractors: ExtractorRepository, files: FileRepository) -> None:
+    def __init__(
+        self,
+        extractors: ExtractorRepository,
+        files: FileRepository,
+        *,
+        default_model: str,
+        default_provider: ProviderName = DEFAULT_PROVIDER_NAME,
+    ) -> None:
         self._extractors = extractors
         self._files = files
+        self._default_model = default_model
+        self._default_provider = default_provider
 
     def create(
         self,
@@ -102,6 +120,8 @@ class ExtractorService:
         name: str,
         instructions: str,
         enable_thinking: bool = False,
+        provider_name: ProviderName | None = None,
+        model: str | None = None,
         schema: dict[str, Any] | None = None,
         examples: List[dict[str, Any]] | None = None,
         source: ExtractorSource = ExtractorSource.USER,
@@ -115,6 +135,8 @@ class ExtractorService:
             name=name,
             instructions=instructions,
             enable_thinking=enable_thinking,
+            provider_name=provider_name or self._default_provider,
+            model=model or self._default_model,
             schema=schema,
             examples=parsed_examples,
             source=source,
@@ -140,6 +162,8 @@ class ExtractorService:
         name: str | None = None,
         instructions: str | None = None,
         enable_thinking: bool | None = None,
+        provider_name: ProviderName | None = None,
+        model: str | None = None,
         schema: dict[str, Any] | None = None,
         examples: List[dict[str, Any]] | None = None,
     ) -> Extractor:
@@ -152,6 +176,10 @@ class ExtractorService:
             updates["instructions"] = instructions
         if enable_thinking is not None:
             updates["enable_thinking"] = enable_thinking
+        if provider_name is not None:
+            updates["provider_name"] = provider_name
+        if model is not None:
+            updates["model"] = model
         if schema is not None:
             updates["schema_"] = self._validate_schema(schema)
         if examples is not None:
@@ -194,6 +222,66 @@ class ExtractorService:
             if self._files.get(example.input.file_id) is None:
                 raise NotFoundError("file", example.input.file_id)
         return parsed_examples
+
+
+class ProviderService:
+    """Read and configure the fixed set of model providers.
+
+    Providers are not user-creatable: only their connection config (base_url,
+    api_version) and API key can be changed. Keys are handed straight to the
+    secret store, which encrypts them; they are never returned.
+    """
+
+    def __init__(self, providers: ProviderRepository, secrets: SecretStore) -> None:
+        self._providers = providers
+        self._secrets = secrets
+
+    def list(self) -> List[Provider]:
+        return self._providers.list()
+
+    def get(self, name: ProviderName) -> Provider:
+        provider = self._providers.get(name)
+        if provider is None:
+            raise NotFoundError("provider", name.value)
+        return provider
+
+    def has_api_key(self, name: ProviderName) -> bool:
+        return self._secrets.has(name)
+
+    def configure(
+        self,
+        name: ProviderName,
+        *,
+        base_url: str | None = None,
+        api_version: str | None = None,
+        api_key: str | None = None,
+        api_key_env: str | None = None,
+    ) -> Provider:
+        provider = self.get(name)
+        updates: dict[str, Any] = {}
+        if base_url is not None:
+            updates["base_url"] = base_url
+        if api_version is not None:
+            updates["api_version"] = api_version
+        if updates:
+            updates["updated_at"] = utc_now()
+            provider = provider.model_copy(update=updates)
+            self._providers.save(provider)
+        resolved_key = self._resolve_api_key(api_key, api_key_env)
+        if resolved_key is not None:
+            self._secrets.put(name, resolved_key)
+        return provider
+
+    @staticmethod
+    def _resolve_api_key(api_key: str | None, api_key_env: str | None) -> str | None:
+        if api_key is not None:
+            return api_key
+        if api_key_env is not None:
+            value = os.getenv(api_key_env)
+            if not value:
+                raise ValidationFailure(f"environment variable {api_key_env!r} is not set")
+            return value
+        return None
 
 
 class JobService:
