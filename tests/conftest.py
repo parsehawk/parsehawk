@@ -5,6 +5,7 @@ import re
 import pytest
 
 from parsehawk.core.application.ports import ExtractionRequest, ExtractionResponse
+from parsehawk.core.domain.models import Extractor
 
 
 class MockInference:
@@ -64,9 +65,22 @@ def _disable_telemetry(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PARSEHAWK_TELEMETRY_DISABLED", "1")
 
 
+class _StubEngineFactory:
+    """Engine factory that hands every extractor the same in-process engine."""
+
+    def __init__(self, engine: MockInference) -> None:
+        self._engine = engine
+
+    def for_extractor(self, extractor: Extractor) -> MockInference:
+        return self._engine
+
+
 @pytest.fixture
 def mock_inference(monkeypatch: pytest.MonkeyPatch) -> MockInference:
     """Route build_container/create_app through the deterministic MockInference engine."""
     engine = MockInference()
-    monkeypatch.setattr("parsehawk.server.container.build_engine", lambda settings: engine)
+    monkeypatch.setattr(
+        "parsehawk.server.container.EngineFactory",
+        lambda *args, **kwargs: _StubEngineFactory(engine),
+    )
     return engine

@@ -8,7 +8,7 @@ from typing import Any, List
 from jsonschema import Draft202012Validator
 
 from parsehawk.core.application.ports import (
-    ExtractionEngine,
+    EngineFactory,
     ExtractionRequest,
     ExtractorRepository,
     FileRepository,
@@ -291,13 +291,13 @@ class JobService:
         files: FileRepository,
         extractors: ExtractorRepository,
         storage: FileStorage,
-        engine: ExtractionEngine,
+        engine_factory: EngineFactory,
     ) -> None:
         self._jobs = jobs
         self._files = files
         self._extractors = extractors
         self._storage = storage
-        self._engine = engine
+        self._engine_factory = engine_factory
 
     def create(
         self, *, extractor_id: str, file_id: str | None = None, text: str | None = None
@@ -351,7 +351,8 @@ class JobService:
             if extractor is None:
                 raise NotFoundError("extractor", running.extractor_id)
             source = self._prepare_job_source(running)
-            response = self._engine.extract(
+            engine = self._engine_factory.for_extractor(extractor)
+            response = engine.extract(
                 ExtractionRequest(
                     source_text=source.text,
                     source_storage_path=source.storage_path,

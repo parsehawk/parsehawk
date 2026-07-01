@@ -1,43 +1,112 @@
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
+from typing import List
 
-from parsehawk.config import DEFAULT_VLLM_MODEL, Settings
-from parsehawk.core.application.ports import ExtractionRequest
-from parsehawk.server.container import UnavailableEngine, build_engine
-from parsehawk.server.runtime.inference.runtime_engine import NuExtractRuntimeEngine
-
-
-def test_build_engine_vllm_targets_vllm_runtime_without_top_level_thinking_field() -> None:
-    engine = build_engine(Settings(inference_engine="vllm"))
-
-    assert isinstance(engine, NuExtractRuntimeEngine)
-    config = engine._config
-    assert config.model == DEFAULT_VLLM_MODEL
-    assert config.base_url == "http://127.0.0.1:8080/v1"
-    assert config.include_response_format is True
-    assert config.include_enable_thinking_field is False
-    assert config.log_model_io is False
+from parsehawk.config import Settings
+from parsehawk.core.domain.models import Extractor, Provider, ProviderName
+from parsehawk.server.container import Container
+from parsehawk.server.runtime.inference.factory import EngineFactory
+from parsehawk.server.runtime.inference.openai_engine import OpenAIExtractionEngine
 
 
-def test_build_engine_passes_model_io_logging_setting() -> None:
-    engine = build_engine(Settings(inference_engine="vllm", log_model_io=True))
+class _Providers:
+    def __init__(self, providers: List[Provider]) -> None:
+        self._by_name = {provider.name: provider for provider in providers}
 
-    assert isinstance(engine, NuExtractRuntimeEngine)
-    assert engine._config.log_model_io is True
+    def get(self, name: ProviderName) -> Provider | None:
+        return self._by_name.get(name)
+
+    def list(self) -> List[Provider]:
+        return list(self._by_name.values())
+
+    def save(self, provider: Provider) -> None:
+        self._by_name[provider.name] = provider
 
 
-def test_build_engine_without_runtime_defers_a_clear_error() -> None:
-    engine = build_engine(Settings(inference_engine="none"))
+class _Secrets:
+    def __init__(self, keys: dict[ProviderName, str] | None = None) -> None:
+        self._keys = dict(keys or {})
 
-    assert isinstance(engine, UnavailableEngine)
-    with pytest.raises(RuntimeError, match="no model runtime is configured"):
-        engine.extract(
-            ExtractionRequest(
-                source_text="hello",
-                instructions="extract",
-                schema={"type": "object", "properties": {}},
-                examples=[],
-                enable_thinking=False,
-            )
+    def get(self, provider_name: ProviderName) -> str | None:
+        return self._keys.get(provider_name)
+
+    def put(self, provider_name: ProviderName, api_key: str) -> None:
+        self._keys[provider_name] = api_key
+
+    def delete(self, provider_name: ProviderName) -> None:
+        self._keys.pop(provider_name, None)
+
+    def has(self, provider_name: ProviderName) -> bool:
+        return provider_name in self._keys
+
+
+def _extractor(provider_name: ProviderName | None = None, model: str | None = None) -> Extractor:
+    return Extractor(
+        id="e1",
+        name="e",
+        instructions="i",
+        schema={"type": "object"},
+        provider_name=provider_name,
+        model=model,
+    )
+
+
+def test_factory_builds_engine_from_provider_config_and_key() -> None:
+    providers = _Providers(
+        [Provider(name=ProviderName.OPENAI, base_url="https://api.openai.com/v1")]
+    )
+    secrets = _Secrets({ProviderName.OPENAI: "sk-x"})
+    factory = EngineFactory(providers, secrets, Settings())
+
+    engine = factory.for_extractor(_extractor(ProviderName.OPENAI, "gpt-4o-mini"))
+
+    assert isinstance(engine, OpenAIExtractionEngine)
+    assert engine._config.base_url == "https://api.openai.com/v1"
+    assert engine._config.api_key == "sk-x"
+    assert engine._config.model == "gpt-4o-mini"
+    assert engine._adapter == "generic"
+
+
+def test_factory_defaults_provider_and_uses_empty_key_for_local_runtime() -> None:
+    providers = _Providers(
+        [Provider(name=ProviderName.OPENAI_COMPATIBLE, base_url="http://127.0.0.1:8080/v1")]
+    )
+    settings = Settings()
+    factory = EngineFactory(providers, _Secrets(), settings)
+
+    engine = factory.for_extractor(_extractor())  # no provider/model -> defaults
+
+    assert engine._config.base_url == "http://127.0.0.1:8080/v1"
+    assert engine._config.api_key == "EMPTY"
+    assert engine._config.model == settings.vllm_model
+    assert engine._adapter == "nuextract"
+
+
+def test_factory_caches_by_config_and_refreshes_on_key_change() -> None:
+    providers = _Providers(
+        [Provider(name=ProviderName.OPENAI, base_url="https://api.openai.com/v1")]
+    )
+    secrets = _Secrets({ProviderName.OPENAI: "sk-1"})
+    factory = EngineFactory(providers, secrets, Settings())
+    extractor = _extractor(ProviderName.OPENAI, "gpt-4o-mini")
+
+    first = factory.for_extractor(extractor)
+    assert factory.for_extractor(extractor) is first
+
+    secrets.put(ProviderName.OPENAI, "sk-2")
+    assert factory.for_extractor(extractor) is not first
+
+
+def test_container_wires_services_and_materializes_extractor_defaults(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, database_path=tmp_path / "db.sqlite")
+    container = Container(settings)
+    try:
+        assert isinstance(container.engine_factory, EngineFactory)
+        extractor = container.extractor_service.create(
+            name="e", instructions="i", schema={"type": "object", "properties": {}}
         )
+        assert extractor.provider_name == ProviderName.OPENAI_COMPATIBLE
+        assert extractor.model == settings.vllm_model
+    finally:
+        container.close()
