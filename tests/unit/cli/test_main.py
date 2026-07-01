@@ -1354,7 +1354,7 @@ def test_migrate_status_reports_applied_and_pending(
 
     assert json.loads(capsys.readouterr().out) == {
         "applied": [],
-        "pending": ["20260701092442_initial_schema"],
+        "pending": ["20260701092442_initial_schema", "20260701121138_add_providers"],
     }
 
     cli.main(["migrate"])
@@ -1362,7 +1362,7 @@ def test_migrate_status_reports_applied_and_pending(
     cli.main(["migrate", "status", "--json"])
 
     assert json.loads(capsys.readouterr().out) == {
-        "applied": ["20260701092442_initial_schema"],
+        "applied": ["20260701092442_initial_schema", "20260701121138_add_providers"],
         "pending": [],
     }
 
@@ -1389,7 +1389,10 @@ def test_apply_migrations_at_start_applies_when_not_excluded(
     cli._apply_migrations_at_start(argparse.Namespace(exclude=None), database_path)
 
     assert database_path.exists()
-    assert "Applied 1 migration(s): 20260701092442_initial_schema" in capsys.readouterr().out
+    assert (
+        "Applied 2 migration(s): 20260701092442_initial_schema, 20260701121138_add_providers"
+        in capsys.readouterr().out
+    )
 
 
 def test_start_exclude_migrate_propagates_skip_to_containers(

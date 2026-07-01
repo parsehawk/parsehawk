@@ -18,8 +18,12 @@ from parsehawk.core.domain.models import (
     JobError,
     JobResult,
     JobStatus,
+    Provider,
+    ProviderName,
+    utc_now,
 )
 from parsehawk.server.adapters.persistence.migrations import apply_pending
+from parsehawk.server.adapters.security import SecretCipher
 
 # A single sqlite3.Connection is shared across FastAPI's request threadpool, so
 # multi-statement write transactions (e.g. claim_next_queued's BEGIN IMMEDIATE)
@@ -120,6 +124,8 @@ class SQLiteExtractorRow:
     name: str
     instructions: str
     enable_thinking: int
+    provider_name: str | None
+    model: str | None
     schema: str
     examples: str
     source: str
@@ -135,6 +141,8 @@ class SQLiteExtractorRow:
             name=extractor.name,
             instructions=extractor.instructions,
             enable_thinking=1 if extractor.enable_thinking else 0,
+            provider_name=extractor.provider_name.value if extractor.provider_name else None,
+            model=extractor.model,
             schema=_dump_json(extractor.schema),
             examples=_dump_json(
                 [example.model_dump(mode="json") for example in extractor.examples]
@@ -160,6 +168,8 @@ class SQLiteExtractorRow:
             name=self.name,
             instructions=self.instructions,
             enable_thinking=bool(self.enable_thinking),
+            provider_name=ProviderName(self.provider_name) if self.provider_name else None,
+            model=self.model,
             schema=_load_json(self.schema),
             examples=[Example.model_validate(example) for example in _load_json(self.examples)],
             source=ExtractorSource(self.source),
@@ -283,14 +293,16 @@ class SQLiteExtractorRepository:
             self._conn.execute(
                 """
                 INSERT INTO extractors (
-                    id, name, instructions, enable_thinking, schema, examples,
-                    source, seed_key, seed_version, created_at, updated_at
+                    id, name, instructions, enable_thinking, provider_name, model,
+                    schema, examples, source, seed_key, seed_version, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     instructions = excluded.instructions,
                     enable_thinking = excluded.enable_thinking,
+                    provider_name = excluded.provider_name,
+                    model = excluded.model,
                     schema = excluded.schema,
                     examples = excluded.examples,
                     source = excluded.source,
@@ -304,6 +316,8 @@ class SQLiteExtractorRepository:
                     row.name,
                     row.instructions,
                     row.enable_thinking,
+                    row.provider_name,
+                    row.model,
                     row.schema,
                     row.examples,
                     row.source,
@@ -426,6 +440,115 @@ class SQLiteJobRepository:
             except Exception:
                 self._conn.rollback()
                 raise
+
+
+@dataclass(frozen=True)
+class SQLiteProviderRow:
+    name: str
+    base_url: str | None
+    api_version: str | None
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_domain(cls, provider: Provider) -> SQLiteProviderRow:
+        return cls(
+            name=provider.name.value,
+            base_url=provider.base_url,
+            api_version=provider.api_version,
+            created_at=provider.created_at.isoformat(),
+            updated_at=provider.updated_at.isoformat(),
+        )
+
+    @classmethod
+    def from_sqlite(cls, row: sqlite3.Row) -> SQLiteProviderRow:
+        return cls(**dict(row))
+
+    def to_domain(self) -> Provider:
+        created_at = _datetime_from_text(self.created_at)
+        updated_at = _datetime_from_text(self.updated_at)
+        assert created_at is not None
+        assert updated_at is not None
+        return Provider(
+            name=ProviderName(self.name),
+            base_url=self.base_url,
+            api_version=self.api_version,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+
+class SQLiteProviderRepository:
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def save(self, provider: Provider) -> None:
+        row = SQLiteProviderRow.from_domain(provider)
+        with _write_lock:
+            self._conn.execute(
+                """
+                INSERT INTO providers (name, base_url, api_version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    base_url = excluded.base_url,
+                    api_version = excluded.api_version,
+                    updated_at = excluded.updated_at
+                """,
+                (row.name, row.base_url, row.api_version, row.created_at, row.updated_at),
+            )
+            self._conn.commit()
+
+    def list(self) -> List[Provider]:
+        rows = self._conn.execute("SELECT * FROM providers ORDER BY name").fetchall()
+        return [SQLiteProviderRow.from_sqlite(row).to_domain() for row in rows]
+
+    def get(self, name: ProviderName) -> Provider | None:
+        row = self._conn.execute("SELECT * FROM providers WHERE name = ?", (name.value,)).fetchone()
+        return SQLiteProviderRow.from_sqlite(row).to_domain() if row else None
+
+
+class SQLiteSecretStore:
+    """Stores provider API keys encrypted at rest, keyed by provider name."""
+
+    def __init__(self, conn: sqlite3.Connection, cipher: SecretCipher) -> None:
+        self._conn = conn
+        self._cipher = cipher
+
+    def put(self, provider_name: ProviderName, api_key: str) -> None:
+        ciphertext = self._cipher.encrypt(api_key)
+        now = utc_now().isoformat()
+        with _write_lock:
+            self._conn.execute(
+                """
+                INSERT INTO provider_secrets (provider_name, ciphertext, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(provider_name) DO UPDATE SET
+                    ciphertext = excluded.ciphertext,
+                    updated_at = excluded.updated_at
+                """,
+                (provider_name.value, ciphertext, now, now),
+            )
+            self._conn.commit()
+
+    def get(self, provider_name: ProviderName) -> str | None:
+        row = self._conn.execute(
+            "SELECT ciphertext FROM provider_secrets WHERE provider_name = ?",
+            (provider_name.value,),
+        ).fetchone()
+        return self._cipher.decrypt(row["ciphertext"]) if row else None
+
+    def delete(self, provider_name: ProviderName) -> None:
+        with _write_lock:
+            self._conn.execute(
+                "DELETE FROM provider_secrets WHERE provider_name = ?", (provider_name.value,)
+            )
+            self._conn.commit()
+
+    def has(self, provider_name: ProviderName) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM provider_secrets WHERE provider_name = ?", (provider_name.value,)
+        ).fetchone()
+        return row is not None
 
 
 def dump_debug_json(value: Any) -> str:

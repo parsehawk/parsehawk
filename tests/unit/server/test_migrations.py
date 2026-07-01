@@ -15,10 +15,13 @@ from parsehawk.server.adapters.persistence.migrations import (
 from parsehawk.server.adapters.persistence.migrations.runner import _split_statements
 from parsehawk.server.adapters.persistence.sqlite import connect, init_db
 
-# The baseline migration id (its ``.sql`` filename without the suffix).
+# Migration ids (each ``.sql`` filename without the suffix), in apply order.
 BASELINE_ID = "20260701092442_initial_schema"
+ADD_PROVIDERS_ID = "20260701121138_add_providers"
+ALL_MIGRATION_IDS = [BASELINE_ID, ADD_PROVIDERS_ID]
 
-# The exact v0.1.2 schema the baseline migration must reproduce.
+# The full current schema after all migrations. ALTER-added columns
+# (provider_name, model) are appended after the original extractor columns.
 EXPECTED_COLUMNS = {
     "files": [
         "id",
@@ -44,6 +47,8 @@ EXPECTED_COLUMNS = {
         "seed_version",
         "created_at",
         "updated_at",
+        "provider_name",
+        "model",
     ],
     "jobs": [
         "id",
@@ -56,6 +61,19 @@ EXPECTED_COLUMNS = {
         "created_at",
         "started_at",
         "completed_at",
+    ],
+    "providers": [
+        "name",
+        "base_url",
+        "api_version",
+        "created_at",
+        "updated_at",
+    ],
+    "provider_secrets": [
+        "provider_name",
+        "ciphertext",
+        "created_at",
+        "updated_at",
     ],
 }
 
@@ -80,7 +98,7 @@ def test_migrations_are_named_with_timestamp_prefix() -> None:
 def test_baseline_applied_to_fresh_db_matches_current_schema(conn: sqlite3.Connection) -> None:
     applied = apply_pending(conn)
 
-    assert applied == [BASELINE_ID]
+    assert applied == ALL_MIGRATION_IDS
     for table, expected in EXPECTED_COLUMNS.items():
         assert columns(conn, table) == expected
     assert indexes(conn, "jobs") == {
@@ -94,12 +112,12 @@ def test_baseline_applied_to_fresh_db_matches_current_schema(conn: sqlite3.Conne
 
 
 def test_apply_pending_is_idempotent(conn: sqlite3.Connection) -> None:
-    assert apply_pending(conn) == [BASELINE_ID]
+    assert apply_pending(conn) == ALL_MIGRATION_IDS
 
     assert apply_pending(conn) == []
 
     status = migration_status(conn)
-    assert status.applied == [BASELINE_ID]
+    assert status.applied == ALL_MIGRATION_IDS
     assert status.pending == []
 
 
@@ -107,7 +125,7 @@ def test_migration_status_reports_pending_before_apply(conn: sqlite3.Connection)
     status = migration_status(conn)
 
     assert status.applied == []
-    assert status.pending == [BASELINE_ID]
+    assert status.pending == ALL_MIGRATION_IDS
 
 
 def test_baseline_converges_existing_v012_db_without_data_loss(conn: sqlite3.Connection) -> None:
@@ -129,8 +147,8 @@ def test_baseline_converges_existing_v012_db_without_data_loss(conn: sqlite3.Con
 
     applied = apply_pending(conn)
 
-    assert applied == [BASELINE_ID]
-    assert migration_status(conn).applied == [BASELINE_ID]
+    assert applied == ALL_MIGRATION_IDS
+    assert migration_status(conn).applied == ALL_MIGRATION_IDS
     row = conn.execute("SELECT name FROM extractors WHERE id = ?", ("ex_1",)).fetchone()
     assert row is not None and row[0] == "Receipt"
 
@@ -163,7 +181,7 @@ def test_apply_pending_is_atomic_on_failure(tmp_path: Path) -> None:
 def test_init_db_delegates_to_the_runner(conn: sqlite3.Connection) -> None:
     init_db(conn)
 
-    assert migration_status(conn).applied == [BASELINE_ID]
+    assert migration_status(conn).applied == ALL_MIGRATION_IDS
     assert columns(conn, "files") == EXPECTED_COLUMNS["files"]
 
 

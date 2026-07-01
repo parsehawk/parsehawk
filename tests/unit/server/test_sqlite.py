@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterator
 
 import pytest
+from cryptography.fernet import Fernet
 
 from parsehawk.core.domain.models import (
     Example,
@@ -16,15 +17,20 @@ from parsehawk.core.domain.models import (
     Job,
     JobResult,
     JobStatus,
+    Provider,
+    ProviderName,
     ValidationIssue,
 )
 from parsehawk.server.adapters.persistence.sqlite import (
     SQLiteExtractorRepository,
     SQLiteFileRepository,
     SQLiteJobRepository,
+    SQLiteProviderRepository,
+    SQLiteSecretStore,
     connect,
     init_db,
 )
+from parsehawk.server.adapters.security import SecretCipher
 
 
 @pytest.fixture
@@ -64,6 +70,8 @@ def test_init_db_creates_structured_tables_indexes_and_foreign_keys(
         "seed_version",
         "created_at",
         "updated_at",
+        "provider_name",
+        "model",
     ]
     assert columns(conn, "jobs") == [
         "id",
@@ -114,6 +122,70 @@ def test_repositories_round_trip_domain_models(conn: sqlite3.Connection) -> None
     assert jobs.get(completed.id) == completed
     assert jobs.get(failed.id) == failed
     assert jobs.list(extractor_id=extractor.id) == [completed, failed]
+
+
+def test_extractor_round_trips_provider_and_model(conn: sqlite3.Connection) -> None:
+    extractors = SQLiteExtractorRepository(conn)
+    extractor = sample_extractor().model_copy(
+        update={"provider_name": ProviderName.OPENAI, "model": "gpt-4o-mini"}
+    )
+
+    extractors.save(extractor)
+
+    assert extractors.get(extractor.id) == extractor
+
+
+def test_provider_repository_round_trip_and_upsert(conn: sqlite3.Connection) -> None:
+    providers = SQLiteProviderRepository(conn)
+    provider = Provider(
+        name=ProviderName.OPENAI_COMPATIBLE,
+        base_url="http://127.0.0.1:8080/v1",
+        created_at=datetime(2024, 1, 2, tzinfo=UTC),
+        updated_at=datetime(2024, 1, 2, tzinfo=UTC),
+    )
+
+    providers.save(provider)
+
+    assert providers.get(ProviderName.OPENAI_COMPATIBLE) == provider
+    assert providers.list() == [provider]
+    assert providers.get(ProviderName.OPENAI) is None
+
+    reconfigured = provider.model_copy(
+        update={
+            "base_url": "https://proxy.example/v1",
+            "updated_at": datetime(2024, 1, 5, tzinfo=UTC),
+        }
+    )
+    providers.save(reconfigured)
+    stored = providers.get(ProviderName.OPENAI_COMPATIBLE)
+    assert stored is not None
+    assert stored.base_url == "https://proxy.example/v1"
+    # created_at is preserved across an upsert; only mutable config changes.
+    assert stored.created_at == provider.created_at
+
+
+def test_secret_store_encrypts_and_round_trips(conn: sqlite3.Connection) -> None:
+    providers = SQLiteProviderRepository(conn)
+    providers.save(Provider(name=ProviderName.OPENAI))  # FK target for the secret
+    secrets = SQLiteSecretStore(conn, SecretCipher(Fernet.generate_key()))
+
+    assert secrets.has(ProviderName.OPENAI) is False
+    assert secrets.get(ProviderName.OPENAI) is None
+
+    secrets.put(ProviderName.OPENAI, "sk-secret")
+
+    assert secrets.has(ProviderName.OPENAI) is True
+    assert secrets.get(ProviderName.OPENAI) == "sk-secret"
+    ciphertext = conn.execute(
+        "SELECT ciphertext FROM provider_secrets WHERE provider_name = ?", ("openai",)
+    ).fetchone()["ciphertext"]
+    assert ciphertext != "sk-secret"
+
+    secrets.put(ProviderName.OPENAI, "sk-rotated")  # upsert replaces the ciphertext
+    assert secrets.get(ProviderName.OPENAI) == "sk-rotated"
+
+    secrets.delete(ProviderName.OPENAI)
+    assert secrets.has(ProviderName.OPENAI) is False
 
 
 def test_claim_next_queued_marks_oldest_job_running(conn: sqlite3.Connection) -> None:
