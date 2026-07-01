@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from parsehawk.core.domain import ids
 from parsehawk.core.domain.ids import new_id
 from parsehawk.core.domain.models import (
+    NUEXTRACT3_MODELS,
     Example,
     ExampleInput,
     ExampleInputKind,
@@ -14,6 +15,8 @@ from parsehawk.core.domain.models import (
     Job,
     JobResult,
     JobStatus,
+    Provider,
+    ProviderName,
     ValidationIssue,
 )
 
@@ -112,6 +115,53 @@ def test_source_metadata_defaults_and_flags() -> None:
     assert "schema_" not in extractor.model_dump()
     assert "nuextract_template" not in extractor.model_dump()
     assert prebuilt.is_prebuilt is True
+
+
+def test_provider_defaults_and_configuration() -> None:
+    provider = Provider(name=ProviderName.OPENAI_COMPATIBLE)
+    assert provider.name == ProviderName.OPENAI_COMPATIBLE
+    assert provider.name.value == "openai_compatible_api"
+    assert provider.base_url is None
+    assert provider.api_version is None
+    assert provider.created_at is not None and provider.updated_at is not None
+
+    azure = Provider(
+        name=ProviderName.AZURE_OPENAI,
+        base_url="https://res.openai.azure.com/openai/v1/",
+        api_version="2024-10-21",
+    )
+    assert azure.base_url == "https://res.openai.azure.com/openai/v1/"
+    assert azure.api_version == "2024-10-21"
+
+    with pytest.raises(ValidationError):
+        Provider.model_validate({"name": "not_a_provider"})
+
+
+def test_extractor_carries_provider_and_model() -> None:
+    extractor = Extractor(
+        id="extractor_1",
+        name="Receipt",
+        instructions="Extract receipt fields.",
+        schema={"type": "object"},
+    )
+    assert extractor.provider_name is None
+    assert extractor.model is None
+
+    configured = extractor.model_copy(
+        update={"provider_name": ProviderName.OPENAI, "model": "gpt-4o-mini"}
+    )
+    assert configured.provider_name == ProviderName.OPENAI
+    assert configured.model == "gpt-4o-mini"
+    dumped = configured.model_dump()
+    assert dumped["provider_name"] == "openai"
+    assert dumped["model"] == "gpt-4o-mini"
+
+
+def test_nuextract3_model_set() -> None:
+    assert "numind/NuExtract3-W4A16" in NUEXTRACT3_MODELS
+    assert "numind/NuExtract3" in NUEXTRACT3_MODELS
+    assert "gpt-4o-mini" not in NUEXTRACT3_MODELS
+    assert len(NUEXTRACT3_MODELS) == 11
 
 
 def test_example_input_validation_and_legacy_text_migration() -> None:

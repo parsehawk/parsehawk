@@ -25,6 +25,40 @@ class ExtractorSource(StrEnum):
     PREBUILT = "prebuilt"
 
 
+class ProviderName(StrEnum):
+    """The fixed set of model providers ParseHawk ships.
+
+    Providers are preconfigured and configurable, not user-creatable, so the
+    name doubles as the stable identifier extractors reference and as the
+    discriminator the engine factory switches on.
+    """
+
+    OPENAI = "openai"
+    AZURE_OPENAI = "azure_openai"
+    OPENAI_COMPATIBLE = "openai_compatible_api"
+
+
+# NuExtract3 is fine-tuned on its own chat template, so only these exact models
+# use the NuExtract payload adapter; every other model uses the generic adapter.
+# Hardcoded from https://huggingface.co/collections/numind/nuextract3 and
+# independent of what the runtime currently has loaded.
+NUEXTRACT3_MODELS = frozenset(
+    {
+        "numind/NuExtract3",
+        "numind/NuExtract3-GGUF",
+        "numind/NuExtract3-W8A8",
+        "numind/NuExtract3-W4A16",
+        "numind/NuExtract3-FP8",
+        "numind/NuExtract3-mlx-4bits",
+        "numind/NuExtract3-mlx-5bits",
+        "numind/NuExtract3-mlx-6bits",
+        "numind/NuExtract3-mlx-8bits",
+        "numind/NuExtract3-mlx-nvfp4",
+        "numind/NuExtract3-mlx-mxfp8",
+    }
+)
+
+
 class File(Entity):
     id: str
     file_name: str
@@ -84,6 +118,8 @@ class Extractor(Entity):
     name: str
     instructions: str
     enable_thinking: bool = False
+    provider_name: ProviderName | None = None
+    model: str | None = None
     schema_: dict[str, Any] = Field(alias="schema")
     examples: list[Example] = Field(default_factory=list)
     source: ExtractorSource = ExtractorSource.USER
@@ -99,6 +135,21 @@ class Extractor(Entity):
     @property
     def schema(self) -> dict[str, Any]:
         return self.schema_
+
+
+class Provider(Entity):
+    """Connection configuration for one of the fixed model providers.
+
+    The API key is never stored here; it lives encrypted in its own table keyed
+    by ``name``. ``base_url``/``api_version`` are configurable (e.g. Azure users
+    set ``base_url`` to their OpenAI-compatible v1 endpoint).
+    """
+
+    name: ProviderName
+    base_url: str | None = None
+    api_version: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class JobStatus(StrEnum):
