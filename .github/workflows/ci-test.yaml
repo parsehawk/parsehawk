@@ -9,8 +9,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    # No diff to inspect on a manual dispatch; the test job runs
+    # unconditionally in that case, so path detection only applies to PRs.
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - name: Detect Python-affecting changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.python-version'
+              - '.github/workflows/ci-test.yaml'
+
   test:
     name: unit + integration (${{ matrix.os }})
+    needs: changes
+    # Run when Python-affecting files changed, or on a manual dispatch (where
+    # the changes job is skipped). !cancelled() lets this evaluate even though
+    # its dependency was skipped.
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.python == 'true') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
