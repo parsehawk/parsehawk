@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <strong>Local-first document AI. Run 100% locally by default, with API, CLI, and Web UI.</strong>
+  <strong>Turn documents into structured JSON with local-first document AI. Run 100% locally by default, with API, CLI, and Web UI.</strong>
 </p>
 
 <p align="center">
