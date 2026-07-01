@@ -11,3 +11,15 @@ class NotFoundError(ParseHawkError):
 
 class ValidationFailure(ParseHawkError):
     """Raised when a request cannot be accepted."""
+
+
+class ProviderRequestError(ParseHawkError):
+    """Raised when a model provider rejects a request (e.g. an unknown model).
+
+    Carries the provider's HTTP status when available so the API can surface it
+    (a 4xx from the provider becomes a 400 to the caller).
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
