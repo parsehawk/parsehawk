@@ -85,6 +85,10 @@ class ExtractionEngine(Protocol):  # pragma: no cover
     def extract(self, request: "ExtractionRequest") -> "ExtractionResponse": ...
 
 
+class EngineFactory(Protocol):  # pragma: no cover
+    def for_extractor(self, extractor: Extractor) -> ExtractionEngine: ...
+
+
 class ExtractionRequest:
     def __init__(
         self,

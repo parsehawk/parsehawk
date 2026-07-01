@@ -176,6 +176,14 @@ class StubEngine:
         return self.response
 
 
+@dataclass
+class StubEngineFactory:
+    engine: StubEngine
+
+    def for_extractor(self, extractor: Extractor) -> StubEngine:
+        return self.engine
+
+
 @pytest.fixture
 def services():
     files = MemoryFileRepository()
@@ -191,7 +199,7 @@ def services():
         "engine": engine,
         "file_service": FileService(files, storage),
         "extractor_service": ExtractorService(extractors, files, default_model=DEFAULT_MODEL),
-        "job_service": JobService(jobs, files, extractors, storage, engine),
+        "job_service": JobService(jobs, files, extractors, storage, StubEngineFactory(engine)),
     }
 
 
