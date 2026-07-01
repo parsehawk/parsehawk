@@ -133,13 +133,48 @@ def _split_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     return standard, extra_body
 
 
-def _build_client(config: OpenAIEngineConfig) -> OpenAI:
-    kwargs: dict[str, Any] = {
-        "api_key": config.api_key or "EMPTY",
-        "timeout": config.timeout_seconds,
-    }
-    if config.base_url:
-        kwargs["base_url"] = config.base_url
-    if config.api_version:
-        kwargs["default_query"] = {"api-version": config.api_version}
+def build_openai_client(
+    *, base_url: str | None, api_key: str, api_version: str | None, timeout_seconds: int
+) -> OpenAI:
+    kwargs: dict[str, Any] = {"api_key": api_key or "EMPTY", "timeout": timeout_seconds}
+    if base_url:
+        kwargs["base_url"] = base_url
+    if api_version:
+        kwargs["default_query"] = {"api-version": api_version}
     return OpenAI(**kwargs)
+
+
+def _build_client(config: OpenAIEngineConfig) -> OpenAI:
+    return build_openai_client(
+        base_url=config.base_url,
+        api_key=config.api_key,
+        api_version=config.api_version,
+        timeout_seconds=config.timeout_seconds,
+    )
+
+
+def list_models(
+    *,
+    base_url: str | None,
+    api_key: str,
+    api_version: str | None = None,
+    timeout_seconds: int = 30,
+) -> list[str]:
+    """List the model ids a provider offers (for the Web UI's model dropdown)."""
+    client = build_openai_client(
+        base_url=base_url,
+        api_key=api_key,
+        api_version=api_version,
+        timeout_seconds=timeout_seconds,
+    )
+    try:
+        page = client.models.list()
+    except APIStatusError as exc:
+        message = getattr(exc, "message", str(exc))
+        raise ProviderRequestError(
+            f"model provider returned HTTP {exc.status_code}: {message}",
+            status_code=exc.status_code,
+        ) from exc
+    except APIConnectionError as exc:
+        raise ProviderRequestError(f"model provider is unreachable: {exc}") from exc
+    return [model.id for model in page.data]

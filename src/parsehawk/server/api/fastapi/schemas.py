@@ -15,6 +15,8 @@ from parsehawk.core.domain.models import (
     JobError,
     JobResult,
     JobStatus,
+    Provider,
+    ProviderName,
 )
 
 
@@ -37,6 +39,8 @@ class CreateExtractorRequest(ApiModel):
     name: str
     instructions: str
     enable_thinking: bool = False
+    provider_name: ProviderName | None = None
+    model: str | None = None
     schema_: dict[str, Any] = Field(alias="schema")
     examples: list[ExampleRequest] = Field(default_factory=list)
 
@@ -45,6 +49,8 @@ class UpdateExtractorRequest(ApiModel):
     name: str | None = None
     instructions: str | None = None
     enable_thinking: bool | None = None
+    provider_name: ProviderName | None = None
+    model: str | None = None
     schema_: dict[str, Any] | None = Field(default=None, alias="schema")
     examples: list[ExampleRequest] | None = None
 
@@ -131,6 +137,8 @@ class ExtractorResponse(ApiModel):
     name: str
     instructions: str
     enable_thinking: bool
+    provider_name: ProviderName | None
+    model: str | None
     schema_: dict[str, Any] = Field(alias="schema")
     examples: list[dict[str, Any]]
     source: ExtractorSource
@@ -145,6 +153,39 @@ class ExtractorResponse(ApiModel):
         payload["examples"] = [example.model_dump() for example in extractor.examples]
         payload["is_prebuilt"] = extractor.is_prebuilt
         return cls.model_validate(payload)
+
+
+class ProviderResponse(ApiModel):
+    name: ProviderName
+    base_url: str | None
+    api_version: str | None
+    has_api_key: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, provider: Provider, *, has_api_key: bool) -> ProviderResponse:
+        return cls(
+            name=provider.name,
+            base_url=provider.base_url,
+            api_version=provider.api_version,
+            has_api_key=has_api_key,
+            created_at=provider.created_at,
+            updated_at=provider.updated_at,
+        )
+
+
+class ConfigureProviderRequest(ApiModel):
+    """Write-only provider configuration. The API never returns the API key."""
+
+    base_url: str | None = None
+    api_version: str | None = None
+    api_key: str | None = None
+    api_key_env: str | None = None
+
+
+class ProviderModelsResponse(ApiModel):
+    models: list[str]
 
 
 class JobResultResponse(ApiModel):

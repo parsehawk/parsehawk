@@ -9,7 +9,8 @@ from fastapi.responses import FileResponse as FastAPIFileResponse
 from fastapi.responses import JSONResponse
 
 from parsehawk import telemetry
-from parsehawk.core.domain.errors import NotFoundError, ValidationFailure
+from parsehawk.core.domain.errors import NotFoundError, ProviderRequestError, ValidationFailure
+from parsehawk.core.domain.models import ProviderName
 from parsehawk.core.domain.schemas import (
     MODE_JSON_SCHEMA,
     validate_extraction_schema,
@@ -19,17 +20,21 @@ from parsehawk.core.domain.schemas import (
 )
 from parsehawk.logging import configure_logging
 from parsehawk.server.api.fastapi.schemas import (
+    ConfigureProviderRequest,
     CreateExtractorRequest,
     CreateJobRequest,
     ExtractorResponse,
     FileResponse,
     JobResponse,
+    ProviderModelsResponse,
+    ProviderResponse,
     SchemaDiagnostic,
     UpdateExtractorRequest,
     ValidateSchemaRequest,
     ValidateSchemaResponse,
 )
 from parsehawk.server.container import Container, build_container
+from parsehawk.server.runtime.inference.openai_engine import list_models
 
 configure_logging("parsehawk", configure_uvicorn=True)
 
@@ -43,6 +48,7 @@ UploadFileDep = Annotated[UploadFile, File()]
 
 files_router = APIRouter(prefix="/files", tags=["files"])
 extractors_router = APIRouter(prefix="/extractors", tags=["extractors"])
+providers_router = APIRouter(prefix="/providers", tags=["providers"])
 jobs_router = APIRouter(prefix="/jobs", tags=["jobs"])
 schemas_router = APIRouter(prefix="/schemas", tags=["schemas"])
 health_router = APIRouter(tags=["health"])
@@ -68,9 +74,14 @@ def create_app() -> FastAPI:
     async def validation_handler(_: Request, exc: ValidationFailure) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
+    @app.exception_handler(ProviderRequestError)
+    async def provider_request_handler(_: Request, exc: ProviderRequestError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
     api_router = APIRouter(prefix="/v1")
     api_router.include_router(files_router)
     api_router.include_router(extractors_router)
+    api_router.include_router(providers_router)
     api_router.include_router(jobs_router)
     api_router.include_router(schemas_router)
     app.include_router(health_router)
@@ -159,6 +170,8 @@ def create_extractor(request: CreateExtractorRequest, container: ContainerDep) -
         name=request.name,
         instructions=request.instructions,
         enable_thinking=request.enable_thinking,
+        provider_name=request.provider_name,
+        model=request.model,
         schema=request.schema_,
         examples=[example.model_dump() for example in request.examples],
     )
@@ -188,6 +201,8 @@ def update_extractor(
         name=request.name,
         instructions=request.instructions,
         enable_thinking=request.enable_thinking,
+        provider_name=request.provider_name,
+        model=request.model,
         schema=request.schema_,
         examples=[example.model_dump() for example in request.examples]
         if request.examples is not None
@@ -199,6 +214,49 @@ def update_extractor(
 @extractors_router.delete("/{extractor_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_extractor(extractor_id: str, container: ContainerDep) -> None:
     container.extractor_service.delete(extractor_id)
+
+
+@providers_router.get("")
+def list_providers(container: ContainerDep) -> list[ProviderResponse]:
+    service = container.provider_service
+    return [
+        ProviderResponse.from_domain(provider, has_api_key=service.has_api_key(provider.name))
+        for provider in service.list()
+    ]
+
+
+@providers_router.get("/{name}")
+def get_provider(name: ProviderName, container: ContainerDep) -> ProviderResponse:
+    service = container.provider_service
+    provider = service.get(name)
+    return ProviderResponse.from_domain(provider, has_api_key=service.has_api_key(name))
+
+
+@providers_router.patch("/{name}")
+def configure_provider(
+    name: ProviderName, request: ConfigureProviderRequest, container: ContainerDep
+) -> ProviderResponse:
+    service = container.provider_service
+    provider = service.configure(
+        name,
+        base_url=request.base_url,
+        api_version=request.api_version,
+        api_key=request.api_key,
+        api_key_env=request.api_key_env,
+    )
+    return ProviderResponse.from_domain(provider, has_api_key=service.has_api_key(name))
+
+
+@providers_router.get("/{name}/models")
+def list_provider_models(name: ProviderName, container: ContainerDep) -> ProviderModelsResponse:
+    provider = container.provider_service.get(name)
+    api_key = container.secrets.get(name) or "EMPTY"
+    models = list_models(
+        base_url=provider.base_url,
+        api_key=api_key,
+        api_version=provider.api_version,
+    )
+    return ProviderModelsResponse(models=models)
 
 
 @jobs_router.post("", status_code=status.HTTP_201_CREATED)
