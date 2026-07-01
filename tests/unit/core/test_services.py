@@ -12,7 +12,12 @@ from parsehawk.core.application.ports import (
     PreparedDocument,
     PreparedImage,
 )
-from parsehawk.core.application.services import ExtractorService, FileService, JobService
+from parsehawk.core.application.services import (
+    ExtractorService,
+    FileService,
+    JobService,
+    ProviderService,
+)
 from parsehawk.core.domain.errors import NotFoundError, ValidationFailure
 from parsehawk.core.domain.models import (
     ExampleInputKind,
@@ -22,7 +27,11 @@ from parsehawk.core.domain.models import (
     FileSource,
     Job,
     JobStatus,
+    Provider,
+    ProviderName,
 )
+
+DEFAULT_MODEL = "numind/NuExtract3-W4A16"
 
 
 class MemoryFileRepository:
@@ -85,6 +94,37 @@ class MemoryJobRepository:
                 self.save(claimed)
                 return claimed
         return None
+
+
+class MemoryProviderRepository:
+    def __init__(self) -> None:
+        self.items: dict[ProviderName, Provider] = {}
+
+    def save(self, provider: Provider) -> None:
+        self.items[provider.name] = provider
+
+    def list(self) -> List[Provider]:
+        return list(self.items.values())
+
+    def get(self, name: ProviderName) -> Provider | None:
+        return self.items.get(name)
+
+
+class MemorySecretStore:
+    def __init__(self) -> None:
+        self.items: dict[ProviderName, str] = {}
+
+    def put(self, provider_name: ProviderName, api_key: str) -> None:
+        self.items[provider_name] = api_key
+
+    def get(self, provider_name: ProviderName) -> str | None:
+        return self.items.get(provider_name)
+
+    def delete(self, provider_name: ProviderName) -> None:
+        self.items.pop(provider_name, None)
+
+    def has(self, provider_name: ProviderName) -> bool:
+        return provider_name in self.items
 
 
 class MemoryStorage:
@@ -150,7 +190,7 @@ def services():
         "storage": storage,
         "engine": engine,
         "file_service": FileService(files, storage),
-        "extractor_service": ExtractorService(extractors, files),
+        "extractor_service": ExtractorService(extractors, files, default_model=DEFAULT_MODEL),
         "job_service": JobService(jobs, files, extractors, storage, engine),
     }
 
@@ -540,3 +580,95 @@ def test_job_service_missing_file_during_run_fails_job(services) -> None:
     assert completed.status == JobStatus.FAILED
     assert completed.error is not None
     assert "file not found" in completed.error.message
+
+
+def test_extractor_create_materializes_default_provider_and_model(services) -> None:
+    extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
+
+    assert extractor.provider_name == ProviderName.OPENAI_COMPATIBLE
+    assert extractor.model == DEFAULT_MODEL
+
+
+def test_extractor_create_uses_supplied_provider_and_model(services) -> None:
+    extractor = services["extractor_service"].create(
+        name="e",
+        instructions="i",
+        schema=schema(),
+        provider_name=ProviderName.OPENAI,
+        model="gpt-4o-mini",
+    )
+
+    assert extractor.provider_name == ProviderName.OPENAI
+    assert extractor.model == "gpt-4o-mini"
+
+
+def test_extractor_update_changes_provider_and_model(services) -> None:
+    extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
+
+    updated = services["extractor_service"].update(
+        extractor.id, provider_name=ProviderName.AZURE_OPENAI, model="my-deployment"
+    )
+
+    assert updated.provider_name == ProviderName.AZURE_OPENAI
+    assert updated.model == "my-deployment"
+
+
+def _provider_service() -> tuple[ProviderService, MemoryProviderRepository, MemorySecretStore]:
+    providers = MemoryProviderRepository()
+    secrets = MemorySecretStore()
+    providers.save(Provider(name=ProviderName.OPENAI))
+    providers.save(
+        Provider(name=ProviderName.OPENAI_COMPATIBLE, base_url="http://127.0.0.1:8080/v1")
+    )
+    return ProviderService(providers, secrets), providers, secrets
+
+
+def test_provider_service_list_get_and_missing() -> None:
+    service, _providers, _secrets = _provider_service()
+
+    assert {provider.name for provider in service.list()} == {
+        ProviderName.OPENAI,
+        ProviderName.OPENAI_COMPATIBLE,
+    }
+    assert service.get(ProviderName.OPENAI).name == ProviderName.OPENAI
+    assert service.has_api_key(ProviderName.OPENAI) is False
+    with pytest.raises(NotFoundError):
+        service.get(ProviderName.AZURE_OPENAI)
+
+
+def test_provider_service_configure_base_url_and_api_key() -> None:
+    service, _providers, secrets = _provider_service()
+
+    updated = service.configure(
+        ProviderName.OPENAI,
+        base_url="https://api.openai.com/v1",
+        api_version="2024-10-21",
+        api_key="sk-x",
+    )
+
+    assert updated.base_url == "https://api.openai.com/v1"
+    assert updated.api_version == "2024-10-21"
+    assert secrets.get(ProviderName.OPENAI) == "sk-x"
+    assert service.has_api_key(ProviderName.OPENAI) is True
+    # Configuring nothing leaves the provider and secret untouched.
+    unchanged = service.configure(ProviderName.OPENAI)
+    assert unchanged.base_url == "https://api.openai.com/v1"
+
+
+def test_provider_service_configure_reads_api_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    service, _providers, secrets = _provider_service()
+    monkeypatch.setenv("MY_PROVIDER_KEY", "sk-env")
+
+    service.configure(ProviderName.OPENAI, api_key_env="MY_PROVIDER_KEY")
+
+    assert secrets.get(ProviderName.OPENAI) == "sk-env"
+
+
+def test_provider_service_configure_missing_env_var_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _providers, _secrets = _provider_service()
+    monkeypatch.delenv("MISSING_PROVIDER_KEY", raising=False)
+
+    with pytest.raises(ValidationFailure):
+        service.configure(ProviderName.OPENAI, api_key_env="MISSING_PROVIDER_KEY")

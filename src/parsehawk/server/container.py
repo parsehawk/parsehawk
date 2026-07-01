@@ -59,7 +59,9 @@ class Container:
         self.jobs = SQLiteJobRepository(self.conn)
         self.engine = build_engine(settings)
         self.file_service = FileService(self.files, self.storage)
-        self.extractor_service = ExtractorService(self.extractors, self.files)
+        self.extractor_service = ExtractorService(
+            self.extractors, self.files, default_model=settings.vllm_model
+        )
         self.job_service = JobService(
             self.jobs, self.files, self.extractors, self.storage, self.engine
         )
