@@ -385,6 +385,53 @@ PARSEHAWK_VLLM_MODEL=numind/NuExtract3-W4A16 parsehawk start
 PARSEHAWK_VLLM_IMAGE=vllm/vllm-openai:v0.23.0 parsehawk start
 ```
 
+## Model Providers
+
+By default ParseHawk extracts with **NuExtract3** on the bundled runtime. Each
+extractor also carries a `provider` and a `model`, so you can point individual
+extractors at any OpenAI-API-compatible endpoint — cloud or local.
+
+Three providers ship preconfigured. You configure them; you cannot create or
+delete them.
+
+| Provider (`provider_name`) | Base URL | Notes |
+| --- | --- | --- |
+| `openai_compatible_api` | bundled runtime `http://127.0.0.1:8080/v1` | **Default.** Serves NuExtract3; also point it at Ollama, LM Studio, or your own vLLM. |
+| `openai` | `https://api.openai.com/v1` | Configure an API key to use OpenAI models. |
+| `azure_openai` | your Azure endpoint | Set `base_url` to your Azure OpenAI **v1** endpoint; `model` is the deployment name. |
+
+Configure a provider and target it from an extractor (the API key is encrypted
+at rest and never returned by the API):
+
+```bash
+# Use OpenAI for one extractor:
+parsehawk providers configure openai --api-key "$OPENAI_API_KEY"
+parsehawk extractors update <extractor-id> --provider openai --model gpt-4o-mini
+
+# ...or import the key from an environment variable:
+parsehawk providers configure openai --api-key-env OPENAI_API_KEY
+
+# Inspect providers and the models they offer:
+parsehawk providers list
+parsehawk providers models openai
+```
+
+Only NuExtract3's exact model variants use its fine-tuned chat template. Every
+other model receives a standard chat request that embeds NuExtract3's semantic
+type reference in the system prompt, with JSON-Schema-constrained decoding.
+
+Provider API keys are encrypted at rest with a master key taken from
+`PARSEHAWK_SECRET_KEY` when set, otherwise a `0600` key file generated in the
+data directory on first run. The same source must be visible to both the API and
+worker processes; losing it means re-entering provider keys.
+
+To run against a configured cloud (or your own local) provider without launching
+the bundled runtime:
+
+```bash
+parsehawk start -x runtime
+```
+
 ## Configuration
 
 ParseHawk uses Pydantic settings. Common environment variables:
@@ -396,9 +443,9 @@ ParseHawk uses Pydantic settings. Common environment variables:
 | `PARSEHAWK_SKIP_MIGRATIONS` | `false` | When truthy, skip automatically applying database migrations at start; apply them manually with `parsehawk migrate`. |
 | `PARSEHAWK_LOG_LEVEL` | `INFO` | Log level for API, worker, runtime, and Web UI logs. |
 | `PARSEHAWK_LOG_MODEL_IO` | `false` | When `true` and `PARSEHAWK_LOG_LEVEL=DEBUG`, log model-runtime request and response JSON from the API/worker process. Image data URLs are redacted. |
-| `PARSEHAWK_INFERENCE_ENGINE` | `none` | API/worker inference engine. `parsehawk start` sets this to `vllm` when a runtime is configured. |
-| `PARSEHAWK_VLLM_BASE_URL` | `http://127.0.0.1:8080/v1` | OpenAI-compatible model runtime URL. |
-| `PARSEHAWK_VLLM_MODEL` | `numind/NuExtract3-W4A16` | Model name sent to the runtime. |
+| `PARSEHAWK_SECRET_KEY` | generated | Master key used to encrypt provider API keys. When unset, a `0600` key file is generated in the data directory on first run. Set the same value for the API and worker in multi-host deployments. |
+| `PARSEHAWK_VLLM_BASE_URL` | `http://127.0.0.1:8080/v1` | Base URL the bundled `openai_compatible_api` provider is seeded with. |
+| `PARSEHAWK_VLLM_MODEL` | `numind/NuExtract3-W4A16` | Default model new extractors use, served by the bundled runtime. |
 | `PARSEHAWK_VLLM_MAX_MODEL_LEN` | platform-specific | vLLM context length. Overrides the automatic runtime-profile default. |
 | `PARSEHAWK_VLLM_MAX_NUM_SEQS` | platform-specific | vLLM maximum concurrent decode sequences. Overrides the automatic runtime-profile default. |
 | `PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION` | platform-specific | vLLM memory reservation fraction. On Apple Silicon this is also mapped to `VLLM_METAL_MEMORY_FRACTION`. |
@@ -526,7 +573,7 @@ parsehawk dev
 ```
 
 ```bash
-parsehawk dev --runtime none  # starts the API and Web UI without local inference
+parsehawk dev -x runtime  # starts the API and Web UI without the bundled runtime
 ```
 
 #### Product-like local mode:
@@ -536,7 +583,7 @@ parsehawk start
 ```
 
 ```bash
-parsehawk start --runtime none  # starts the API and Web UI without local inference
+parsehawk start -x runtime  # starts the API and Web UI without the bundled runtime
 ```
 
 ## Troubleshooting
@@ -599,11 +646,10 @@ Near-term focus:
 Later:
 
 - Python SDK
-- migrations and PostgreSQL support
+- PostgreSQL support
 - batch extraction
 - review/correction workflows
 - eval tooling
-- bring-your-own OpenAI-compatible runtime
 
 ## Enterprise
 
