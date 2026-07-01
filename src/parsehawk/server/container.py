@@ -9,6 +9,7 @@ from parsehawk.core.application.ports import (
     ExtractionResponse,
 )
 from parsehawk.core.application.services import ExtractorService, FileService, JobService
+from parsehawk.server.adapters.persistence.migrations import migrations_disabled
 from parsehawk.server.adapters.persistence.sqlite import (
     SQLiteExtractorRepository,
     SQLiteFileRepository,
@@ -43,7 +44,11 @@ class Container:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.conn = connect(settings.resolved_database_path)
-        init_db(self.conn)
+        # Serving processes bring the schema up to date on construction. The
+        # PARSEHAWK_SKIP_MIGRATIONS opt-out lets an operator take ownership of when
+        # migrations run (e.g. via `parsehawk migrate`) instead of auto-applying.
+        if not migrations_disabled():
+            init_db(self.conn)
         self.storage = LocalFileStorage(
             settings.data_dir,
             pdf_max_pages=settings.pdf_max_pages,

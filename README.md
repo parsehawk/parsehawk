@@ -141,6 +141,24 @@ Check your local setup:
 parsehawk doctor
 ```
 
+## Database Migrations
+
+The SQLite schema is managed by ordered, tracked migrations. `parsehawk start`
+applies any pending migrations automatically before serving, so upgrades converge
+without manual steps.
+
+```bash
+# Show applied and pending migrations
+parsehawk migrate status
+
+# Apply pending migrations manually
+parsehawk migrate
+```
+
+To take ownership of when migrations run, opt out of the automatic apply at start
+with `parsehawk start -x migrate` or `PARSEHAWK_SKIP_MIGRATIONS=1`, then run
+`parsehawk migrate` yourself.
+
 ## First Extraction
 
 The easiest first run is image-to-JSON extraction with the bundled receipt image
@@ -376,6 +394,7 @@ ParseHawk uses Pydantic settings. Common environment variables:
 | --- | --- | --- |
 | `PARSEHAWK_DATA_DIR` | `data` | Local storage directory for SQLite, uploaded files, logs, and local state. |
 | `PARSEHAWK_DATABASE_PATH` | `data/parsehawk.db` | SQLite database path. |
+| `PARSEHAWK_SKIP_MIGRATIONS` | `false` | When truthy, skip automatically applying database migrations at start; apply them manually with `parsehawk migrate`. |
 | `PARSEHAWK_LOG_LEVEL` | `INFO` | Log level for API, worker, runtime, and Web UI logs. |
 | `PARSEHAWK_LOG_MODEL_IO` | `false` | When `true` and `PARSEHAWK_LOG_LEVEL=DEBUG`, log model-runtime request and response JSON from the API/worker process. Image data URLs are redacted. |
 | `PARSEHAWK_INFERENCE_ENGINE` | `none` | API/worker inference engine. `parsehawk start` sets this to `vllm` when a runtime is configured. |
