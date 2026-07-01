@@ -1,0 +1,70 @@
+name: ci-checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  lint:
+    name: lint + typecheck (pre-commit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # .pre-commit-config.yaml is the single source of truth for the static
+      # checks (ruff format/check, ty, file hygiene). The heavy hooks are
+      # skipped here: unit tests run in the cross-platform ci-test matrix, and
+      # the web hooks run in the `web` job below.
+      - name: Run pre-commit (fast hooks)
+        env:
+          SKIP: unit-tests,web-typecheck,web-tests
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  web:
+    name: web typecheck + tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Same recipes the web-typecheck / web-tests pre-commit hooks call.
+      - name: Typecheck
+        run: just web-typecheck
+
+      - name: Test
+        run: just web-test
