@@ -30,7 +30,9 @@ machines and vLLM Metal on macOS Apple Silicon, so you can run practical
 document extraction on a server or even on your MacBook. You can drive the same
 workflow from the browser, from `curl`, or from the `parsehawk` CLI.
 
-![ParseHawk extraction result](docs/assets/parsehawk-extraction-result.png)
+<p align="center">
+  <img src="docs/assets/parsehawk-demo.svg" alt="ParseHawk turns a document into validated structured JSON, 100% locally" width="820">
+</p>
 
 ## What You Get
 

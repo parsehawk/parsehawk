@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 400" width="1000" height="400" font-family="'DM Sans', ui-sans-serif, system-ui, -apple-system, sans-serif" role="img" aria-label="ParseHawk turns any document into validated structured JSON, 100% locally.">
+  <defs>
+    <!-- gradients -->
+    <linearGradient id="beamGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F5B301" stop-opacity="0"/>
+      <stop offset="0.75" stop-color="#F5B301" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#F5B301" stop-opacity="0.42"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F5B301" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#F5B301" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#1C1917" flood-opacity="0.08"/>
+    </filter>
+
+    <!-- clip for the document interior (keeps the scan beam inside the card) -->
+    <clipPath id="docClip"><rect x="66" y="94" width="260" height="238" rx="4"/></clipPath>
+
+    <!-- reveal mask that "streams" the JSON in, top to bottom -->
+    <clipPath id="jsonReveal">
+      <rect x="676" y="100" width="256" height="0">
+        <animate attributeName="height"
+          values="0;0;172;172;0" keyTimes="0;0.40;0.72;0.96;1"
+          dur="8s" repeatCount="indefinite"/>
+      </rect>
+    </clipPath>
+  </defs>
+
+  <!-- background -->
+  <rect x="0" y="0" width="1000" height="400" rx="18" fill="#FAFAF9"/>
+  <ellipse cx="500" cy="188" rx="220" ry="180" fill="url(#glow)"/>
+
+  <!-- section captions -->
+  <text x="196" y="54" text-anchor="middle" fill="#78716C" font-size="11" font-weight="600" letter-spacing="1.6">YOUR DOCUMENT</text>
+  <text x="804" y="54" text-anchor="middle" fill="#78716C" font-size="11" font-weight="600" letter-spacing="1.6">STRUCTURED JSON</text>
+
+  <!-- ============ DOCUMENT CARD (business invoice) ============ -->
+  <g filter="url(#cardShadow)">
+    <rect x="56" y="76" width="280" height="264" rx="14" fill="#FFFFFF" stroke="#E7E5E4"/>
+  </g>
+  <g font-family="'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace">
+    <text x="76" y="108" font-size="13" font-weight="600" fill="#1C1917">INVOICE</text>
+    <line x1="76" y1="116" x2="316" y2="116" stroke="#E7E5E4"/>
+    <g font-size="11">
+      <text x="76" y="136" fill="#78716C">Vendor</text>
+      <text x="168" y="136" fill="#1C1917">Acme Corp</text>
+      <text x="76" y="160" fill="#78716C">Invoice</text>
+      <text x="168" y="160" fill="#1C1917">INV-2026-0342</text>
+      <text x="76" y="184" fill="#78716C">Bill to</text>
+      <text x="168" y="184" fill="#1C1917">ParseHawk Ltd</text>
+      <text x="76" y="208" fill="#78716C">Date</text>
+      <text x="168" y="208" fill="#1C1917">2026-06-21</text>
+    </g>
+    <!-- line items (decorative texture) -->
+    <line x1="76" y1="222" x2="316" y2="222" stroke="#F2F0EE"/>
+    <rect x="76" y="230" width="184" height="7" rx="3" fill="#E7E5E4"/>
+    <rect x="76" y="242" width="140" height="7" rx="3" fill="#E7E5E4"/>
+    <rect x="76" y="254" width="200" height="7" rx="3" fill="#E7E5E4"/>
+    <rect x="76" y="266" width="116" height="7" rx="3" fill="#E7E5E4"/>
+    <line x1="76" y1="282" x2="316" y2="282" stroke="#E7E5E4"/>
+    <text x="76" y="304" font-size="12" font-weight="600" fill="#1C1917">TOTAL</text>
+    <text x="308" y="304" text-anchor="end" font-size="12" font-weight="600" fill="#1C1917">$4,820.00</text>
+  </g>
+
+  <!-- field detection highlights — one per extracted field, timed to the beam -->
+  <g fill="#F5B301" fill-opacity="0.14" stroke="#F5B301" stroke-opacity="0.9">
+    <rect x="72" y="124" width="240" height="17" rx="4"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.096;0.116;0.36;0.40;1" dur="8s" repeatCount="indefinite"/></rect>
+    <rect x="72" y="148" width="240" height="17" rx="4"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.127;0.147;0.36;0.40;1" dur="8s" repeatCount="indefinite"/></rect>
+    <rect x="72" y="172" width="240" height="17" rx="4"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.158;0.178;0.36;0.40;1" dur="8s" repeatCount="indefinite"/></rect>
+    <rect x="72" y="196" width="240" height="17" rx="4"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.189;0.209;0.36;0.40;1" dur="8s" repeatCount="indefinite"/></rect>
+    <rect x="72" y="291" width="240" height="19" rx="4"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.313;0.333;0.36;0.40;1" dur="8s" repeatCount="indefinite"/></rect>
+  </g>
+
+  <!-- scan beam (clipped to document interior) -->
+  <g clip-path="url(#docClip)">
+    <g>
+      <rect x="66" y="80" width="260" height="40" fill="url(#beamGrad)"/>
+      <rect x="66" y="120" width="260" height="2" fill="#F5B301"/>
+      <animateTransform attributeName="transform" type="translate"
+        values="0 0;0 0;0 186;0 186" keyTimes="0;0.08;0.32;1" dur="8s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.075;0.085;0.315;0.325;1" dur="8s" repeatCount="indefinite"/>
+    </g>
+  </g>
+
+  <!-- ============ CONNECTORS (drawn before the badge so it sits on top) ============ -->
+  <line x1="336" y1="176" x2="446" y2="176" stroke="#E7E5E4" stroke-width="2" stroke-dasharray="4 5"/>
+  <g fill="#F5B301">
+    <circle cx="340" cy="176" r="3.2">
+      <animateTransform attributeName="transform" type="translate" values="0 0;102 0" dur="1.4s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="340" cy="176" r="3.2">
+      <animateTransform attributeName="transform" type="translate" values="0 0;102 0" dur="1.4s" begin="-0.47s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.4s" begin="-0.47s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="340" cy="176" r="3.2">
+      <animateTransform attributeName="transform" type="translate" values="0 0;102 0" dur="1.4s" begin="-0.93s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.4s" begin="-0.93s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+  <line x1="554" y1="176" x2="664" y2="176" stroke="#E7E5E4" stroke-width="2" stroke-dasharray="4 5"/>
+  <g fill="#F5B301">
+    <circle cx="558" cy="176" r="3.2">
+      <animateTransform attributeName="transform" type="translate" values="0 0;102 0" dur="1.4s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="558" cy="176" r="3.2">
+      <animateTransform attributeName="transform" type="translate" values="0 0;102 0" dur="1.4s" begin="-0.47s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.4s" begin="-0.47s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="558" cy="176" r="3.2">
+      <animateTransform attributeName="transform" type="translate" values="0 0;102 0" dur="1.4s" begin="-0.93s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.4s" begin="-0.93s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- ============ CENTER: PARSEHAWK ENGINE ============ -->
+  <g transform="translate(500,176)">
+    <circle r="54" fill="none" stroke="#F5B301" stroke-width="2">
+      <animateTransform attributeName="transform" type="scale" values="1;1.35" dur="2.6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.5;0" dur="2.6s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+  <circle cx="500" cy="176" r="54" fill="#FFFFFF" stroke="#F5B301" stroke-width="2" filter="url(#cardShadow)"/>
+  <g fill="#F5B301" transform="translate(447,116) scale(0.353)">
+    <path d="M130.52,159.49s-.05.04-.09.04h-46.92s0,0,0,0l-18.88,18.88h.01s-.01,0-.01,0l4.78,24.58c.02.12.19.14.23.02l5.79-13.63c.03-.08.14-.1.2-.04l23.07,23.07h0s0,0,0,0l126.82-126.82s.04-.05.04-.09v-20.77c0-.11-.13-.17-.21-.09l-94.84,94.84ZM89.74,174.46h25.51c.11,0,.17.13.09.21l-16.55,16.55s-.13.05-.17,0l-12.76-12.76s-.05-.13,0-.17l3.79-3.79s.05-.04.09-.04ZM213.18,131.35l-96.86,96.86s-.13.05-.17,0l-10.38-10.38s-.05-.13,0-.17l107.24-107.24c.08-.08.21-.02.21.09v20.77s-.01.06-.04.09ZM200.92,210.41l-32.79,32.79s-.03.05-.04.08l-1.37,36.87c0,.11-.13.16-.21.08l-28.18-28.18s-.05-.13,0-.17l62.41-62.41c.08-.08.21-.02.21.09v20.77s-.01.06-.04.09ZM200.87,177.06l-68.68,68.68s-.13.05-.17,0l-10.38-10.38s-.05-.13,0-.17l79.07-79.07c.08-.08.21-.02.21.09v20.77s-.01.06-.04.09Z"/>
+  </g>
+
+  <!-- local badge (same structure as the valid-schema badge: icon + left-aligned text, snug pill) -->
+  <g>
+    <rect x="444" y="258" width="112" height="28" rx="14" fill="#FFFFFF" stroke="#E7E5E4"/>
+    <g transform="translate(458,264)" stroke="#1C1917" stroke-width="1.8" fill="none">
+      <rect x="0" y="6" width="13" height="10" rx="2" fill="#1C1917" stroke="none"/>
+      <path d="M2.5,6 V3.5 a4,4 0 0 1 8,0 V6"/>
+    </g>
+    <text x="478" y="276" font-size="12" font-weight="600" fill="#1C1917">100% local</text>
+  </g>
+
+  <!-- ============ JSON CARD ============ -->
+  <g filter="url(#cardShadow)">
+    <rect x="664" y="76" width="280" height="264" rx="14" fill="#FFFFFF" stroke="#E7E5E4"/>
+  </g>
+  <rect x="676" y="100" width="256" height="176" rx="8" fill="#FAFAF9" stroke="#E7E5E4"/>
+
+  <!-- streamed json text -->
+  <g clip-path="url(#jsonReveal)" font-family="'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">
+    <text x="686" y="118" fill="#1C1917">{</text>
+    <text x="694" y="140"><tspan fill="#7C3AED">"vendor"</tspan><tspan fill="#1C1917">: </tspan><tspan fill="#0F766E">"Acme Corp"</tspan><tspan fill="#1C1917">,</tspan></text>
+    <text x="694" y="162"><tspan fill="#7C3AED">"invoice_no"</tspan><tspan fill="#1C1917">: </tspan><tspan fill="#0F766E">"INV-2026-0342"</tspan><tspan fill="#1C1917">,</tspan></text>
+    <text x="694" y="184"><tspan fill="#7C3AED">"bill_to"</tspan><tspan fill="#1C1917">: </tspan><tspan fill="#0F766E">"ParseHawk Ltd"</tspan><tspan fill="#1C1917">,</tspan></text>
+    <text x="694" y="206"><tspan fill="#7C3AED">"issue_date"</tspan><tspan fill="#1C1917">: </tspan><tspan fill="#0F766E">"2026-06-21"</tspan><tspan fill="#1C1917">,</tspan></text>
+    <text x="694" y="228"><tspan fill="#7C3AED">"total"</tspan><tspan fill="#1C1917">: </tspan><tspan fill="#B45309">4820.00</tspan></text>
+    <text x="686" y="250" fill="#1C1917">}</text>
+  </g>
+  <!-- typing cursor at the reveal edge -->
+  <rect x="686" y="104" width="240" height="2" fill="#F5B301">
+    <animate attributeName="y" values="104;104;272;272;104" keyTimes="0;0.40;0.72;0.96;1" dur="8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0;0;0.8;0.8;0;0" keyTimes="0;0.40;0.41;0.71;0.73;1" dur="8s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- valid-schema badge (centered in the JSON card) -->
+  <g>
+    <rect x="740" y="294" width="128" height="28" rx="14" fill="#16A34A"/>
+    <path d="M754,308 l4,4 l8,-9" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="774" y="312" font-size="12" font-weight="600" fill="#FFFFFF">Valid schema</text>
+    <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.80;0.85;0.95;0.98;1" dur="8s" repeatCount="indefinite"/>
+    <animateTransform attributeName="transform" type="translate" values="0 8;0 8;0 0;0 0" keyTimes="0;0.80;0.86;1" dur="8s" repeatCount="indefinite"/>
+  </g>
+</svg>
