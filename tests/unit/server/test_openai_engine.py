@@ -60,7 +60,7 @@ class _FakeCompletion:
 
 
 class _FakeClient:
-    def __init__(self, completions: _FakeCompletions) -> None:
+    def __init__(self, completions: Any) -> None:
         self.chat = type("Chat", (), {"completions": completions})()
 
 
@@ -119,8 +119,12 @@ def test_generic_payload_response_format_modes_and_examples() -> None:
     )
 
     payload, extra_body = build_generic_chat_payload(
-        request, model="gpt-4o-mini", max_tokens=256, temperature=0.1
+        request, model="gpt-4o-mini", max_completion_tokens=256
     )
+    # max_completion_tokens (not max_tokens), and no temperature (reasoning-safe).
+    assert payload["max_completion_tokens"] == 256
+    assert "max_tokens" not in payload
+    assert "temperature" not in payload
     assert payload["response_format"]["json_schema"]["strict"] is True
     assert extra_body == {}
     roles = [message["role"] for message in payload["messages"]]
@@ -130,18 +134,13 @@ def test_generic_payload_response_format_modes_and_examples() -> None:
     obj, _ = build_generic_chat_payload(
         request,
         model="m",
-        max_tokens=1,
-        temperature=0.0,
+        max_completion_tokens=1,
         response_format_mode=RESPONSE_FORMAT_JSON_OBJECT,
     )
     assert obj["response_format"] == {"type": "json_object"}
 
     none_payload, _ = build_generic_chat_payload(
-        request,
-        model="m",
-        max_tokens=1,
-        temperature=0.0,
-        response_format_mode=RESPONSE_FORMAT_NONE,
+        request, model="m", max_completion_tokens=1, response_format_mode=RESPONSE_FORMAT_NONE
     )
     assert "response_format" not in none_payload
 
@@ -152,8 +151,7 @@ def test_generic_payload_routes_reasoning() -> None:
     effort, _ = build_generic_chat_payload(
         thinking,
         model="o3",
-        max_tokens=1,
-        temperature=0.0,
+        max_completion_tokens=1,
         reasoning_mode=REASONING_EFFORT,
         reasoning_effort="high",
     )
@@ -162,8 +160,7 @@ def test_generic_payload_routes_reasoning() -> None:
     _, extra_body = build_generic_chat_payload(
         thinking,
         model="qwen",
-        max_tokens=1,
-        temperature=0.0,
+        max_completion_tokens=1,
         reasoning_mode=REASONING_CHAT_TEMPLATE_KWARGS,
     )
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
@@ -207,3 +204,78 @@ def test_provider_connection_error_becomes_provider_request_error() -> None:
         engine.extract(make_request())
     assert excinfo.value.status_code is None
     assert "unreachable" in str(excinfo.value)
+
+
+def _legacy_max_completion_tokens_error() -> APIStatusError:
+    # What a legacy OpenAI-compatible server returns when it doesn't know the param.
+    request = httpx.Request("POST", "https://api.test/v1/chat/completions")
+    message = "Unsupported parameter: 'max_completion_tokens'. Use 'max_tokens' instead."
+    response = httpx.Response(400, request=request, json={"error": {"message": message}})
+    return APIStatusError(message, response=response, body=None)
+
+
+class _SequencedCompletions:
+    """Raises the queued error on the first call, then returns the JSON."""
+
+    def __init__(self, error: Exception, data: dict[str, Any]) -> None:
+        self._error = error
+        self._data = data
+        self.calls: list[dict[str, Any]] = []
+
+    def create(self, **kwargs: Any) -> Any:
+        self.calls.append(kwargs)
+        if len(self.calls) == 1:
+            raise self._error
+        return _FakeCompletion(self._data)
+
+
+def test_legacy_server_falls_back_to_max_tokens() -> None:
+    completions = _SequencedCompletions(
+        _legacy_max_completion_tokens_error(),
+        {"choices": [{"message": {"content": '{"receipt_id": "2"}'}}]},
+    )
+    engine = OpenAIExtractionEngine(
+        OpenAIEngineConfig(model="gpt-4o-mini"), client=cast(OpenAI, _FakeClient(completions))
+    )
+
+    result = engine.extract(make_request())
+
+    assert result.data == {"receipt_id": "2"}
+    first, second = completions.calls
+    # The common path sends max_completion_tokens; only a legacy 400 triggers the
+    # one-off retry that converts it to max_tokens.
+    assert "max_completion_tokens" in first and "max_tokens" not in first
+    assert second["max_tokens"] == first["max_completion_tokens"]
+    assert "max_completion_tokens" not in second
+
+
+def test_legacy_fallback_is_cached_for_later_calls() -> None:
+    completions = _SequencedCompletions(
+        _legacy_max_completion_tokens_error(),
+        {"choices": [{"message": {"content": '{"receipt_id": "2"}'}}]},
+    )
+    engine = OpenAIExtractionEngine(
+        OpenAIEngineConfig(model="gpt-4o-mini"), client=cast(OpenAI, _FakeClient(completions))
+    )
+
+    engine.extract(make_request())  # first call: one failure + one retry
+    engine.extract(make_request())  # second call: legacy param already learned
+
+    assert len(completions.calls) == 3
+    assert "max_tokens" in completions.calls[2]
+    assert "max_completion_tokens" not in completions.calls[2]
+
+
+def test_other_400_is_not_retried() -> None:
+    request = httpx.Request("POST", "https://api.test/v1/chat/completions")
+    response = httpx.Response(400, request=request, json={"error": {"message": "bad schema"}})
+    completions = _FakeCompletions(
+        None, error=APIStatusError("bad schema", response=response, body=None)
+    )
+    engine = OpenAIExtractionEngine(
+        OpenAIEngineConfig(model="gpt-4o-mini"), client=cast(OpenAI, _FakeClient(completions))
+    )
+
+    with pytest.raises(ProviderRequestError):
+        engine.extract(make_request())
+    assert len(completions.calls) == 1  # not retried

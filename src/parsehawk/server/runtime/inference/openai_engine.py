@@ -42,13 +42,26 @@ ADAPTER_GENERIC = "generic"
 
 # Top-level OpenAI chat-completion params; everything else rides in extra_body.
 _STANDARD_KEYS = frozenset(
-    {"model", "messages", "temperature", "max_tokens", "response_format", "reasoning_effort"}
+    {
+        "model",
+        "messages",
+        "temperature",
+        "max_tokens",
+        "max_completion_tokens",
+        "response_format",
+        "reasoning_effort",
+    }
 )
 
 
 def select_adapter(model: str) -> str:
     """Pick the payload adapter for a model by exact NuExtract3 membership."""
     return ADAPTER_NUEXTRACT if model in NUEXTRACT3_MODELS else ADAPTER_GENERIC
+
+
+def _requires_legacy_max_tokens(exc: ProviderRequestError) -> bool:
+    """Whether a 400 means the server rejects `max_completion_tokens` (legacy server)."""
+    return exc.status_code == 400 and "max_completion_tokens" in str(exc)
 
 
 @dataclass(frozen=True)
@@ -74,10 +87,32 @@ class OpenAIExtractionEngine:
         self._config = config
         self._adapter = select_adapter(config.model)
         self._client = client if client is not None else _build_client(config)
+        # The generic adapter sends `max_completion_tokens` (the go-forward param,
+        # required by gpt-5/o-series). Some legacy OpenAI-compatible servers only
+        # know `max_tokens`; we learn that from the first API error and convert for
+        # the life of this engine so the common (modern) case never pays a retry.
+        self._legacy_max_tokens = False
 
     def extract(self, request: ExtractionRequest) -> ExtractionResponse:
         standard, extra_body = self._build_payload(request)
+        try:
+            raw = self._post_chat(standard, extra_body)
+        except ProviderRequestError as exc:
+            if self._legacy_max_tokens or not _requires_legacy_max_tokens(exc):
+                raise
+            self._legacy_max_tokens = True
+            raw = self._post_chat(standard, extra_body)
+
+        self._debug_model_io("model runtime response: %s", raw)
+        content = strip_generation_control_tokens(message_content_with_source(raw).text)
+        if request.enable_thinking:
+            content = strip_hidden_thinking(content)
+        return ExtractionResponse(data=extract_json_object(content))
+
+    def _post_chat(self, standard: dict[str, Any], extra_body: dict[str, Any]) -> dict[str, Any]:
         call_kwargs = dict(standard)
+        if self._legacy_max_tokens and "max_completion_tokens" in call_kwargs:
+            call_kwargs["max_tokens"] = call_kwargs.pop("max_completion_tokens")
         if extra_body:
             call_kwargs["extra_body"] = extra_body
         self._debug_model_io("model runtime request: %s", call_kwargs)
@@ -91,13 +126,7 @@ class OpenAIExtractionEngine:
             ) from exc
         except APIConnectionError as exc:
             raise ProviderRequestError(f"model provider is unreachable: {exc}") from exc
-
-        raw = completion.model_dump()
-        self._debug_model_io("model runtime response: %s", raw)
-        content = strip_generation_control_tokens(message_content_with_source(raw).text)
-        if request.enable_thinking:
-            content = strip_hidden_thinking(content)
-        return ExtractionResponse(data=extract_json_object(content))
+        return completion.model_dump()
 
     def _build_payload(self, request: ExtractionRequest) -> tuple[dict[str, Any], dict[str, Any]]:
         if self._adapter == ADAPTER_NUEXTRACT:
@@ -114,8 +143,7 @@ class OpenAIExtractionEngine:
         return build_generic_chat_payload(
             request,
             model=self._config.model,
-            max_tokens=self._config.max_tokens,
-            temperature=self._config.temperature,
+            max_completion_tokens=self._config.max_tokens,
             response_format_mode=self._config.response_format_mode,
             reasoning_mode=self._config.reasoning_mode,
             reasoning_effort=self._config.reasoning_effort,
