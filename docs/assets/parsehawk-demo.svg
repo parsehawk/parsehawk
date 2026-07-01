@@ -6,10 +6,6 @@
       <stop offset="0.75" stop-color="#F5B301" stop-opacity="0.18"/>
       <stop offset="1" stop-color="#F5B301" stop-opacity="0.42"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#F5B301" stop-opacity="0.20"/>
-      <stop offset="1" stop-color="#F5B301" stop-opacity="0"/>
-    </radialGradient>
     <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#1C1917" flood-opacity="0.08"/>
     </filter>
@@ -29,7 +25,6 @@
 
   <!-- background -->
   <rect x="0" y="0" width="1000" height="400" rx="18" fill="#FAFAF9"/>
-  <ellipse cx="500" cy="188" rx="220" ry="180" fill="url(#glow)"/>
 
   <!-- section captions -->
   <text x="196" y="54" text-anchor="middle" fill="#78716C" font-size="11" font-weight="600" letter-spacing="1.6">YOUR DOCUMENT</text>
