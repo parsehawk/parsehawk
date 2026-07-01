@@ -45,13 +45,20 @@ def build_generic_chat_payload(
     request: ExtractionRequest,
     *,
     model: str,
-    max_tokens: int,
-    temperature: float,
+    max_completion_tokens: int,
     response_format_mode: str = RESPONSE_FORMAT_JSON_SCHEMA,
     reasoning_mode: str = REASONING_NONE,
     reasoning_effort: str = "medium",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return ``(standard_kwargs, extra_body)`` for the OpenAI chat client."""
+    """Return ``(standard_kwargs, extra_body)`` for the OpenAI chat client.
+
+    Uses ``max_completion_tokens`` (the go-forward OpenAI param, required by
+    gpt-5/o-series and accepted by non-reasoning models and modern
+    OpenAI-compatible servers) and omits ``temperature`` — reasoning models
+    reject a non-default temperature, and ``response_format`` already constrains
+    the output. The engine falls back to ``max_tokens`` only for legacy servers
+    that don't recognize ``max_completion_tokens``.
+    """
     messages = [
         {"role": "system", "content": generic_system_prompt(request)},
         *messages_from_examples(request.examples),
@@ -59,8 +66,7 @@ def build_generic_chat_payload(
     ]
     payload: dict[str, Any] = {
         "model": model,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_completion_tokens": max_completion_tokens,
         "messages": messages,
     }
     extra_body: dict[str, Any] = {}
