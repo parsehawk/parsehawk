@@ -504,7 +504,7 @@ should still run the same checks; hooks are just the fast local feedback loop.
 Includes hot reload for the web UI.
 
 ```bash
-parsehawk dev   
+parsehawk dev
 ```
 
 ```bash
