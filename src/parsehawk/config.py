@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     database_path: Path | None = None
     log_level: str = "INFO"
     log_model_io: bool = False
+    secret_key: str | None = None
     inference_engine: str = "none"
     vllm_base_url: str = "http://127.0.0.1:8080/v1"
     vllm_model: str = DEFAULT_VLLM_MODEL

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Protocol
 
-from parsehawk.core.domain.models import Extractor, File, Job
+from parsehawk.core.domain.models import Extractor, File, Job, Provider, ProviderName
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,24 @@ class JobRepository(Protocol):  # pragma: no cover
     def delete(self, job_id: str) -> None: ...
 
     def claim_next_queued(self) -> Job | None: ...
+
+
+class ProviderRepository(Protocol):  # pragma: no cover
+    def save(self, provider: Provider) -> None: ...
+
+    def list(self) -> List[Provider]: ...
+
+    def get(self, name: ProviderName) -> Provider | None: ...
+
+
+class SecretStore(Protocol):  # pragma: no cover
+    def put(self, provider_name: ProviderName, api_key: str) -> None: ...
+
+    def get(self, provider_name: ProviderName) -> str | None: ...
+
+    def delete(self, provider_name: ProviderName) -> None: ...
+
+    def has(self, provider_name: ProviderName) -> bool: ...
 
 
 class FileStorage(Protocol):  # pragma: no cover
