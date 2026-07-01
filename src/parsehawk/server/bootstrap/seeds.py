@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from parsehawk.config import Settings
-from parsehawk.core.domain.models import ExtractorSource
+from parsehawk.core.domain.models import ExtractorSource, Provider, ProviderName
 from parsehawk.server.container import Container, build_container
 
 RECEIPT_EXTRACTOR_SEED_KEY = "prebuilt:receipt:v1"
 RECEIPT_EXTRACTOR_SEED_VERSION = 1
+
+OPENAI_BASE_URL = "https://api.openai.com/v1"
 
 RECEIPT_SCHEMA = {
     "type": "object",
@@ -48,7 +50,26 @@ def seed_prebuilt_data(settings: Settings) -> None:
         container.close()
 
 
+def seed_providers_in_container(container: Container) -> None:
+    """Ensure the three fixed providers exist, preconfigured, without clobbering.
+
+    Only missing providers are created, so any base_url/api_version an operator has
+    configured (and their stored API key) survives a restart. openai_compatible_api
+    points at the bundled runtime and is the default provider new extractors use.
+    """
+    default_base_urls = {
+        ProviderName.OPENAI: OPENAI_BASE_URL,
+        ProviderName.OPENAI_COMPATIBLE: container.settings.vllm_base_url,
+        ProviderName.AZURE_OPENAI: None,
+    }
+    for name, base_url in default_base_urls.items():
+        if container.providers.get(name) is None:
+            container.providers.save(Provider(name=name, base_url=base_url))
+
+
 def seed_prebuilt_data_in_container(container: Container) -> None:
+    seed_providers_in_container(container)
+
     existing = [
         extractor
         for extractor in container.extractor_service.list()
