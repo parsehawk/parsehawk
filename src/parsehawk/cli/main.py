@@ -279,6 +279,8 @@ def main(argv: list[str] | None = None) -> None:
         doctor(args)
     elif args.command == "runtime":
         runtime_command(args)
+    elif args.command == "migrate":
+        migrate(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -299,6 +301,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("--data-dir")
+
+    migrate_parser = subparsers.add_parser(
+        "migrate", help="Apply pending database migrations, or show their status"
+    )
+    migrate_parser.add_argument(
+        "migrate_command",
+        nargs="?",
+        choices=["status"],
+        default=None,
+        help="Use 'status' to show applied/pending migrations instead of applying them.",
+    )
+    migrate_parser.add_argument("--data-dir")
+    migrate_parser.add_argument("--json", action="store_true")
 
     doctor_parser = subparsers.add_parser("doctor", help="Check local ParseHawk setup")
     doctor_parser.add_argument("--json", action="store_true")
@@ -508,6 +523,7 @@ def dev(args: argparse.Namespace) -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     database_path = data_dir / "parsehawk.db"
     _print_telemetry_notice(data_dir)
+    _apply_migrations_at_start(args, database_path)
     from parsehawk.server.bootstrap.seeds import seed_prebuilt_data
 
     seed_prebuilt_data(
@@ -717,6 +733,7 @@ def start_docker(args: argparse.Namespace) -> None:
     logs_dir.mkdir(parents=True, exist_ok=True)
     database_path = data_dir / "parsehawk.db"
     _print_telemetry_notice(data_dir)
+    _apply_migrations_at_start(args, database_path)
 
     from parsehawk.server.bootstrap.seeds import seed_prebuilt_data
 
@@ -1078,6 +1095,79 @@ def runtime_command(args: argparse.Namespace) -> None:
             raise SystemExit(1)
 
 
+def migrate(args: argparse.Namespace) -> None:
+    from parsehawk.server.adapters.persistence.migrations import apply_pending, migration_status
+    from parsehawk.server.adapters.persistence.sqlite import connect
+
+    database_path = _resolve_data_dir(args.data_dir) / "parsehawk.db"
+    conn = connect(database_path)
+    try:
+        if args.migrate_command == "status":
+            status_result = migration_status(conn)
+            if args.json:
+                print_json({"applied": status_result.applied, "pending": status_result.pending})
+            else:
+                _print_migration_status(status_result)
+        else:
+            applied = apply_pending(conn)
+            if args.json:
+                print_json({"applied": applied})
+            elif applied:
+                print(f"Applied {len(applied)} migration(s):")
+                for migration_id in applied:
+                    print(f"  {migration_id}")
+            else:
+                print("Database schema is up to date; no migrations to apply")
+    finally:
+        conn.close()
+
+
+def _print_migration_status(status_result: Any) -> None:
+    print("Applied migrations:")
+    for migration_id in status_result.applied or ["(none)"]:
+        print(f"  {migration_id}")
+    print("Pending migrations:")
+    for migration_id in status_result.pending or ["(none)"]:
+        print(f"  {migration_id}")
+
+
+def _should_skip_migrations(args: argparse.Namespace) -> bool:
+    from parsehawk.server.adapters.persistence.migrations import migrations_disabled
+
+    if "migrate" in (getattr(args, "exclude", None) or []):
+        return True
+    return migrations_disabled()
+
+
+def _apply_migrations_at_start(args: argparse.Namespace, database_path: Path) -> None:
+    """Apply pending migrations before serving, honoring the opt-out.
+
+    When opted out (``-x migrate`` or ``PARSEHAWK_SKIP_MIGRATIONS``), the env var is
+    set for the current process so the child API/worker (which inherit it) also skip
+    auto-applying; the operator is expected to run ``parsehawk migrate`` themselves.
+    """
+    if _should_skip_migrations(args):
+        os.environ["PARSEHAWK_SKIP_MIGRATIONS"] = "1"
+        _progress(
+            "Skipping database migrations (opted out); run `parsehawk migrate` to apply pending"
+        )
+        return
+
+    from parsehawk.server.adapters.persistence.migrations import apply_pending
+    from parsehawk.server.adapters.persistence.sqlite import connect
+
+    _progress("Applying database migrations")
+    conn = connect(database_path)
+    try:
+        applied = apply_pending(conn)
+    finally:
+        conn.close()
+    if applied:
+        _progress(f"Applied {len(applied)} migration(s): {', '.join(applied)}")
+    else:
+        _progress("Database schema is up to date")
+
+
 def doctor_checks(
     *, api_url: str, web_url: str, runtime_url: str, model: str, data_dir: Path
 ) -> list[CheckResult]:
@@ -1284,6 +1374,7 @@ def _compose_env(
             "PARSEHAWK_HF_HOME": str(Path.home() / ".cache" / "huggingface"),
             "PARSEHAWK_INFERENCE_ENGINE": "vllm" if runtime_url else "none",
             "PARSEHAWK_VLLM_BASE_URL": runtime_url or "http://127.0.0.1:8080/v1",
+            "PARSEHAWK_SKIP_MIGRATIONS": "1" if _should_skip_migrations(args) else "0",
         }
     )
     env["PARSEHAWK_DATABASE_PATH"] = str(database_path).replace(str(data_dir), "/data", 1)
@@ -1733,6 +1824,15 @@ def _add_start_options(
     parser.add_argument("--runtime-host", default="127.0.0.1")
     parser.add_argument("--runtime-port", type=int, default=8080)
     parser.add_argument("--model")
+    parser.add_argument(
+        "-x",
+        "--exclude",
+        action="append",
+        choices=["migrate"],
+        default=None,
+        metavar="COMPONENT",
+        help="Skip a start-time component. Repeatable. Currently supports: migrate.",
+    )
     parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],

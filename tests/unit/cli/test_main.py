@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -1322,3 +1324,93 @@ def test_upload_file_sends_multipart(tmp_path, monkeypatch: pytest.MonkeyPatch) 
     assert data is not None
     assert b'name="upload"; filename="document.txt"' in data
     assert b"hello" in data
+
+
+def test_migrate_applies_pending_then_reports_up_to_date(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("PARSEHAWK_SKIP_MIGRATIONS", "0")
+
+    cli.main(["migrate"])
+
+    first = capsys.readouterr().out
+    assert "20260701092442_initial_schema" in first
+    assert (data_dir / "parsehawk.db").exists()
+
+    cli.main(["migrate"])
+
+    assert "up to date" in capsys.readouterr().out
+
+
+def test_migrate_status_reports_applied_and_pending(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
+
+    cli.main(["migrate", "status", "--json"])
+
+    assert json.loads(capsys.readouterr().out) == {
+        "applied": [],
+        "pending": ["20260701092442_initial_schema"],
+    }
+
+    cli.main(["migrate"])
+    capsys.readouterr()
+    cli.main(["migrate", "status", "--json"])
+
+    assert json.loads(capsys.readouterr().out) == {
+        "applied": ["20260701092442_initial_schema"],
+        "pending": [],
+    }
+
+
+def test_apply_migrations_at_start_skips_and_sets_env_when_excluded(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setenv("PARSEHAWK_SKIP_MIGRATIONS", "0")
+    database_path = tmp_path / "parsehawk.db"
+
+    cli._apply_migrations_at_start(argparse.Namespace(exclude=["migrate"]), database_path)
+
+    assert os.environ["PARSEHAWK_SKIP_MIGRATIONS"] == "1"
+    assert not database_path.exists()
+    assert "Skipping database migrations" in capsys.readouterr().out
+
+
+def test_apply_migrations_at_start_applies_when_not_excluded(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setenv("PARSEHAWK_SKIP_MIGRATIONS", "0")
+    database_path = tmp_path / "parsehawk.db"
+
+    cli._apply_migrations_at_start(argparse.Namespace(exclude=None), database_path)
+
+    assert database_path.exists()
+    assert "Applied 1 migration(s): 20260701092442_initial_schema" in capsys.readouterr().out
+
+
+def test_start_exclude_migrate_propagates_skip_to_containers(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    data_dir = tmp_path / "data"
+    compose_ups: list[dict[str, Any]] = []
+
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("PARSEHAWK_SKIP_MIGRATIONS", "0")
+    # Pre-migrate so seeding has a schema even though start will skip migrations.
+    cli.main(["migrate"])
+    capsys.readouterr()
+
+    monkeypatch.setattr(cli, "_ensure_start_ports_available", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_ensure_docker_available", lambda: None)
+    monkeypatch.setattr(cli, "_ensure_platform_dependencies", lambda runtime: None)
+    monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: compose_ups.append(kwargs))
+
+    cli.main(["start", "--runtime", "none", "--no-web", "-x", "migrate"])
+
+    assert compose_ups[0]["env"]["PARSEHAWK_SKIP_MIGRATIONS"] == "1"
+    assert "Skipping database migrations" in capsys.readouterr().out

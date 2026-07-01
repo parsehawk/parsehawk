@@ -19,6 +19,7 @@ from parsehawk.core.domain.models import (
     JobResult,
     JobStatus,
 )
+from parsehawk.server.adapters.persistence.migrations import apply_pending
 
 # A single sqlite3.Connection is shared across FastAPI's request threadpool, so
 # multi-statement write transactions (e.g. claim_next_queued's BEGIN IMMEDIATE)
@@ -40,53 +41,12 @@ def connect(database_path: Path) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS files (
-            id TEXT PRIMARY KEY,
-            file_name TEXT NOT NULL,
-            content_type TEXT NOT NULL,
-            size_bytes INTEGER NOT NULL,
-            sha256 TEXT NOT NULL,
-            storage_path TEXT NOT NULL,
-            source TEXT NOT NULL,
-            seed_key TEXT,
-            seed_version INTEGER,
-            created_at TEXT NOT NULL
-        );
+    """Bring the database schema up to date by applying pending migrations.
 
-        CREATE TABLE IF NOT EXISTS extractors (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            instructions TEXT NOT NULL,
-            enable_thinking INTEGER NOT NULL,
-            schema TEXT NOT NULL,
-            examples TEXT NOT NULL,
-            source TEXT NOT NULL,
-            seed_key TEXT,
-            seed_version INTEGER,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS jobs (
-            id TEXT PRIMARY KEY,
-            extractor_id TEXT NOT NULL REFERENCES extractors(id) ON DELETE CASCADE,
-            file_id TEXT REFERENCES files(id) ON DELETE CASCADE,
-            source_text TEXT,
-            status TEXT NOT NULL,
-            result TEXT,
-            error TEXT,
-            created_at TEXT NOT NULL,
-            started_at TEXT,
-            completed_at TEXT
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_jobs_extractor_id ON jobs(extractor_id);
-        CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs(status, created_at);
-        """
-    )
-    conn.commit()
+    The schema is no longer defined inline here: ordered, tracked migrations under
+    ``migrations/`` own the DDL, and the runner is safe to call repeatedly.
+    """
+    apply_pending(conn)
 
 
 def _dump_json(value: Any) -> str:
