@@ -1,0 +1,44 @@
+name: ci-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    name: unit + integration (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon macOS (arm64)
+          - os: macos-14
+          # Linux (x86_64)
+          - os: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # `just test` == `uv run pytest`, which runs the unit + integration
+      # suite with the 100% coverage gate. tests/e2e is excluded via the
+      # default `-m 'not e2e'` addopts because it needs the local model runtime.
+      - name: Run tests
+        run: just test
