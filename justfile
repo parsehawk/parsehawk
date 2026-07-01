@@ -20,6 +20,9 @@ worker:
 test:
     uv run pytest
 
+test-unit:
+    uv run pytest tests/unit
+
 e2e:
     uv run pytest --no-cov -m e2e tests/e2e
 
