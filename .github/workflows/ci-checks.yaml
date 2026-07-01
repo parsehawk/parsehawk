@@ -41,6 +41,28 @@ jobs:
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci-checks.yaml'
 
+  hygiene:
+    name: file hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # File-hygiene hooks apply to every file, so this job is NOT gated on
+      # changed paths — it runs on every PR, including docs-only ones. It stays
+      # light by running pre-commit through uvx (no project sync) and skips
+      # everything except the hooks from the pre-commit-hooks repo. Keep this
+      # SKIP list in sync with the hooks in .pre-commit-config.yaml.
+      - name: Run hygiene hooks
+        env:
+          SKIP: ruff-format,ruff-check,ty-check,unit-tests,web-typecheck,web-tests
+        run: uvx pre-commit run --all-files --show-diff-on-failure
+
   lint:
     name: lint + typecheck (pre-commit)
     needs: changes
@@ -62,12 +84,13 @@ jobs:
         run: uv sync --frozen
 
       # .pre-commit-config.yaml is the single source of truth for the static
-      # checks (ruff format/check, ty, file hygiene). The heavy hooks are
-      # skipped here: unit tests run in the cross-platform ci-test matrix, and
-      # the web hooks run in the `web` job below.
-      - name: Run pre-commit (fast hooks)
+      # checks. This job runs only ruff format/check and ty; the hygiene hooks
+      # run in the always-on `hygiene` job, and the unit/web hooks run in the
+      # ci-test matrix and the `web` job. Keep this SKIP list in sync with
+      # .pre-commit-config.yaml.
+      - name: Run pre-commit (ruff + ty)
         env:
-          SKIP: unit-tests,web-typecheck,web-tests
+          SKIP: check-toml,check-yaml,end-of-file-fixer,trailing-whitespace,unit-tests,web-typecheck,web-tests
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
   web:
