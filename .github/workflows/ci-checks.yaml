@@ -9,8 +9,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    # No diff to inspect on a manual dispatch; jobs run unconditionally in
+    # that case, so path detection only applies to PRs.
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lint: ${{ steps.filter.outputs.lint }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - name: Detect changed areas
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            lint:
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.pre-commit-config.yaml'
+              - 'justfile'
+              - '.github/workflows/ci-checks.yaml'
+            web:
+              - 'apps/web/**'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci-checks.yaml'
+
   lint:
     name: lint + typecheck (pre-commit)
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.lint == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,6 +72,8 @@ jobs:
 
   web:
     name: web typecheck + tests
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.web == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
