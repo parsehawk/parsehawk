@@ -244,6 +244,18 @@ class JobService:
         if job is None:
             raise NotFoundError("job", job_id)
         return job
+    def cancel(self, job_id: str) -> Job:
+     job = self.get(job_id)
+
+     if job.status == JobStatus.QUEUED:
+        job = job.mark_canceled()
+     elif job.status == JobStatus.RUNNING:
+        job = job.mark_canceling()
+     else:
+      raise ValidationFailure(f"cannot cancel job in '{job.status.value}' state")
+
+     self._jobs.save(job)
+     return job
 
     def delete(self, job_id: str) -> None:
         self.get(job_id)
@@ -263,6 +275,11 @@ class JobService:
             if extractor is None:
                 raise NotFoundError("extractor", running.extractor_id)
             source = self._prepare_job_source(running)
+            latest = self._jobs.get(running.id)
+            if latest is not None and latest.status == JobStatus.CANCELING:
+             canceled = latest.mark_canceled()
+             self._jobs.save(canceled)
+             return canceled
             response = self._engine.extract(
                 ExtractionRequest(
                     source_text=source.text,
@@ -287,8 +304,16 @@ class JobService:
                     "extraction did not match schema", code="schema_validation_failed"
                 ).model_copy(update={"result": result})
             )
+            latest = self._jobs.get(running.id)
+
+            if latest is not None and latest.status == JobStatus.CANCELING:
+             canceled = latest.mark_canceled()
+             self._jobs.save(canceled)
+             return canceled
+
             self._jobs.save(completed)
-            return completed
+            return completed    
+
         except Exception as exc:
             failed = running.mark_failed(str(exc))
             self._jobs.save(failed)
