@@ -27,6 +27,7 @@ from parsehawk.config import (
     Settings,
     default_inference_engine,
 )
+from parsehawk.core.domain.models import ProviderName
 from parsehawk.model_profiles import (
     RuntimePlatform,
     RuntimeProfileDefaults,
@@ -39,6 +40,7 @@ from parsehawk.server.runtime.vllm_env import (
 )
 
 UNSUPPORTED_RUNTIME = "unsupported"
+_PROVIDER_NAMES = tuple(name.value for name in ProviderName)
 
 
 def _default_runtime() -> str:
@@ -51,6 +53,17 @@ def _default_runtime() -> str:
     if engine == "vllm":
         return "vllm"
     return UNSUPPORTED_RUNTIME
+
+
+def _resolve_start_runtime(args: argparse.Namespace) -> str:
+    """The runtime `start`/`dev`/`restart` should launch.
+
+    ``-x runtime`` starts without the bundled runtime (for running against a
+    configured cloud/remote provider); otherwise the platform default is used.
+    """
+    if "runtime" in (getattr(args, "exclude", None) or []):
+        return "none"
+    return _default_runtime()
 
 
 def _default_model() -> str:
@@ -253,6 +266,8 @@ class CheckResult:
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command in {"start", "dev", "restart"}:
+        args.runtime = _resolve_start_runtime(args)
     if args.command == "start":
         start(args)
     elif args.command == "dev":
@@ -269,6 +284,8 @@ def main(argv: list[str] | None = None) -> None:
         schemas(args)
     elif args.command == "extractors":
         extractors(args)
+    elif args.command == "providers":
+        providers(args)
     elif args.command == "jobs":
         jobs(args)
     elif args.command == "extract":
@@ -398,6 +415,10 @@ def build_parser() -> argparse.ArgumentParser:
     extractors_create_parser.add_argument("--schema", required=True)
     extractors_create_parser.add_argument("--examples")
     extractors_create_parser.add_argument("--enable-thinking", action="store_true")
+    extractors_create_parser.add_argument(
+        "--provider", dest="provider_name", choices=_PROVIDER_NAMES
+    )
+    extractors_create_parser.add_argument("--model")
     _add_api_url(extractors_create_parser)
     extractors_update_parser = extractors_subparsers.add_parser("update")
     extractors_update_parser.add_argument("extractor_id")
@@ -405,6 +426,10 @@ def build_parser() -> argparse.ArgumentParser:
     extractors_update_parser.add_argument("--instructions")
     extractors_update_parser.add_argument("--schema")
     extractors_update_parser.add_argument("--examples")
+    extractors_update_parser.add_argument(
+        "--provider", dest="provider_name", choices=_PROVIDER_NAMES
+    )
+    extractors_update_parser.add_argument("--model")
     extractors_update_parser.add_argument(
         "--enable-thinking",
         action=argparse.BooleanOptionalAction,
@@ -414,6 +439,30 @@ def build_parser() -> argparse.ArgumentParser:
     extractors_delete_parser = extractors_subparsers.add_parser("delete")
     extractors_delete_parser.add_argument("extractor_id")
     _add_api_url(extractors_delete_parser)
+
+    providers_parser = subparsers.add_parser("providers", help="Configure model providers")
+    providers_subparsers = providers_parser.add_subparsers(dest="providers_command", required=True)
+    providers_list_parser = providers_subparsers.add_parser("list")
+    _add_api_url(providers_list_parser)
+    providers_get_parser = providers_subparsers.add_parser("get")
+    providers_get_parser.add_argument("name", choices=_PROVIDER_NAMES)
+    _add_api_url(providers_get_parser)
+    providers_configure_parser = providers_subparsers.add_parser(
+        "configure", help="Set a provider's base URL, API version, or API key"
+    )
+    providers_configure_parser.add_argument("name", choices=_PROVIDER_NAMES)
+    providers_configure_parser.add_argument("--base-url")
+    providers_configure_parser.add_argument("--api-version")
+    providers_configure_parser.add_argument("--api-key")
+    providers_configure_parser.add_argument(
+        "--api-key-env", help="Read the API key from this environment variable and store it"
+    )
+    _add_api_url(providers_configure_parser)
+    providers_models_parser = providers_subparsers.add_parser(
+        "models", help="List the models the provider currently offers"
+    )
+    providers_models_parser.add_argument("name", choices=_PROVIDER_NAMES)
+    _add_api_url(providers_models_parser)
 
     jobs_parser = subparsers.add_parser("jobs", help="Manage extraction jobs")
     jobs_subparsers = jobs_parser.add_subparsers(dest="jobs_command", required=True)
@@ -952,6 +1001,10 @@ def extractors(args: argparse.Namespace) -> None:
             "schema": read_json_file(args.schema),
             "examples": read_json_file(args.examples) if args.examples else [],
         }
+        if args.provider_name is not None:
+            payload["provider_name"] = args.provider_name
+        if args.model is not None:
+            payload["model"] = args.model
         print_json(api_request(args.api_url, "POST", "/v1/extractors", payload=payload))
     elif args.extractors_command == "update":
         payload: dict[str, Any] = {}
@@ -961,6 +1014,10 @@ def extractors(args: argparse.Namespace) -> None:
             payload["instructions"] = read_text_argument(args.instructions)
         if args.enable_thinking is not None:
             payload["enable_thinking"] = args.enable_thinking
+        if args.provider_name is not None:
+            payload["provider_name"] = args.provider_name
+        if args.model is not None:
+            payload["model"] = args.model
         if args.schema is not None:
             payload["schema"] = read_json_file(args.schema)
         if args.examples is not None:
@@ -978,6 +1035,30 @@ def extractors(args: argparse.Namespace) -> None:
     elif args.extractors_command == "delete":
         api_request(args.api_url, "DELETE", f"/v1/extractors/{args.extractor_id}")
         print_deleted("extractor", args.extractor_id)
+
+
+def providers(args: argparse.Namespace) -> None:
+    if args.providers_command == "list":
+        print_json(api_request(args.api_url, "GET", "/v1/providers"))
+    elif args.providers_command == "get":
+        print_json(api_request(args.api_url, "GET", f"/v1/providers/{args.name}"))
+    elif args.providers_command == "models":
+        print_json(api_request(args.api_url, "GET", f"/v1/providers/{args.name}/models"))
+    elif args.providers_command == "configure":
+        payload: dict[str, Any] = {}
+        if args.base_url is not None:
+            payload["base_url"] = args.base_url
+        if args.api_version is not None:
+            payload["api_version"] = args.api_version
+        if args.api_key is not None:
+            payload["api_key"] = args.api_key
+        if args.api_key_env is not None:
+            payload["api_key_env"] = args.api_key_env
+        if not payload:
+            raise SystemExit("No provider updates provided")
+        print_json(
+            api_request(args.api_url, "PATCH", f"/v1/providers/{args.name}", payload=payload)
+        )
 
 
 def jobs(args: argparse.Namespace) -> None:
@@ -1816,11 +1897,6 @@ def _add_start_options(
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--data-dir")
-    parser.add_argument(
-        "--runtime",
-        choices=["vllm", "none"],
-        default=_default_runtime(),
-    )
     parser.add_argument("--runtime-host", default="127.0.0.1")
     parser.add_argument("--runtime-port", type=int, default=8080)
     parser.add_argument("--model")
@@ -1828,10 +1904,14 @@ def _add_start_options(
         "-x",
         "--exclude",
         action="append",
-        choices=["migrate"],
+        choices=["migrate", "runtime"],
         default=None,
         metavar="COMPONENT",
-        help="Skip a start-time component. Repeatable. Currently supports: migrate.",
+        help=(
+            "Skip a start-time component. Repeatable. Supports: migrate (database "
+            "migrations) and runtime (the bundled model runtime; use this to run "
+            "against a configured cloud/remote provider instead)."
+        ),
     )
     parser.add_argument(
         "--log-level",
