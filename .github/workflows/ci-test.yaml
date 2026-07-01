@@ -8,6 +8,10 @@ concurrency:
   group: ci-test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default; the changes job widens its own scope below.
+permissions:
+  contents: read
+
 jobs:
   changes:
     name: detect changes

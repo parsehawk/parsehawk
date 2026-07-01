@@ -5,6 +5,10 @@ on:
     types: [opened, edited, synchronize, reopened]
   workflow_dispatch:
 
+# The check only reads the PR payload from the event context (no API calls).
+permissions:
+  contents: read
+
 jobs:
   check-issue-reference:
     name: Check Issue Reference
