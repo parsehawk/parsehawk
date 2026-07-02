@@ -140,6 +140,17 @@ Check your local setup:
 parsehawk doctor
 ```
 
+## Updating From Git
+
+If you installed ParseHawk with `uv tool install --editable .`, refresh the tool
+environment after pulling updates. This is needed when new Python dependencies
+were added, otherwise `parsehawk` may fail with `ModuleNotFoundError`.
+
+```bash
+git pull
+uv tool install --force --editable .
+```
+
 ## Database Migrations
 
 The SQLite schema is managed by ordered, tracked migrations. `parsehawk start`
@@ -563,19 +574,6 @@ just setup
 
 The hooks run Ruff, ty, Python tests, Web UI typecheck, and Web UI tests. CI
 should still run the same checks; hooks are just the fast local feedback loop.
-
-#### Upgrading an editable tool install
-
-`parsehawk` installed with `uv tool install --editable .` runs from its own tool
-environment, which `uv sync` does not update. After pulling changes that add or
-bump a dependency, refresh the tool so the CLI picks them up:
-
-```bash
-uv tool install --force --editable .
-```
-
-A stale tool environment surfaces as a `ModuleNotFoundError` for a newly added
-dependency when you run `parsehawk`.
 
 #### Development mode:
 
