@@ -1,0 +1,107 @@
+name: publish-image
+
+# Publishes the ParseHawk API/worker image (one image, two entrypoints) to
+# GHCR:
+#
+#   merge to main  ->  ghcr.io/parsehawk/parsehawk:sha-<shortsha>, :edge
+#   tag vX.Y.Z     ->  ghcr.io/parsehawk/parsehawk:X.Y.Z, :X.Y, :latest
+#                      + a GitHub Release with generated notes
+#
+# The web UI image and the model runtime are intentionally not published:
+# deployments consume the API/worker image; the runtime tier is vLLM +
+# NuExtract3 weights, which are not ours to distribute.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+# Never cancel a half-pushed publish; queue instead.
+concurrency:
+  group: publish-image-${{ github.ref }}
+  cancel-in-progress: false
+
+# Least privilege by default; jobs widen their own scope below.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: build and push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # arm64 is emulated; ParseHawk's dependencies all ship wheels, so the
+      # cross build stays cheap.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `latest` is only applied on semver tags (metadata-action default).
+      - name: Compute image tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Provenance + SBOM attestations are stored alongside the image in
+          # the registry; verifiable with `docker buildx imagetools inspect`.
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: create GitHub release
+    needs: publish
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Idempotent: skips if the release already exists (e.g. the tag was
+      # created through the GitHub Releases UI).
+      - name: Create release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists, skipping"
+            exit 0
+          fi
+          gh release create "$tag" --verify-tag --generate-notes
