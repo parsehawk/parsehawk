@@ -803,6 +803,7 @@ export default function App() {
                           }
                         }}
                       />
+                      <FieldDescription>Human-readable label shown in the UI. You can change it later.</FieldDescription>
                     </Field>
                     <Field>
                       <FieldLabel htmlFor="extractor-name">Name</FieldLabel>
@@ -817,6 +818,7 @@ export default function App() {
                           setName(event.target.value);
                         }}
                       />
+                      <FieldDescription>Stable API name used in requests and CLI commands. It is set on create and cannot be changed later.</FieldDescription>
                       {name && !isValidExtractorName(name) ? (
                         <FieldDescription>Use lowercase letters, digits, hyphen, or underscore; start and end with a letter or digit. The extractor_ prefix is reserved.</FieldDescription>
                       ) : name.length >= 64 ? (
