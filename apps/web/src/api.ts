@@ -77,7 +77,8 @@ export function listExtractors(): Promise<Extractor[]> {
 }
 
 export function createExtractor(payload: {
-  name: string;
+  name?: string;
+  display_name: string;
   instructions: string;
   enable_thinking: boolean;
   schema: Record<string, unknown>;
@@ -93,7 +94,7 @@ export function createExtractor(payload: {
 export function updateExtractor(
   extractorId: string,
   payload: {
-    name: string;
+    display_name: string;
     instructions: string;
     enable_thinking: boolean;
     schema?: Record<string, unknown>;
@@ -120,13 +121,13 @@ export function validateSchema(payload: SchemaValidationRequest): Promise<Schema
 }
 
 export function createJob(
-  extractorId: string,
+  extractorName: string,
   input: { file_id: string } | { text: string }
 ): Promise<Job> {
   return request<Job>("/v1/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ extractor_id: extractorId, ...input })
+    body: JSON.stringify({ extractor_name: extractorName, ...input })
   });
 }
 

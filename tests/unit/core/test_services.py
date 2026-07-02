@@ -64,6 +64,9 @@ class MemoryExtractorRepository:
     def get(self, extractor_id: str) -> Extractor | None:
         return self.items.get(extractor_id)
 
+    def get_by_name(self, name: str) -> Extractor | None:
+        return next((item for item in self.items.values() if item.name == name), None)
+
     def delete(self, extractor_id: str) -> None:
         self.items.pop(extractor_id, None)
 
@@ -290,13 +293,14 @@ def test_extractor_service_create_update_list_delete(services) -> None:
     assert extractor_service.list() == [extractor]
     updated = extractor_service.update(
         extractor.id,
-        name="receipt_v2",
+        display_name="Receipt v2",
         instructions="classify better",
         enable_thinking=False,
         schema=schema(),
         examples=[],
     )
-    assert updated.name == "receipt_v2"
+    assert updated.name == "receipt"
+    assert updated.display_name == "Receipt v2"
     assert updated.instructions == "classify better"
     assert updated.enable_thinking is False
     assert updated.schema == derived_schema()
@@ -314,6 +318,7 @@ def test_extractor_service_partial_update_and_invalid_schema(services) -> None:
 
     updated = extractor_service.update(extractor.id, instructions="new")
     assert updated.name == "a"
+    assert updated.display_name == "a"
     assert updated.instructions == "new"
     assert updated.enable_thinking is False
 
@@ -324,10 +329,116 @@ def test_extractor_service_partial_update_and_invalid_schema(services) -> None:
         extractor_service.create(name="bad", instructions="bad", schema={"type": 1})
 
 
+def test_extractor_service_creates_generated_names_and_resolves_refs(services) -> None:
+    extractor_service: ExtractorService = services["extractor_service"]
+    extractor = extractor_service.create(
+        display_name="Invoice Extractor",
+        instructions="extract",
+        schema=schema(),
+    )
+
+    assert extractor.name == "invoice-extractor"
+    assert extractor.display_name == "Invoice Extractor"
+    assert extractor_service.get_by_ref(extractor.name) == extractor
+    assert extractor_service.get_by_ref(extractor.id) == extractor
+
+
+def test_extractor_service_upserts_by_name(services) -> None:
+    extractor_service: ExtractorService = services["extractor_service"]
+
+    created = extractor_service.upsert(
+        "invoice_v1",
+        display_name="Invoice",
+        instructions="extract",
+        schema=schema(),
+    )
+    updated = extractor_service.upsert(
+        "invoice_v1",
+        display_name="Invoice v2",
+        instructions="extract better",
+        schema=schema(),
+    )
+
+    assert updated.id == created.id
+    assert updated.name == "invoice_v1"
+    assert updated.display_name == "Invoice v2"
+    assert updated.instructions == "extract better"
+
+    with pytest.raises(ValidationFailure, match="request body name must match"):
+        extractor_service.upsert(
+            "invoice_v1",
+            body_name="other",
+            display_name="Invoice",
+            instructions="extract",
+            schema=schema(),
+        )
+
+
+def test_extractor_service_rejects_missing_or_blank_display_name(services) -> None:
+    extractor_service: ExtractorService = services["extractor_service"]
+
+    with pytest.raises(ValidationFailure, match="display_name is required"):
+        extractor_service.create(instructions="i", schema=schema())
+
+    with pytest.raises(ValidationFailure, match="display_name is required"):
+        extractor_service.create(display_name=" ", instructions="i", schema=schema())
+
+
+def test_extractor_service_rejects_invalid_and_duplicate_names(services) -> None:
+    extractor_service: ExtractorService = services["extractor_service"]
+    extractor_service.create(
+        name="receipt", display_name="Receipt", instructions="i", schema=schema()
+    )
+
+    with pytest.raises(ValidationFailure, match="extractor name must"):
+        extractor_service.create(
+            name="Receipt", display_name="Receipt", instructions="i", schema=schema()
+        )
+
+    with pytest.raises(ValidationFailure, match="already exists"):
+        extractor_service.create(
+            name="receipt", display_name="Receipt 2", instructions="i", schema=schema()
+        )
+
+
+def test_extractor_service_suffixes_generated_name_collisions(services) -> None:
+    extractor_service: ExtractorService = services["extractor_service"]
+    first = extractor_service.create(
+        display_name="Invoice Extractor",
+        instructions="i",
+        schema=schema(),
+    )
+    second = extractor_service.create(
+        display_name="Invoice Extractor",
+        instructions="i",
+        schema=schema(),
+    )
+
+    assert first.name == "invoice-extractor"
+    assert second.name.startswith("invoice-extractor-")
+
+
+def test_extractor_service_missing_ref_and_upsert_body_name_mismatch(services) -> None:
+    extractor_service: ExtractorService = services["extractor_service"]
+
+    with pytest.raises(NotFoundError):
+        extractor_service.get_by_ref("missing")
+
+    with pytest.raises(ValidationFailure, match="request body name must match"):
+        extractor_service.upsert(
+            "invoice_v1",
+            body_name="other",
+            display_name="Invoice",
+            instructions="i",
+            schema=schema(),
+        )
+
+
 def test_extractor_service_rejects_prebuilt_update_and_delete(services) -> None:
     extractor_service: ExtractorService = services["extractor_service"]
     extractor = extractor_service.create(
-        name="Receipt",
+        name="receipt",
+        display_name="Receipt",
         instructions="extract",
         schema=schema(),
         source=ExtractorSource.PREBUILT,
@@ -336,9 +447,9 @@ def test_extractor_service_rejects_prebuilt_update_and_delete(services) -> None:
     )
 
     with pytest.raises(ValidationFailure, match="prebuilt extractors are read-only"):
-        extractor_service.update(extractor.id, name="Receipt copy")
+        extractor_service.update("receipt", display_name="Receipt copy")
     with pytest.raises(ValidationFailure, match="prebuilt extractors are read-only"):
-        extractor_service.delete(extractor.id)
+        extractor_service.delete("receipt")
 
     assert extractor_service.get(extractor.id) == extractor
 
@@ -516,6 +627,10 @@ def test_job_service_create_missing_references_and_list_missing_extractor(servic
     extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
     with pytest.raises(NotFoundError):
         services["job_service"].create(extractor_id=extractor.id, file_id="missing")
+    with pytest.raises(ValidationFailure, match="extractor_id or extractor_name"):
+        services["job_service"].create(extractor_id=extractor.id, extractor_name=extractor.name)
+    with pytest.raises(ValidationFailure, match="extractor_id or extractor_name"):
+        services["job_service"].create(file_id="file_1")
     with pytest.raises(ValidationFailure):
         services["job_service"].create(extractor_id=extractor.id)
     with pytest.raises(ValidationFailure):
@@ -524,6 +639,41 @@ def test_job_service_create_missing_references_and_list_missing_extractor(servic
         services["job_service"].create(extractor_id=extractor.id, text="  ")
     with pytest.raises(NotFoundError):
         services["job_service"].list(extractor_id="missing")
+
+
+def test_job_service_resolves_extractor_name_to_canonical_id(services) -> None:
+    extractor = services["extractor_service"].create(
+        name="receipt",
+        display_name="Receipt",
+        instructions="i",
+        schema=schema(),
+    )
+    file = services["file_service"].upload(
+        file_name="receipt.md",
+        content_type="text/markdown",
+        content=b"Receipt #2",
+    )
+
+    job = services["job_service"].create(extractor_name="receipt", file_id=file.id)
+
+    assert job.extractor_id == extractor.id
+    assert services["job_service"].list(extractor_name="receipt") == [job]
+
+
+def test_job_service_lists_all_and_rejects_ambiguous_filters(services) -> None:
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="i", schema=schema()
+    )
+    file = services["file_service"].upload(
+        file_name="receipt.md",
+        content_type="text/markdown",
+        content=b"Receipt #2",
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    assert services["job_service"].list() == [job]
+    with pytest.raises(ValidationFailure, match="only one of extractor_id or extractor_name"):
+        services["job_service"].list(extractor_id=extractor.id, extractor_name=extractor.name)
 
 
 def test_job_service_run_next_returns_none_when_no_work(services) -> None:

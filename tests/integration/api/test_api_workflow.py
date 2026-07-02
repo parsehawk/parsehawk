@@ -71,7 +71,8 @@ def test_receipt_api_workflow(monkeypatch, tmp_path, mock_inference) -> None:
         extractor_response = client.post(
             "/v1/extractors",
             json={
-                "name": "receipt",
+                "name": "receipt_test",
+                "display_name": "Receipt Test",
                 "instructions": "Extract the receipt fields.",
                 "enable_thinking": True,
                 "schema": schema,
@@ -240,7 +241,8 @@ def test_job_can_run_against_inline_text(monkeypatch, tmp_path, mock_inference) 
         extractor_response = client.post(
             "/v1/extractors",
             json={
-                "name": "receipt",
+                "name": "receipt_test",
+                "display_name": "Receipt Test",
                 "instructions": "Extract the receipt fields.",
                 "schema": schema,
                 "examples": [],

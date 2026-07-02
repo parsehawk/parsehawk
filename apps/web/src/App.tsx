@@ -105,6 +105,7 @@ type RunInputMode = "file" | "text";
 type UploadProgressState = { total: number; completed: number; failed: number };
 
 const emptyExtractorName = "";
+const emptyDisplayName = "";
 const emptyInstructions = "";
 const emptySchema = schemaFromFields([]);
 
@@ -121,12 +122,14 @@ export default function App() {
   const [schemaText, setSchemaText] = useState(prettyJson(emptySchema));
   const [draftExtractorId, setDraftExtractorId] = useState<string | null>(null);
   const [name, setName] = useState(emptyExtractorName);
+  const [displayName, setDisplayName] = useState(emptyDisplayName);
   const [instructions, setInstructions] = useState(emptyInstructions);
   const [enableThinking, setEnableThinking] = useState(false);
   const [examples, setExamples] = useState<EditableExample[]>([]);
   const [savedExtractorDraft, setSavedExtractorDraft] = useState(() =>
     extractorDraftSnapshot({
       name: emptyExtractorName,
+      displayName: emptyDisplayName,
       instructions: emptyInstructions,
       enableThinking: false,
       schemaText: prettyJson(fieldSchemaFromFields([])),
@@ -173,6 +176,7 @@ export default function App() {
   const schemaDraftText = schemaDraftFingerprint(schemaMode, schemaFields, schemaText);
   const extractorDraft = extractorDraftSnapshot({
     name,
+    displayName,
     instructions,
     enableThinking,
     schemaText: schemaDraftText,
@@ -358,7 +362,7 @@ export default function App() {
       setDraftExtractorId(extractor.id);
       await refresh();
       setSelectedExtractorId(extractor.id);
-      setMessage(`${draftExtractorId ? "Updated" : "Created"} extractor ${extractor.name}`);
+      setMessage(`${draftExtractorId ? "Updated" : "Created"} extractor ${extractorLabel(extractor)}`);
       setErrorMessage("");
     } catch (error) {
       showError(error);
@@ -403,7 +407,7 @@ export default function App() {
     if (runInputMode === "text") {
       try {
         setMessage("Starting extraction job...");
-        const created = await createJob(selectedExtractor.id, { text: runText });
+        const created = await createJob(selectedExtractor.name, { text: runText });
         setJob(created);
         setJobs((current) => upsertJob(current, created));
         setMessage(`Job ${created.id} queued`);
@@ -423,7 +427,7 @@ export default function App() {
       let firstError: unknown = null;
       for (const fileId of fileIds) {
         try {
-          const job = await createJob(selectedExtractor.id, { file_id: fileId });
+          const job = await createJob(selectedExtractor.name, { file_id: fileId });
           created.push(job);
         } catch (error) {
           firstError ??= error;
@@ -473,11 +477,17 @@ export default function App() {
   }
 
   function currentExtractorPayload() {
-    const base = { name, instructions, enable_thinking: enableThinking, examples: examplesToPayload(examples) };
+    const base = {
+      display_name: displayName,
+      instructions,
+      enable_thinking: enableThinking,
+      examples: examplesToPayload(examples)
+    };
+    const payload = draftExtractorId ? base : { ...base, name };
     if (schemaMode === "json") {
-      return { ...base, schema: parseJsonObject(schemaText) };
+      return { ...payload, schema: parseJsonObject(schemaText) };
     }
-    return { ...base, schema: schemaFromFields(schemaFields) };
+    return { ...payload, schema: schemaFromFields(schemaFields) };
   }
 
   function switchSchemaMode(nextMode: SchemaMode) {
@@ -521,12 +531,13 @@ export default function App() {
   function loadExtractor(extractor: Extractor) {
     setDraftExtractorId(extractor.id);
     setName(extractor.name);
+    setDisplayName(extractorLabel(extractor));
     setInstructions(extractor.instructions);
     setEnableThinking(extractor.enable_thinking ?? false);
     applyExtractorArtifacts(extractor);
     setSchemaMode("builder");
     setSchemaValidation(null);
-    setMessage(`${isPrebuiltExtractor(extractor) ? "Viewing" : "Editing"} extractor ${extractor.name}`);
+    setMessage(`${isPrebuiltExtractor(extractor) ? "Viewing" : "Editing"} extractor ${extractorLabel(extractor)}`);
     setErrorMessage("");
   }
 
@@ -536,6 +547,7 @@ export default function App() {
     const nextExamples: EditableExample[] = [];
     setDraftExtractorId(null);
     setName(emptyExtractorName);
+    setDisplayName(emptyDisplayName);
     setInstructions(emptyInstructions);
     setEnableThinking(false);
     setExamples(nextExamples);
@@ -546,6 +558,7 @@ export default function App() {
     setSavedExtractorDraft(
       extractorDraftSnapshot({
         name: emptyExtractorName,
+        displayName: emptyDisplayName,
         instructions: emptyInstructions,
         enableThinking: false,
         schemaText: prettyJson(fieldSchemaFromFields(nextSchemaFields)),
@@ -577,6 +590,7 @@ export default function App() {
     setSavedExtractorDraft(
       extractorDraftSnapshot({
         name: extractor.name,
+        displayName: extractorLabel(extractor),
         instructions: extractor.instructions,
         enableThinking: extractor.enable_thinking ?? false,
         schemaText: prettyJson(fieldSchemaFromFields(nextFields)),
@@ -767,19 +781,37 @@ export default function App() {
                   </CardAction>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-5">
-                  <FieldGroup className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+                  <FieldGroup className="grid gap-4 lg:grid-cols-[320px_320px_minmax(0,1fr)]">
+                    <Field>
+                      <FieldLabel htmlFor="extractor-display-name">Display name</FieldLabel>
+                      <Input
+                        id="extractor-display-name"
+                        value={displayName}
+                        placeholder="Invoice Extractor"
+                        disabled={draftExtractorIsPrebuilt}
+                        onChange={(event) => {
+                          const nextDisplayName = event.target.value;
+                          setDisplayName(nextDisplayName);
+                          if (!draftExtractorId) {
+                            setName(slugifyExtractorName(nextDisplayName));
+                          }
+                        }}
+                      />
+                    </Field>
                     <Field>
                       <FieldLabel htmlFor="extractor-name">Name</FieldLabel>
                       <Input
                         id="extractor-name"
                         value={name}
                         placeholder="invoice_v1"
-                        maxLength={30}
-                        disabled={draftExtractorIsPrebuilt}
+                        maxLength={64}
+                        disabled={draftExtractorIsPrebuilt || Boolean(draftExtractorId)}
                         onChange={(event) => setName(event.target.value)}
                       />
-                      {name.length >= 30 ? (
-                        <FieldDescription>Maximum of 30 characters reached.</FieldDescription>
+                      {name && !isValidExtractorName(name) ? (
+                        <FieldDescription>Use lowercase letters, digits, hyphen, or underscore; start and end with a letter or digit.</FieldDescription>
+                      ) : name.length >= 64 ? (
+                        <FieldDescription>Maximum of 64 characters reached.</FieldDescription>
                       ) : null}
                     </Field>
                     <Field>
@@ -862,7 +894,7 @@ export default function App() {
 
                   <div className="flex flex-wrap gap-2">
                     {draftExtractorIsPrebuilt ? null : (
-                      <Button disabled={!hasUnsavedExtractorChanges} onClick={() => void onSaveExtractor()}>
+                      <Button disabled={!hasUnsavedExtractorChanges || !displayName.trim() || (!draftExtractorId && !isValidExtractorName(name))} onClick={() => void onSaveExtractor()}>
                         {draftExtractorId ? "Save changes" : "Create extractor"}
                       </Button>
                     )}
@@ -880,7 +912,7 @@ export default function App() {
                       Use this extractor
                     </Button>
                     {draftExtractorId ? (
-                      <CopyTextButton value={draftExtractorId} label="Copy extractor ID" />
+                      <CopyTextButton value={name} label="Copy extractor name" copiedLabel="Copied name!" />
                     ) : null}
                     {draftExtractorId && !draftExtractorIsPrebuilt ? (
                       <Button variant="destructive" onClick={() => setConfirmDeleteExtractor(true)}>
@@ -900,7 +932,7 @@ export default function App() {
                     <CardDescription className="flex flex-wrap items-center gap-1.5">
                       <span>Run extractor</span>
                       {selectedExtractor ? (
-                        <Badge variant="secondary" className="border-transparent bg-primary/25">{selectedExtractor.name}</Badge>
+                        <Badge variant="secondary" className="border-transparent bg-primary/25">{extractorLabel(selectedExtractor)}</Badge>
                       ) : (
                         <Badge variant="outline">No extractor selected</Badge>
                       )}
@@ -1797,10 +1829,10 @@ function ExtractorList(props: {
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className="min-w-0 truncate font-medium">{extractor.name}</span>
+                    <span className="min-w-0 truncate font-medium">{extractorLabel(extractor)}</span>
                     {isPrebuilt ? <Badge variant="outline" className="shrink-0">Prebuilt</Badge> : null}
                   </span>
-                  <CopyableId id={extractor.id} label="extractor ID" className="text-xs" />
+                  <CopyableId id={extractor.name} label="extractor name" className="text-xs" />
                 </span>
                 <Button
                   variant="outline"
@@ -1848,7 +1880,7 @@ function JobHistory(props: {
           {props.extractor ? (
             <>
               <span>Pending and completed runs for</span>
-              <Badge variant="secondary" className="border-transparent bg-primary/30">{props.extractor.name}</Badge>
+              <Badge variant="secondary" className="border-transparent bg-primary/30">{extractorLabel(props.extractor)}</Badge>
             </>
           ) : (
             "Select an extractor to inspect previous runs."
@@ -2228,7 +2260,7 @@ function CopyButton(props: { value: string; label: string }) {
   );
 }
 
-function CopyTextButton(props: { value: string; label: string }) {
+function CopyTextButton(props: { value: string; label: string; copiedLabel?: string }) {
   const [copied, setCopied] = useState(false);
   const Icon = copied ? Check : Copy;
 
@@ -2246,7 +2278,7 @@ function CopyTextButton(props: { value: string; label: string }) {
       <span className="grid place-items-center">
         <span className={cn("col-start-1 row-start-1", copied && "invisible")}>{props.label}</span>
         <span className={cn("col-start-1 row-start-1", !copied && "invisible")} aria-hidden={!copied}>
-          Copied ID!
+          {props.copiedLabel ?? "Copied ID!"}
         </span>
       </span>
     </Button>
@@ -2332,6 +2364,25 @@ function isPrebuiltExtractor(extractor: Extractor) {
   return extractor.source === "prebuilt" || extractor.is_prebuilt === true || extractor.is_example === true;
 }
 
+function extractorLabel(extractor: Extractor) {
+  return extractor.display_name || extractor.name;
+}
+
+function isValidExtractorName(name: string) {
+  return /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/.test(name);
+}
+
+function slugifyExtractorName(displayName: string) {
+  const slug = displayName
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || "extractor";
+}
+
 function schemaDraftFingerprint(mode: SchemaMode, fields: SchemaField[], jsonText: string) {
   try {
     if (mode === "json") {
@@ -2345,6 +2396,7 @@ function schemaDraftFingerprint(mode: SchemaMode, fields: SchemaField[], jsonTex
 
 function extractorDraftSnapshot(props: {
   name: string;
+  displayName: string;
   instructions: string;
   enableThinking: boolean;
   schemaText: string;
@@ -2352,6 +2404,7 @@ function extractorDraftSnapshot(props: {
 }) {
   return JSON.stringify({
     name: props.name,
+    displayName: props.displayName,
     instructions: props.instructions,
     enableThinking: props.enableThinking,
     schemaText: props.schemaText,

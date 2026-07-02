@@ -137,6 +137,8 @@ def test_extractors_create_reads_schema_and_examples(
             "extractors",
             "create",
             "--name",
+            "invoices",
+            "--display-name",
             "Invoices",
             "--instructions",
             str(instructions_path),
@@ -156,7 +158,8 @@ def test_extractors_create_reads_schema_and_examples(
             "POST",
             "/v1/extractors",
             {
-                "name": "Invoices",
+                "display_name": "Invoices",
+                "name": "invoices",
                 "instructions": "Extract invoice fields.",
                 "enable_thinking": True,
                 "schema": {"type": "object"},
@@ -166,6 +169,53 @@ def test_extractors_create_reads_schema_and_examples(
         )
     ]
     assert json.loads(capsys.readouterr().out) == {"id": "extractor_1"}
+
+
+def test_extractors_put_replaces_by_name(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text('{"type": "object"}', encoding="utf-8")
+    captured: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def api_request(
+        api_url: str,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, str]:
+        captured.append((method, path, payload))
+        return {"id": "extractor_1"}
+
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    cli.main(
+        [
+            "extractors",
+            "put",
+            "invoice_v1",
+            "--display-name",
+            "Invoice",
+            "--instructions",
+            "Extract.",
+            "--schema",
+            str(schema_path),
+        ]
+    )
+
+    assert captured == [
+        (
+            "PUT",
+            "/v1/extractors/invoice_v1",
+            {
+                "display_name": "Invoice",
+                "instructions": "Extract.",
+                "enable_thinking": False,
+                "schema": {"type": "object"},
+                "examples": [],
+            },
+        )
+    ]
 
 
 def test_jobs_create_posts_file_id(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
@@ -357,7 +407,7 @@ def test_extract_creates_ad_hoc_extractor_uploads_file_and_waits(
             "POST",
             "/v1/extractors",
             {
-                "name": "invoice_extractor",
+                "display_name": "invoice_extractor",
                 "instructions": "Extract invoice fields.",
                 "enable_thinking": True,
                 "schema": {"type": "object"},
@@ -1358,7 +1408,11 @@ def test_migrate_status_reports_applied_and_pending(
 
     assert json.loads(capsys.readouterr().out) == {
         "applied": [],
-        "pending": ["20260701092442_initial_schema", "20260701121138_add_providers"],
+        "pending": [
+            "20260701092442_initial_schema",
+            "20260701121138_add_providers",
+            "20260702160000_extractor_display_names",
+        ],
     }
 
     cli.main(["migrate"])
@@ -1366,7 +1420,11 @@ def test_migrate_status_reports_applied_and_pending(
     cli.main(["migrate", "status", "--json"])
 
     assert json.loads(capsys.readouterr().out) == {
-        "applied": ["20260701092442_initial_schema", "20260701121138_add_providers"],
+        "applied": [
+            "20260701092442_initial_schema",
+            "20260701121138_add_providers",
+            "20260702160000_extractor_display_names",
+        ],
         "pending": [],
     }
 
@@ -1394,7 +1452,8 @@ def test_apply_migrations_at_start_applies_when_not_excluded(
 
     assert database_path.exists()
     assert (
-        "Applied 2 migration(s): 20260701092442_initial_schema, 20260701121138_add_providers"
+        "Applied 3 migration(s): 20260701092442_initial_schema, "
+        "20260701121138_add_providers, 20260702160000_extractor_display_names"
         in capsys.readouterr().out
     )
 
@@ -1514,6 +1573,8 @@ def test_extractors_create_includes_provider_and_model(
             "extractors",
             "create",
             "--name",
+            "x",
+            "--display-name",
             "X",
             "--instructions",
             "Extract.",

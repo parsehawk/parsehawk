@@ -61,6 +61,7 @@ def test_init_db_creates_structured_tables_indexes_and_foreign_keys(
     assert columns(conn, "extractors") == [
         "id",
         "name",
+        "display_name",
         "instructions",
         "enable_thinking",
         "schema",
@@ -89,6 +90,7 @@ def test_init_db_creates_structured_tables_indexes_and_foreign_keys(
         "idx_jobs_extractor_id",
         "idx_jobs_status_created_at",
     }
+    assert "idx_extractors_name" in indexes(conn, "extractors")
     assert foreign_keys(conn, "jobs") == {
         ("file_id", "files", "id", "CASCADE"),
         ("extractor_id", "extractors", "id", "CASCADE"),
@@ -119,6 +121,7 @@ def test_repositories_round_trip_domain_models(conn: sqlite3.Connection) -> None
 
     assert files.get(file.id) == file
     assert extractors.get(extractor.id) == extractor
+    assert extractors.get_by_name(extractor.name) == extractor
     assert jobs.get(completed.id) == completed
     assert jobs.get(failed.id) == failed
     assert jobs.list(extractor_id=extractor.id) == [completed, failed]
@@ -289,9 +292,11 @@ def sample_file() -> File:
 
 
 def sample_extractor(id: str = "extractor_1") -> Extractor:
+    suffix = id.removeprefix("extractor_")
     return Extractor(
         id=id,
-        name="Receipt",
+        name=f"receipt_{suffix}",
+        display_name="Receipt",
         instructions="Extract receipt fields.",
         enable_thinking=True,
         schema={

@@ -122,6 +122,7 @@ class SQLiteFileRow:
 class SQLiteExtractorRow:
     id: str
     name: str
+    display_name: str
     instructions: str
     enable_thinking: int
     provider_name: str | None
@@ -139,6 +140,7 @@ class SQLiteExtractorRow:
         return cls(
             id=extractor.id,
             name=extractor.name,
+            display_name=extractor.display_name,
             instructions=extractor.instructions,
             enable_thinking=1 if extractor.enable_thinking else 0,
             provider_name=extractor.provider_name.value if extractor.provider_name else None,
@@ -166,6 +168,7 @@ class SQLiteExtractorRow:
         return Extractor(
             id=self.id,
             name=self.name,
+            display_name=self.display_name,
             instructions=self.instructions,
             enable_thinking=bool(self.enable_thinking),
             provider_name=ProviderName(self.provider_name) if self.provider_name else None,
@@ -293,12 +296,13 @@ class SQLiteExtractorRepository:
             self._conn.execute(
                 """
                 INSERT INTO extractors (
-                    id, name, instructions, enable_thinking, provider_name, model,
+                    id, name, display_name, instructions, enable_thinking, provider_name, model,
                     schema, examples, source, seed_key, seed_version, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
+                    display_name = excluded.display_name,
                     instructions = excluded.instructions,
                     enable_thinking = excluded.enable_thinking,
                     provider_name = excluded.provider_name,
@@ -314,6 +318,7 @@ class SQLiteExtractorRepository:
                 (
                     row.id,
                     row.name,
+                    row.display_name,
                     row.instructions,
                     row.enable_thinking,
                     row.provider_name,
@@ -337,6 +342,10 @@ class SQLiteExtractorRepository:
         row = self._conn.execute(
             "SELECT * FROM extractors WHERE id = ?", (extractor_id,)
         ).fetchone()
+        return SQLiteExtractorRow.from_sqlite(row).to_domain() if row else None
+
+    def get_by_name(self, name: str) -> Extractor | None:
+        row = self._conn.execute("SELECT * FROM extractors WHERE name = ?", (name,)).fetchone()
         return SQLiteExtractorRow.from_sqlite(row).to_domain() if row else None
 
     def delete(self, extractor_id: str) -> None:
