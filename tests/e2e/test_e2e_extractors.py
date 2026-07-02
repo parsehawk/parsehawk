@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import httpx
@@ -17,10 +18,12 @@ def test_list_includes_seeded_prebuilt(client: httpx.Client) -> None:
 def test_extractor_create_get_patch_delete(
     client: httpx.Client, receipt_schema: dict[str, Any]
 ) -> None:
+    extractor_name = f"e2e-lifecycle-{uuid.uuid4().hex[:8]}"
     created = client.post(
         "/v1/extractors",
         json={
-            "name": "e2e-lifecycle",
+            "name": extractor_name,
+            "display_name": "E2E Lifecycle",
             "instructions": "Extract receipt fields.",
             "schema": receipt_schema,
             "examples": [],
@@ -36,13 +39,17 @@ def test_extractor_create_get_patch_delete(
     got = client.get(f"/v1/extractors/{extractor_id}")
     assert got.status_code == 200
     assert got.json()["id"] == extractor_id
+    got_by_name = client.get(f"/v1/extractors/{extractor_name}")
+    assert got_by_name.status_code == 200
+    assert got_by_name.json()["id"] == extractor_id
 
     patched = client.patch(
         f"/v1/extractors/{extractor_id}",
-        json={"name": "e2e-lifecycle-renamed"},
+        json={"display_name": "E2E Lifecycle Renamed"},
     )
     assert patched.status_code == 200
-    assert patched.json()["name"] == "e2e-lifecycle-renamed"
+    assert patched.json()["name"] == extractor_name
+    assert patched.json()["display_name"] == "E2E Lifecycle Renamed"
 
     deleted = client.delete(f"/v1/extractors/{extractor_id}")
     assert deleted.status_code == 204
