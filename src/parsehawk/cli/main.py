@@ -587,12 +587,18 @@ def dev(args: argparse.Namespace) -> None:
     _apply_migrations_at_start(args, database_path)
     from parsehawk.server.bootstrap.seeds import seed_prebuilt_data
 
+    seed_runtime_url = (
+        f"http://{args.runtime_host}:{args.runtime_port}/v1"
+        if args.runtime == "vllm"
+        else settings.vllm_base_url
+    )
     seed_prebuilt_data(
         settings.model_copy(
             update={
                 "data_dir": data_dir,
                 "database_path": database_path,
                 "inference_engine": "none",
+                "vllm_base_url": seed_runtime_url,
             }
         )
     )
@@ -607,7 +613,7 @@ def dev(args: argparse.Namespace) -> None:
     base_env["PARSEHAWK_LOG_LEVEL"] = log_level.upper()
 
     if args.runtime == "vllm":
-        runtime_url = f"http://{args.runtime_host}:{args.runtime_port}/v1"
+        runtime_url = seed_runtime_url
         runtime_env = base_env.copy()
         runtime_env.update(vllm_launch_env())
         _progress(f"Preparing model runtime: {model}")
@@ -798,12 +804,20 @@ def start_docker(args: argparse.Namespace) -> None:
 
     from parsehawk.server.bootstrap.seeds import seed_prebuilt_data
 
+    seed_runtime_url = settings.vllm_base_url
+    if args.runtime == "vllm":
+        if _is_macos_apple_silicon():
+            seed_runtime_url = f"http://host.docker.internal:{args.runtime_port}/v1"
+        elif _is_linux_x86_64():
+            seed_runtime_url = "http://runtime:8080/v1"
+
     seed_prebuilt_data(
         settings.model_copy(
             update={
                 "data_dir": data_dir,
                 "database_path": database_path,
                 "inference_engine": "none",
+                "vllm_base_url": seed_runtime_url,
             }
         )
     )

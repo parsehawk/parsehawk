@@ -3,12 +3,25 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from parsehawk.cli import main as cli
+
+
+def _provider_base_url(
+    database_path: Path, provider_name: str = "openai_compatible_api"
+) -> str | None:
+    with sqlite3.connect(database_path) as conn:
+        row = conn.execute(
+            "SELECT base_url FROM providers WHERE name = ?",
+            (provider_name,),
+        ).fetchone()
+    assert row is not None
+    return row[0]
 
 
 def test_files_list_prints_api_response(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
@@ -594,6 +607,7 @@ def test_dev_launches_vllm_runtime_when_selected(
     assert api_env["PARSEHAWK_INFERENCE_ENGINE"] == "vllm"
     assert api_env["PARSEHAWK_VLLM_MODEL"] == "numind/NuExtract3-W4A16"
     assert api_env["PARSEHAWK_VLLM_BASE_URL"] == "http://127.0.0.1:8080/v1"
+    assert _provider_base_url(data_dir / "parsehawk.db") == "http://127.0.0.1:8080/v1"
     assert "ParseHawk started: http://127.0.0.1:8000" in capsys.readouterr().out
 
 
@@ -887,6 +901,52 @@ def test_start_uses_docker_compose_mode(tmp_path, monkeypatch: pytest.MonkeyPatc
     assert "ParseHawk started: http://127.0.0.1:8000" in output
 
 
+def test_start_macos_docker_vllm_seeds_container_runtime_provider_url(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_dir = tmp_path / "parsehawk-data"
+    compose_ups: list[dict[str, Any]] = []
+    spawned: list[dict[str, Any]] = []
+
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: True)
+    monkeypatch.setattr(cli, "_is_linux_x86_64", lambda: False)
+    monkeypatch.setattr(cli, "_ensure_start_ports_available", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_ensure_docker_available", lambda: None)
+    monkeypatch.setattr(cli, "_ensure_platform_dependencies", lambda runtime: None)
+    monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_wait_for_url", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_wait_for_runtime", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_ensure_managed_processes_alive", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        cli,
+        "ensure_vllm_metal_venv",
+        lambda *args, **kwargs: Path("/fake/vllm-metal/bin/python"),
+    )
+    monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: compose_ups.append(kwargs))
+
+    def spawn(
+        name: str,
+        cmd: list[str],
+        env: dict[str, str],
+        logs_dir,
+    ) -> cli.ManagedProcess:
+        spawned.append({"name": name, "cmd": cmd, "env": env, "logs_dir": logs_dir})
+        return cli.ManagedProcess(name=name, pid=len(spawned), log_path=f"{name}.log")
+
+    monkeypatch.setattr(cli, "_spawn", spawn)
+    monkeypatch.setattr(cli, "_default_runtime", lambda: "vllm")
+
+    cli.main(["start", "--runtime-port", "18080", "--no-web"])
+
+    assert [process["name"] for process in spawned] == ["runtime"]
+    assert compose_ups[0]["services"] == ["api", "worker"]
+    assert compose_ups[0]["env"]["PARSEHAWK_VLLM_BASE_URL"] == (
+        "http://host.docker.internal:18080/v1"
+    )
+    assert _provider_base_url(data_dir / "parsehawk.db") == ("http://host.docker.internal:18080/v1")
+
+
 def test_status_uses_dev_checkout_data_dir_from_any_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
@@ -996,6 +1056,7 @@ def test_start_linux_vllm_uses_internal_runtime_port(
     assert compose_ups[0]["env"]["PARSEHAWK_RUNTIME_PORT"] == "18080"
     assert compose_ups[0]["env"]["PARSEHAWK_INFERENCE_ENGINE"] == "vllm"
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_BASE_URL"] == "http://runtime:8080/v1"
+    assert _provider_base_url(data_dir / "parsehawk.db") == "http://runtime:8080/v1"
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_MAX_MODEL_LEN"] == "16384"
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_MAX_NUM_SEQS"] == "4"
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION"] == "0.85"

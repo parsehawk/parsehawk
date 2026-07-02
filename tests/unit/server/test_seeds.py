@@ -84,6 +84,56 @@ def test_reseeding_does_not_clobber_configured_provider(tmp_path) -> None:
         container.close()
 
 
+def test_reseeding_reconciles_stale_bundled_provider_url(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    seed_prebuilt_data(settings)
+
+    container = build_container(settings)
+    try:
+        container.provider_service.configure(
+            ProviderName.OPENAI_COMPATIBLE,
+            base_url="http://127.0.0.1:8080/v1",
+        )
+    finally:
+        container.close()
+
+    seed_prebuilt_data(
+        settings.model_copy(update={"vllm_base_url": "http://host.docker.internal:8080/v1"})
+    )
+
+    container = build_container(settings)
+    try:
+        provider = container.provider_service.get(ProviderName.OPENAI_COMPATIBLE)
+    finally:
+        container.close()
+    assert provider.base_url == "http://host.docker.internal:8080/v1"
+
+
+def test_reseeding_keeps_custom_openai_compatible_provider_url(tmp_path) -> None:
+    settings = _settings(tmp_path)
+    seed_prebuilt_data(settings)
+
+    container = build_container(settings)
+    try:
+        container.provider_service.configure(
+            ProviderName.OPENAI_COMPATIBLE,
+            base_url="http://local-llm.example:11434/v1",
+        )
+    finally:
+        container.close()
+
+    seed_prebuilt_data(
+        settings.model_copy(update={"vllm_base_url": "http://host.docker.internal:8080/v1"})
+    )
+
+    container = build_container(settings)
+    try:
+        provider = container.provider_service.get(ProviderName.OPENAI_COMPATIBLE)
+    finally:
+        container.close()
+    assert provider.base_url == "http://local-llm.example:11434/v1"
+
+
 def test_seeded_prebuilt_extractor_uses_default_provider_and_model(tmp_path) -> None:
     settings = _settings(tmp_path)
 
