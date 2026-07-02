@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Protocol
+from typing import Callable, List, Protocol
 
 from parsehawk.core.domain.models import Extractor, File, Job, Provider, ProviderName
 
@@ -84,7 +84,11 @@ class FileStorage(Protocol):  # pragma: no cover
 
 
 class ExtractionEngine(Protocol):  # pragma: no cover
-    def extract(self, request: "ExtractionRequest") -> "ExtractionResponse": ...
+    def extract(
+        self,
+        request: "ExtractionRequest",
+        cancellation_check: Callable[[], bool] | None = None,
+    ) -> "ExtractionResponse": ...
 
 
 class EngineFactory(Protocol):  # pragma: no cover

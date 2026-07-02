@@ -18,7 +18,7 @@ from parsehawk.core.application.ports import (
     ProviderRepository,
     SecretStore,
 )
-from parsehawk.core.domain.errors import NotFoundError, ValidationFailure
+from parsehawk.core.domain.errors import ExtractionCancelled, NotFoundError, ValidationFailure
 from parsehawk.core.domain.ids import new_id
 from parsehawk.core.domain.models import (
     Example,
@@ -475,18 +475,19 @@ class JobService:
         if job is None:
             raise NotFoundError("job", job_id)
         return job
+
     def cancel(self, job_id: str) -> Job:
-     job = self.get(job_id)
+        job = self.get(job_id)
 
-     if job.status == JobStatus.QUEUED:
-        job = job.mark_canceled()
-     elif job.status == JobStatus.RUNNING:
-        job = job.mark_canceling()
-     else:
-      raise ValidationFailure(f"cannot cancel job in '{job.status.value}' state")
+        if job.status == JobStatus.QUEUED:
+            job = job.mark_canceled()
+        elif job.status == JobStatus.RUNNING:
+            job = job.mark_canceling()
+        else:
+            raise ValidationFailure(f"cannot cancel job in '{job.status.value}' state")
 
-     self._jobs.save(job)
-     return job
+        self._jobs.save(job)
+        return job
 
     def delete(self, job_id: str) -> None:
         self.get(job_id)
@@ -509,13 +510,16 @@ class JobService:
 
             engine = self._engine_factory.for_extractor(extractor)
 
+            def cancellation_requested() -> bool:
+                latest = self._jobs.get(running.id)
+                return latest is not None and latest.status == JobStatus.CANCELING
+
             latest = self._jobs.get(running.id)
             if latest is not None and latest.status == JobStatus.CANCELING:
-             canceled = latest.mark_canceled()
-             self._jobs.save(canceled)
-             return canceled
+                canceled = latest.mark_canceled()
+                self._jobs.save(canceled)
+                return canceled
             response = engine.extract(
-
                 ExtractionRequest(
                     source_text=source.text,
                     source_storage_path=source.storage_path,
@@ -525,7 +529,8 @@ class JobService:
                     enable_thinking=extractor.enable_thinking,
                     schema=extractor.schema,
                     examples=self._resolve_examples(extractor),
-                )
+                ),
+                cancellation_check=cancellation_requested,
             )
             validation_errors = self._validate_output(extractor.schema, response.data)
             result = JobResult(
@@ -542,12 +547,24 @@ class JobService:
             latest = self._jobs.get(running.id)
 
             if latest is not None and latest.status == JobStatus.CANCELING:
-             canceled = latest.mark_canceled()
-             self._jobs.save(canceled)
-             return canceled
+                canceled = latest.mark_canceled()
+                self._jobs.save(canceled)
+                return canceled
 
             self._jobs.save(completed)
-            return completed    
+            return completed
+
+        except ExtractionCancelled as exc:
+            latest = self._jobs.get(running.id)
+            if latest is not None and latest.status == JobStatus.CANCELED:
+                return latest
+            if latest is not None and latest.status == JobStatus.CANCELING:
+                canceled = latest.mark_canceled()
+                self._jobs.save(canceled)
+                return canceled
+            failed = running.mark_failed(str(exc))
+            self._jobs.save(failed)
+            return failed
 
         except Exception as exc:
             failed = running.mark_failed(str(exc))

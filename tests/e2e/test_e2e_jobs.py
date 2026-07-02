@@ -114,6 +114,7 @@ def test_job_execution_file(
 
     _assert_completed_receipt(poll_job(job_id))
 
+
 def test_cancel_queued_job(
     client: httpx.Client,
     receipt_extractor: str,
