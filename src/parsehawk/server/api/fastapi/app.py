@@ -33,6 +33,7 @@ from parsehawk.server.api.fastapi.schemas import (
     ValidateSchemaRequest,
     ValidateSchemaResponse,
 )
+from parsehawk.server.bootstrap.seeds import seed_prebuilt_data_in_container
 from parsehawk.server.container import Container, build_container
 from parsehawk.server.runtime.inference.openai_engine import list_models
 
@@ -58,6 +59,10 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         container = build_container()
+        # Not every deployment starts through the CLI (Docker runs uvicorn
+        # directly), so the API guarantees the fixed providers and prebuilt
+        # extractors itself. Idempotent: existing operator config survives.
+        seed_prebuilt_data_in_container(container)
         app.state.container = container
         try:
             yield
