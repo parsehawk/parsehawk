@@ -6,6 +6,7 @@ from typing import Iterator
 
 import pytest
 
+from parsehawk.core.domain.models import extractor_name_suffix
 from parsehawk.server.adapters.persistence.migrations import (
     apply_pending,
     discover_migrations,
@@ -193,7 +194,59 @@ def test_extractor_name_migration_suffixes_user_collision_with_prebuilt_receipt(
         for row in conn.execute("SELECT id, name, display_name FROM extractors")
     }
     assert migrated["extractor_prebuilt"] == ("receipt", "Receipt")
-    assert migrated["extractor_userabc"] == ("receipt-userab", "Receipt")
+    assert migrated["extractor_userabc"] == (
+        f"receipt-{extractor_name_suffix('extractor_userabc')}",
+        "Receipt",
+    )
+
+
+def test_extractor_name_migration_suffixes_sortable_id_collisions(
+    conn: sqlite3.Connection,
+) -> None:
+    baseline = next(m for m in discover_migrations() if m.id == BASELINE_ID)
+    providers = next(m for m in discover_migrations() if m.id == ADD_PROVIDERS_ID)
+    conn.executescript(baseline.path.read_text(encoding="utf-8"))
+    conn.executescript(providers.path.read_text(encoding="utf-8"))
+    conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+        [(BASELINE_ID, "t"), (ADD_PROVIDERS_ID, "t")],
+    )
+    extractor_ids = [
+        "extractor_01kwjg0q5932zneyp7hhwr57ey",
+        "extractor_01kwjg0q5932zneyp7hhwr57ez",
+    ]
+    for extractor_id in extractor_ids:
+        conn.execute(
+            """
+            INSERT INTO extractors (
+                id, name, instructions, enable_thinking, schema, examples,
+                source, seed_key, seed_version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                extractor_id,
+                "Invoice Extractor",
+                "Extract.",
+                0,
+                "{}",
+                "[]",
+                "user",
+                None,
+                None,
+                "t0",
+                "t1",
+            ),
+        )
+    conn.commit()
+
+    apply_pending(conn)
+
+    names = [row["name"] for row in conn.execute("SELECT name FROM extractors ORDER BY id")]
+    assert names == [
+        f"invoice-extractor-{extractor_name_suffix(extractor_ids[0])}",
+        f"invoice-extractor-{extractor_name_suffix(extractor_ids[1])}",
+    ]
 
 
 def test_extractor_name_migration_preserves_job_foreign_keys(conn: sqlite3.Connection) -> None:

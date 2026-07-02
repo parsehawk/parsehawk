@@ -48,7 +48,7 @@ SELECT
     CASE
         WHEN seed_key = 'prebuilt:receipt:v1' THEN 'receipt'
         WHEN base_count > 1 OR (base_name = 'receipt' AND has_prebuilt_receipt)
-            THEN substr(base_name, 1, 57) || '-' || substr(lower(replace(id, 'extractor_', '')), 1, 6)
+            THEN substr(base_name, 1, 55) || '-' || parsehawk_name_suffix(id)
         ELSE base_name
     END AS name,
     name AS display_name,

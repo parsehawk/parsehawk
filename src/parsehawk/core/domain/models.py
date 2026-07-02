@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
 from datetime import datetime, timezone
@@ -263,5 +264,6 @@ def slugify_extractor_name(display_name: str) -> str:
     return slug[:64].strip("-") or "extractor"
 
 
-def extractor_name_suffix(extractor_id: str) -> str:
-    return extractor_id.rsplit("_", 1)[-1].lower()[:6] or extractor_id.lower()[:6]
+def extractor_name_suffix(extractor_id: str, length: int = 8) -> str:
+    digest = hashlib.sha256(extractor_id.encode("utf-8")).hexdigest()
+    return digest[:length]

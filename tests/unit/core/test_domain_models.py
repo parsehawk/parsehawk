@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 from pydantic import ValidationError
 
@@ -194,7 +196,10 @@ def test_extractor_rejects_blank_display_name_and_suffixes_plain_ids() -> None:
             schema={"type": "object"},
         )
 
-    assert extractor_name_suffix("abc123456") == "abc123"
+    assert extractor_name_suffix("abc123456") == hashlib.sha256(b"abc123456").hexdigest()[:8]
+    assert extractor_name_suffix("extractor_01kwjg0q5932zneyp7hhwr57ey") != extractor_name_suffix(
+        "extractor_01kwjg0q5932zneyp7hhwr57ez"
+    )
 
 
 def test_nuextract3_model_set() -> None:
