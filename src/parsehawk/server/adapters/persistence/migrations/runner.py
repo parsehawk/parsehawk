@@ -15,6 +15,7 @@ code changes are needed.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import sqlite3
@@ -112,6 +113,7 @@ def migration_status(conn: sqlite3.Connection) -> MigrationStatus:
 
 def _register_functions(conn: sqlite3.Connection) -> None:
     conn.create_function("parsehawk_slug", 1, _slugify, deterministic=True)
+    conn.create_function("parsehawk_name_suffix", 1, _name_suffix, deterministic=True)
 
 
 def _slugify(value: str | None) -> str:
@@ -121,6 +123,10 @@ def _slugify(value: str | None) -> str:
     if not slug:
         slug = "extractor"
     return slug[:64].strip("-") or "extractor"
+
+
+def _name_suffix(value: str | None) -> str:
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()[:8]
 
 
 def _ensure_migrations_table(conn: sqlite3.Connection) -> None:

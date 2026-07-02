@@ -6,6 +6,7 @@ from typing import List
 
 import pytest
 
+from parsehawk.core.application import services as service_module
 from parsehawk.core.application.ports import (
     ExtractionRequest,
     ExtractionResponse,
@@ -416,6 +417,36 @@ def test_extractor_service_suffixes_generated_name_collisions(services) -> None:
 
     assert first.name == "invoice-extractor"
     assert second.name.startswith("invoice-extractor-")
+
+
+def test_extractor_service_rejects_exhausted_generated_name_suffixes(
+    services, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extractor_service: ExtractorService = services["extractor_service"]
+    extractor_service.create(
+        display_name="Invoice Extractor",
+        instructions="i",
+        schema=schema(),
+    )
+    for suffix_length in (8, 10, 12, 16, 32):
+        extractor_service.create(
+            name=f"invoice-extractor-{'x' * suffix_length}",
+            display_name=f"Blocker {suffix_length}",
+            instructions="i",
+            schema=schema(),
+        )
+    monkeypatch.setattr(
+        service_module,
+        "extractor_name_suffix",
+        lambda extractor_id, length=8: "x" * length,
+    )
+
+    with pytest.raises(ValidationFailure, match="could not generate a unique extractor name"):
+        extractor_service.create(
+            display_name="Invoice Extractor",
+            instructions="i",
+            schema=schema(),
+        )
 
 
 def test_extractor_service_missing_ref_and_upsert_body_name_mismatch(services) -> None:

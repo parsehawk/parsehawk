@@ -290,9 +290,13 @@ class ExtractorService:
         base = slugify_extractor_name(display_name)
         if self._extractors.get_by_name(base) is None:
             return base
-        suffix = extractor_name_suffix(extractor_id)
-        max_base_len = 64 - len(suffix) - 1
-        return f"{base[:max_base_len].rstrip('-_')}-{suffix}"
+        for suffix_length in (8, 10, 12, 16, 32):
+            suffix = extractor_name_suffix(extractor_id, suffix_length)
+            max_base_len = 64 - len(suffix) - 1
+            candidate = f"{base[:max_base_len].rstrip('-_')}-{suffix}"
+            if self._extractors.get_by_name(candidate) is None:
+                return candidate
+        raise ValidationFailure("could not generate a unique extractor name")
 
     def _validate_new_name(self, name: str) -> None:
         try:
