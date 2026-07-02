@@ -119,3 +119,41 @@ def test_list_provider_models_maps_provider_error_to_400(
 
     assert response.status_code == 400
     assert "unreachable" in response.json()["detail"]
+
+
+def test_app_lifespan_seeds_fixed_providers(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deployment that starts the app directly (Docker runs uvicorn, not the
+    CLI) must still get the fixed providers on first boot."""
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PARSEHAWK_DATABASE_PATH", str(tmp_path / "parsehawk.db"))
+
+    with TestClient(create_app()) as api:
+        response = api.get("/v1/providers")
+
+    assert response.status_code == 200
+    assert {provider["name"] for provider in response.json()} == {
+        "openai",
+        "azure_openai",
+        "openai_compatible_api",
+    }
+
+
+def test_app_lifespan_seeding_keeps_operator_config(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PARSEHAWK_DATABASE_PATH", str(tmp_path / "parsehawk.db"))
+
+    with TestClient(create_app()) as api:
+        configured = api.patch(
+            "/v1/providers/azure_openai",
+            json={"base_url": "https://resource.example/openai/v1", "api_key": "sk-secret"},
+        )
+        assert configured.status_code == 200
+
+    # A restart re-runs the lifespan seeding; the operator's config survives.
+    with TestClient(create_app()) as api:
+        provider = api.get("/v1/providers/azure_openai").json()
+
+    assert provider["base_url"] == "https://resource.example/openai/v1"
+    assert provider["has_api_key"] is True
