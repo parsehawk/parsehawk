@@ -248,6 +248,8 @@ class Job(Entity):
 
 
 def validate_extractor_name(name: str) -> None:
+    if name.startswith("extractor_"):
+        raise ValueError("extractor name cannot start with the reserved extractor_ prefix")
     if not EXTRACTOR_NAME_PATTERN.fullmatch(name):
         raise ValueError(
             "extractor name must be 1-64 characters of lowercase letters, digits, "
