@@ -321,10 +321,12 @@ def list_jobs(
 def get_job(job_id: str, container: ContainerDep) -> JobResponse:
     return JobResponse.from_domain(container.job_service.get(job_id))
 
+
 @jobs_router.post("/{job_id}/cancel")
 def cancel_job(job_id: str, container: ContainerDep) -> JobResponse:
     return JobResponse.from_domain(container.job_service.cancel(job_id))
-    
+
+
 @jobs_router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_job(job_id: str, container: ContainerDep) -> None:
     container.job_service.delete(job_id)

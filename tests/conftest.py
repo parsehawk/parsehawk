@@ -16,7 +16,11 @@ class MockInference:
     model runtime.
     """
 
-    def extract(self, request: ExtractionRequest) -> ExtractionResponse:
+    def extract(
+        self,
+        request: ExtractionRequest,
+        cancellation_check=None,
+    ) -> ExtractionResponse:
         text = request.source_text
         if "receipt_id" in request.schema.get("properties", {}):
             data: dict[str, object] = {

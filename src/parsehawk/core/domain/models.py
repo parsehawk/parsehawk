@@ -242,13 +242,14 @@ class Job(Entity):
                 "completed_at": utc_now(),
             }
         )
+
     def mark_canceling(self) -> Job:
-     return self.model_copy(
-        update={
-            "status": JobStatus.CANCELING,
-        }
-    )
-     
+        return self.model_copy(
+            update={
+                "status": JobStatus.CANCELING,
+            }
+        )
+
     def mark_canceled(self) -> Job:
         return self.model_copy(update={"status": JobStatus.CANCELED, "completed_at": utc_now()})
 

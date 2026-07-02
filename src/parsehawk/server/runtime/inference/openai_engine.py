@@ -12,12 +12,12 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from openai import APIConnectionError, APIStatusError, OpenAI
 
 from parsehawk.core.application.ports import ExtractionRequest, ExtractionResponse
-from parsehawk.core.domain.errors import ProviderRequestError
+from parsehawk.core.domain.errors import ExtractionCancelled, ProviderRequestError
 from parsehawk.core.domain.models import NUEXTRACT3_MODELS
 from parsehawk.server.runtime.inference._response import (
     message_content_with_source,
@@ -93,16 +93,27 @@ class OpenAIExtractionEngine:
         # the life of this engine so the common (modern) case never pays a retry.
         self._legacy_max_tokens = False
 
-    def extract(self, request: ExtractionRequest) -> ExtractionResponse:
+    def extract(
+        self,
+        request: ExtractionRequest,
+        cancellation_check: Callable[[], bool] | None = None,
+    ) -> ExtractionResponse:
+        def raise_if_cancelled() -> None:
+            if cancellation_check is not None and cancellation_check():
+                raise ExtractionCancelled("extraction cancelled")
+
         standard, extra_body = self._build_payload(request)
         try:
+            raise_if_cancelled()
             raw = self._post_chat(standard, extra_body)
         except ProviderRequestError as exc:
             if self._legacy_max_tokens or not _requires_legacy_max_tokens(exc):
                 raise
+            raise_if_cancelled()
             self._legacy_max_tokens = True
             raw = self._post_chat(standard, extra_body)
 
+        raise_if_cancelled()
         self._debug_model_io("model runtime response: %s", raw)
         content = strip_generation_control_tokens(message_content_with_source(raw).text)
         if request.enable_thinking:
