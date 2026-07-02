@@ -122,6 +122,7 @@ export default function App() {
   const [schemaText, setSchemaText] = useState(prettyJson(emptySchema));
   const [draftExtractorId, setDraftExtractorId] = useState<string | null>(null);
   const [name, setName] = useState(emptyExtractorName);
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [displayName, setDisplayName] = useState(emptyDisplayName);
   const [instructions, setInstructions] = useState(emptyInstructions);
   const [enableThinking, setEnableThinking] = useState(false);
@@ -358,6 +359,9 @@ export default function App() {
       const extractor = draftExtractorId
         ? await updateExtractor(draftExtractorId, payload)
         : await createExtractor(payload);
+      setName(extractor.name);
+      setDisplayName(extractorLabel(extractor));
+      setNameManuallyEdited(false);
       applyExtractorArtifacts(extractor);
       setDraftExtractorId(extractor.id);
       await refresh();
@@ -483,7 +487,7 @@ export default function App() {
       enable_thinking: enableThinking,
       examples: examplesToPayload(examples)
     };
-    const payload = draftExtractorId ? base : { ...base, name };
+    const payload = draftExtractorId || !nameManuallyEdited ? base : { ...base, name };
     if (schemaMode === "json") {
       return { ...payload, schema: parseJsonObject(schemaText) };
     }
@@ -531,6 +535,7 @@ export default function App() {
   function loadExtractor(extractor: Extractor) {
     setDraftExtractorId(extractor.id);
     setName(extractor.name);
+    setNameManuallyEdited(false);
     setDisplayName(extractorLabel(extractor));
     setInstructions(extractor.instructions);
     setEnableThinking(extractor.enable_thinking ?? false);
@@ -547,6 +552,7 @@ export default function App() {
     const nextExamples: EditableExample[] = [];
     setDraftExtractorId(null);
     setName(emptyExtractorName);
+    setNameManuallyEdited(false);
     setDisplayName(emptyDisplayName);
     setInstructions(emptyInstructions);
     setEnableThinking(false);
@@ -792,7 +798,7 @@ export default function App() {
                         onChange={(event) => {
                           const nextDisplayName = event.target.value;
                           setDisplayName(nextDisplayName);
-                          if (!draftExtractorId) {
+                          if (!draftExtractorId && !nameManuallyEdited) {
                             setName(slugifyExtractorName(nextDisplayName));
                           }
                         }}
@@ -806,7 +812,10 @@ export default function App() {
                         placeholder="invoice_v1"
                         maxLength={64}
                         disabled={draftExtractorIsPrebuilt || Boolean(draftExtractorId)}
-                        onChange={(event) => setName(event.target.value)}
+                        onChange={(event) => {
+                          setNameManuallyEdited(true);
+                          setName(event.target.value);
+                        }}
                       />
                       {name && !isValidExtractorName(name) ? (
                         <FieldDescription>Use lowercase letters, digits, hyphen, or underscore; start and end with a letter or digit. The extractor_ prefix is reserved.</FieldDescription>
@@ -894,7 +903,7 @@ export default function App() {
 
                   <div className="flex flex-wrap gap-2">
                     {draftExtractorIsPrebuilt ? null : (
-                      <Button disabled={!hasUnsavedExtractorChanges || !displayName.trim() || (!draftExtractorId && !isValidExtractorName(name))} onClick={() => void onSaveExtractor()}>
+                      <Button disabled={!hasUnsavedExtractorChanges || !displayName.trim() || (!draftExtractorId && nameManuallyEdited && !isValidExtractorName(name))} onClick={() => void onSaveExtractor()}>
                         {draftExtractorId ? "Save changes" : "Create extractor"}
                       </Button>
                     )}
@@ -2380,7 +2389,8 @@ function slugifyExtractorName(displayName: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
-  return slug || "extractor";
+  const truncated = slug.slice(0, 64).replace(/-$/g, "");
+  return truncated || "extractor";
 }
 
 function schemaDraftFingerprint(mode: SchemaMode, fields: SchemaField[], jsonText: string) {

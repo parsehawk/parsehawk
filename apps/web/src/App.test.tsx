@@ -170,6 +170,90 @@ describe("App run workflow", () => {
     await waitFor(() => {
       expect(createPayload?.enable_thinking).toBe(true);
     });
+    expect(createPayload).not.toHaveProperty("name");
+  });
+
+  it("sends a manually edited extractor name on create", async () => {
+    let createPayload: Record<string, unknown> | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/extractors" && init?.method === "POST") {
+        createPayload = JSON.parse(String(init.body));
+        return jsonResponse({
+          id: "extractor_123",
+          name: String(createPayload?.name),
+          display_name: "Invoice",
+          instructions: "Extract invoice fields.",
+          enable_thinking: false,
+          schema: createPayload?.schema,
+          examples: [],
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z"
+        });
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+    await userEvent.type(screen.getByLabelText("Display name"), "Invoice");
+    await userEvent.clear(screen.getByLabelText("Name"));
+    await userEvent.type(screen.getByLabelText("Name"), "invoice_v1");
+    await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
+    await userEvent.click(screen.getByRole("button", { name: "Create extractor" }));
+
+    await waitFor(() => {
+      expect(createPayload?.name).toBe("invoice_v1");
+    });
+  });
+
+  it("allows long display names to rely on API-generated extractor names", async () => {
+    let createPayload: Record<string, unknown> | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/extractors" && init?.method === "POST") {
+        createPayload = JSON.parse(String(init.body));
+        return jsonResponse({
+          id: "extractor_123",
+          name: "very-long-generated-name",
+          display_name: createPayload?.display_name,
+          instructions: "Extract invoice fields.",
+          enable_thinking: false,
+          schema: createPayload?.schema,
+          examples: [],
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z"
+        });
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+    await userEvent.type(
+      screen.getByLabelText("Display name"),
+      "Invoice Extractor With A Very Long Display Name That Should Still Be Saveable"
+    );
+    await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
+    await userEvent.click(screen.getByRole("button", { name: "Create extractor" }));
+
+    await waitFor(() => {
+      expect(createPayload).not.toHaveProperty("name");
+    });
   });
 
   it("saves builder validation presets as JSON Schema constraints", async () => {
