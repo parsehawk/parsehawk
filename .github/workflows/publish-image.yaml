@@ -3,7 +3,7 @@ name: publish-image
 # Publishes the ParseHawk API/worker image (one image, two entrypoints) to
 # GHCR:
 #
-#   merge to main  ->  ghcr.io/parsehawk/parsehawk:sha-<shortsha>, :edge
+#   merge to main  ->  ghcr.io/parsehawk/parsehawk:sha-<shortsha>, :main
 #   tag vX.Y.Z     ->  ghcr.io/parsehawk/parsehawk:X.Y.Z, :X.Y, :latest
 #                      + a GitHub Release with generated notes
 #
@@ -62,7 +62,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=sha,prefix=sha-
-            type=raw,value=edge,enable={{is_default_branch}}
+            type=raw,value=main,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
