@@ -79,7 +79,8 @@ def seed_prebuilt_data_in_container(container: Container) -> None:
         return
 
     container.extractor_service.create(
-        name="Receipt",
+        name="receipt",
+        display_name="Receipt",
         instructions=(
             "Extract the receipt fields from the document. Return null for fields that are "
             "not present in the source."

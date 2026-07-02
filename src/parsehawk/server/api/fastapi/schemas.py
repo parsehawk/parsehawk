@@ -36,7 +36,8 @@ class ExampleRequest(ApiModel):
 
 
 class CreateExtractorRequest(ApiModel):
-    name: str
+    name: str | None = None
+    display_name: str | None = None
     instructions: str
     enable_thinking: bool = False
     provider_name: ProviderName | None = None
@@ -44,9 +45,17 @@ class CreateExtractorRequest(ApiModel):
     schema_: dict[str, Any] = Field(alias="schema")
     examples: list[ExampleRequest] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def validate_identity(self) -> CreateExtractorRequest:
+        if self.display_name is None and self.name is None:
+            raise ValueError("provide display_name or name")
+        return self
+
 
 class UpdateExtractorRequest(ApiModel):
-    name: str | None = None
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True, extra="forbid")
+
+    display_name: str | None = None
     instructions: str | None = None
     enable_thinking: bool | None = None
     provider_name: ProviderName | None = None
@@ -55,13 +64,28 @@ class UpdateExtractorRequest(ApiModel):
     examples: list[ExampleRequest] | None = None
 
 
+class UpsertExtractorRequest(ApiModel):
+    name: str | None = None
+    display_name: str
+    instructions: str
+    enable_thinking: bool = False
+    provider_name: ProviderName | None = None
+    model: str | None = None
+    schema_: dict[str, Any] = Field(alias="schema")
+    examples: list[ExampleRequest] = Field(default_factory=list)
+
+
 class CreateJobRequest(ApiModel):
-    extractor_id: str
+    extractor_id: str | None = None
+    extractor_name: str | None = None
     file_id: str | None = None
     text: str | None = None
 
     @model_validator(mode="after")
     def validate_input(self) -> CreateJobRequest:
+        provided_extractors = [self.extractor_id is not None, self.extractor_name is not None]
+        if provided_extractors.count(True) != 1:
+            raise ValueError("provide exactly one of extractor_id or extractor_name")
         provided_inputs = [self.file_id is not None, self.text is not None]
         if provided_inputs.count(True) != 1:
             raise ValueError("provide exactly one of file_id or text")
@@ -135,6 +159,7 @@ class FileResponse(ApiModel):
 class ExtractorResponse(ApiModel):
     id: str
     name: str
+    display_name: str
     instructions: str
     enable_thinking: bool
     provider_name: ProviderName | None

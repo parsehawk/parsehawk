@@ -407,10 +407,11 @@ def build_parser() -> argparse.ArgumentParser:
     extractors_list_parser = extractors_subparsers.add_parser("list")
     _add_api_url(extractors_list_parser)
     extractors_get_parser = extractors_subparsers.add_parser("get")
-    extractors_get_parser.add_argument("extractor_id")
+    extractors_get_parser.add_argument("extractor_ref")
     _add_api_url(extractors_get_parser)
     extractors_create_parser = extractors_subparsers.add_parser("create")
-    extractors_create_parser.add_argument("--name", required=True)
+    extractors_create_parser.add_argument("--name")
+    extractors_create_parser.add_argument("--display-name")
     extractors_create_parser.add_argument("--instructions", required=True)
     extractors_create_parser.add_argument("--schema", required=True)
     extractors_create_parser.add_argument("--examples")
@@ -420,9 +421,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extractors_create_parser.add_argument("--model")
     _add_api_url(extractors_create_parser)
+    extractors_put_parser = extractors_subparsers.add_parser("put")
+    extractors_put_parser.add_argument("extractor_ref")
+    extractors_put_parser.add_argument("--name")
+    extractors_put_parser.add_argument("--display-name", required=True)
+    extractors_put_parser.add_argument("--instructions", required=True)
+    extractors_put_parser.add_argument("--schema", required=True)
+    extractors_put_parser.add_argument("--examples")
+    extractors_put_parser.add_argument("--enable-thinking", action="store_true")
+    extractors_put_parser.add_argument("--provider", dest="provider_name", choices=_PROVIDER_NAMES)
+    extractors_put_parser.add_argument("--model")
+    _add_api_url(extractors_put_parser)
     extractors_update_parser = extractors_subparsers.add_parser("update")
-    extractors_update_parser.add_argument("extractor_id")
-    extractors_update_parser.add_argument("--name")
+    extractors_update_parser.add_argument("extractor_ref")
+    extractors_update_parser.add_argument("--display-name")
     extractors_update_parser.add_argument("--instructions")
     extractors_update_parser.add_argument("--schema")
     extractors_update_parser.add_argument("--examples")
@@ -437,7 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_api_url(extractors_update_parser)
     extractors_delete_parser = extractors_subparsers.add_parser("delete")
-    extractors_delete_parser.add_argument("extractor_id")
+    extractors_delete_parser.add_argument("extractor_ref")
     _add_api_url(extractors_delete_parser)
 
     providers_parser = subparsers.add_parser("providers", help="Configure model providers")
@@ -992,24 +1004,51 @@ def extractors(args: argparse.Namespace) -> None:
     if args.extractors_command == "list":
         print_json(api_request(args.api_url, "GET", "/v1/extractors"))
     elif args.extractors_command == "get":
-        print_json(api_request(args.api_url, "GET", f"/v1/extractors/{args.extractor_id}"))
+        print_json(api_request(args.api_url, "GET", f"/v1/extractors/{args.extractor_ref}"))
     elif args.extractors_command == "create":
+        display_name = args.display_name or args.name
+        if not display_name:
+            raise SystemExit("Provide --display-name or --name")
         payload = {
-            "name": args.name,
+            "display_name": display_name,
             "instructions": read_text_argument(args.instructions),
             "enable_thinking": args.enable_thinking,
             "schema": read_json_file(args.schema),
             "examples": read_json_file(args.examples) if args.examples else [],
         }
+        if args.name is not None:
+            payload["name"] = args.name
         if args.provider_name is not None:
             payload["provider_name"] = args.provider_name
         if args.model is not None:
             payload["model"] = args.model
         print_json(api_request(args.api_url, "POST", "/v1/extractors", payload=payload))
-    elif args.extractors_command == "update":
-        payload: dict[str, Any] = {}
+    elif args.extractors_command == "put":
+        payload = {
+            "display_name": args.display_name,
+            "instructions": read_text_argument(args.instructions),
+            "enable_thinking": args.enable_thinking,
+            "schema": read_json_file(args.schema),
+            "examples": read_json_file(args.examples) if args.examples else [],
+        }
         if args.name is not None:
             payload["name"] = args.name
+        if args.provider_name is not None:
+            payload["provider_name"] = args.provider_name
+        if args.model is not None:
+            payload["model"] = args.model
+        print_json(
+            api_request(
+                args.api_url,
+                "PUT",
+                f"/v1/extractors/{args.extractor_ref}",
+                payload=payload,
+            )
+        )
+    elif args.extractors_command == "update":
+        payload: dict[str, Any] = {}
+        if args.display_name is not None:
+            payload["display_name"] = args.display_name
         if args.instructions is not None:
             payload["instructions"] = read_text_argument(args.instructions)
         if args.enable_thinking is not None:
@@ -1028,13 +1067,13 @@ def extractors(args: argparse.Namespace) -> None:
             api_request(
                 args.api_url,
                 "PATCH",
-                f"/v1/extractors/{args.extractor_id}",
+                f"/v1/extractors/{args.extractor_ref}",
                 payload=payload,
             )
         )
     elif args.extractors_command == "delete":
-        api_request(args.api_url, "DELETE", f"/v1/extractors/{args.extractor_id}")
-        print_deleted("extractor", args.extractor_id)
+        api_request(args.api_url, "DELETE", f"/v1/extractors/{args.extractor_ref}")
+        print_deleted("extractor", args.extractor_ref)
 
 
 def providers(args: argparse.Namespace) -> None:
@@ -1066,7 +1105,7 @@ def jobs(args: argparse.Namespace) -> None:
         extractor_id = args.extractor_id or args.extractor_id_option
         if not extractor_id:
             raise SystemExit("Provide an extractor id or --extractor extractor_123")
-        payload: dict[str, str] = {"extractor_id": extractor_id}
+        payload: dict[str, str | None] = extractor_ref_payload(extractor_id)
         if args.file_id:
             payload["file_id"] = args.file_id
         elif args.text:
@@ -1082,7 +1121,10 @@ def jobs(args: argparse.Namespace) -> None:
             )
         )
     elif args.jobs_command == "list":
-        query = _query_string({"extractor_id": args.extractor_id})
+        job_filters: dict[str, str | None] = (
+            extractor_ref_payload(args.extractor_id) if args.extractor_id else {}
+        )
+        query = _query_string(job_filters)
         print_json(api_request(args.api_url, "GET", f"/v1/jobs{query}"))
     elif args.jobs_command == "get":
         print_json(api_request(args.api_url, "GET", f"/v1/jobs/{args.job_id}"))
@@ -1092,13 +1134,13 @@ def jobs(args: argparse.Namespace) -> None:
 
 
 def extract(args: argparse.Namespace) -> None:
-    extractor_id = args.extractor or create_ad_hoc_extractor(args)
+    extractor_ref = args.extractor or create_ad_hoc_extractor(args)
     job_input = extraction_job_input(args)
     job = api_request(
         args.api_url,
         "POST",
         "/v1/jobs",
-        payload={"extractor_id": extractor_id, **job_input},
+        payload={**extractor_ref_payload(extractor_ref), **job_input},
     )
     if args.wait:
         job = wait_for_job(
@@ -1734,7 +1776,7 @@ def create_ad_hoc_extractor(args: argparse.Namespace) -> str:
     if args.instructions is None:
         raise SystemExit("Provide --instructions when creating an ad hoc extractor")
     payload = {
-        "name": args.name or default_extractor_name(args),
+        "display_name": args.name or default_extractor_name(args),
         "instructions": read_text_argument(args.instructions),
         "enable_thinking": args.enable_thinking,
         "schema": read_json_file(args.schema),
@@ -1742,6 +1784,12 @@ def create_ad_hoc_extractor(args: argparse.Namespace) -> str:
     }
     extractor = api_request(args.api_url, "POST", "/v1/extractors", payload=payload)
     return str(extractor["id"])
+
+
+def extractor_ref_payload(extractor_ref: str) -> dict[str, str | None]:
+    if extractor_ref.startswith("extractor_"):
+        return {"extractor_id": extractor_ref}
+    return {"extractor_name": extractor_ref}
 
 
 def extraction_job_input(args: argparse.Namespace) -> dict[str, str]:

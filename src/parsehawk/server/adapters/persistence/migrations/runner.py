@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -75,6 +76,7 @@ def apply_pending(conn: sqlite3.Connection) -> list[str]:
     run applies nothing and returns an empty list.
     """
     _ensure_migrations_table(conn)
+    _register_functions(conn)
     applied = set(_recorded_ids(conn))
     newly_applied: list[str] = []
     for migration in discover_migrations():
@@ -106,6 +108,19 @@ def migration_status(conn: sqlite3.Connection) -> MigrationStatus:
         migration.id for migration in discover_migrations() if migration.id not in applied_set
     ]
     return MigrationStatus(applied=applied, pending=pending)
+
+
+def _register_functions(conn: sqlite3.Connection) -> None:
+    conn.create_function("parsehawk_slug", 1, _slugify, deterministic=True)
+
+
+def _slugify(value: str | None) -> str:
+    normalized = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower())
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    if not slug:
+        slug = "extractor"
+    return slug[:64].strip("-") or "extractor"
 
 
 def _ensure_migrations_table(conn: sqlite3.Connection) -> None:

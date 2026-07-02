@@ -38,6 +38,7 @@ describe("examples", () => {
     const extractor: Extractor = {
       id: "extractor_123",
       name: "invoice",
+      display_name: "Invoice",
       instructions: "extract",
       enable_thinking: false,
       schema: { type: "object" },

@@ -18,6 +18,8 @@ from parsehawk.core.domain.models import (
     Provider,
     ProviderName,
     ValidationIssue,
+    extractor_name_suffix,
+    slugify_extractor_name,
 )
 
 
@@ -155,6 +157,44 @@ def test_extractor_carries_provider_and_model() -> None:
     dumped = configured.model_dump()
     assert dumped["provider_name"] == "openai"
     assert dumped["model"] == "gpt-4o-mini"
+
+
+def test_extractor_name_validation_and_slug_generation() -> None:
+    for name in ("receipt", "invoice_v1", "invoice-v1", "bank-statement-ocr"):
+        extractor = Extractor(
+            id=f"extractor_{name.replace('-', '_')}",
+            name=name,
+            display_name="Label",
+            instructions="i",
+            schema={"type": "object"},
+        )
+        assert extractor.name == name
+
+    for name in ("InvoiceV1", "invoice v1", "-invoice", "invoice-", "invoice.v1", "rechnung/2026"):
+        with pytest.raises(ValidationError):
+            Extractor(
+                id="extractor_bad",
+                name=name,
+                display_name="Label",
+                instructions="i",
+                schema={"type": "object"},
+            )
+
+    assert slugify_extractor_name("Invoice Extractor V1") == "invoice-extractor-v1"
+    assert slugify_extractor_name("!!!") == "extractor"
+
+
+def test_extractor_rejects_blank_display_name_and_suffixes_plain_ids() -> None:
+    with pytest.raises(ValidationError):
+        Extractor(
+            id="extractor_bad",
+            name="receipt",
+            display_name=" ",
+            instructions="i",
+            schema={"type": "object"},
+        )
+
+    assert extractor_name_suffix("abc123456") == "abc123"
 
 
 def test_nuextract3_model_set() -> None:

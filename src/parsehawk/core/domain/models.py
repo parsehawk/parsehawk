@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+EXTRACTOR_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$")
 
 
 def utc_now() -> datetime:
@@ -116,6 +120,7 @@ class Example(Entity):
 class Extractor(Entity):
     id: str
     name: str
+    display_name: str = ""
     instructions: str
     enable_thinking: bool = False
     provider_name: ProviderName | None = None
@@ -135,6 +140,34 @@ class Extractor(Entity):
     @property
     def schema(self) -> dict[str, Any]:
         return self.schema_
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_display_name(cls, data: Any) -> Any:
+        if (
+            isinstance(data, dict)
+            and "display_name" not in data
+            and isinstance(data.get("name"), str)
+        ):
+            legacy_name = data["name"]
+            migrated = {**data, "display_name": legacy_name}
+            if not EXTRACTOR_NAME_PATTERN.fullmatch(legacy_name):
+                migrated["name"] = slugify_extractor_name(legacy_name)
+            return migrated
+        return data
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        validate_extractor_name(value)
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("display_name is required")
+        return value
 
 
 class Provider(Entity):
@@ -211,3 +244,24 @@ class Job(Entity):
 
     def mark_canceled(self) -> Job:
         return self.model_copy(update={"status": JobStatus.CANCELED, "completed_at": utc_now()})
+
+
+def validate_extractor_name(name: str) -> None:
+    if not EXTRACTOR_NAME_PATTERN.fullmatch(name):
+        raise ValueError(
+            "extractor name must be 1-64 characters of lowercase letters, digits, "
+            "hyphen, or underscore, and must start and end with a letter or digit"
+        )
+
+
+def slugify_extractor_name(display_name: str) -> str:
+    normalized = unicodedata.normalize("NFKD", display_name).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower())
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    if not slug:
+        slug = "extractor"
+    return slug[:64].strip("-") or "extractor"
+
+
+def extractor_name_suffix(extractor_id: str) -> str:
+    return extractor_id.rsplit("_", 1)[-1].lower()[:6] or extractor_id.lower()[:6]

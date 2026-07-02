@@ -144,6 +144,7 @@ describe("App run workflow", () => {
         return jsonResponse({
           id: "extractor_123",
           name: "invoice",
+          display_name: "Invoice",
           instructions: "Extract invoice fields.",
           enable_thinking: true,
           schema: createPayload?.schema,
@@ -161,7 +162,7 @@ describe("App run workflow", () => {
     render(<App />);
 
     await userEvent.click(await screen.findByRole("button", { name: "New" }));
-    await userEvent.type(screen.getByLabelText("Name"), "invoice");
+    await userEvent.type(screen.getByLabelText("Display name"), "Invoice");
     await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
     await userEvent.click(screen.getByRole("checkbox", { name: "Enable thinking" }));
     await userEvent.click(screen.getByRole("button", { name: "Create extractor" }));
@@ -183,6 +184,7 @@ describe("App run workflow", () => {
         return jsonResponse({
           id: "extractor_123",
           name: "invoice",
+          display_name: "Invoice",
           instructions: "Extract invoice fields.",
           enable_thinking: false,
           schema: createPayload?.schema,
@@ -200,7 +202,7 @@ describe("App run workflow", () => {
     render(<App />);
 
     await userEvent.click(await screen.findByRole("button", { name: "New" }));
-    await userEvent.type(screen.getByLabelText("Name"), "invoice");
+    await userEvent.type(screen.getByLabelText("Display name"), "Invoice");
     await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
     await userEvent.click(screen.getByRole("button", { name: "Add field" }));
     await userEvent.clear(screen.getByLabelText("Field key"));

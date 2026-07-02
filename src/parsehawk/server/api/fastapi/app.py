@@ -30,6 +30,7 @@ from parsehawk.server.api.fastapi.schemas import (
     ProviderResponse,
     SchemaDiagnostic,
     UpdateExtractorRequest,
+    UpsertExtractorRequest,
     ValidateSchemaRequest,
     ValidateSchemaResponse,
 )
@@ -173,6 +174,7 @@ def delete_file(file_id: str, container: ContainerDep) -> None:
 def create_extractor(request: CreateExtractorRequest, container: ContainerDep) -> ExtractorResponse:
     extractor = container.extractor_service.create(
         name=request.name,
+        display_name=request.display_name,
         instructions=request.instructions,
         enable_thinking=request.enable_thinking,
         provider_name=request.provider_name,
@@ -190,20 +192,20 @@ def list_extractors(container: ContainerDep) -> list[ExtractorResponse]:
     ]
 
 
-@extractors_router.get("/{extractor_id}")
-def get_extractor(extractor_id: str, container: ContainerDep) -> ExtractorResponse:
-    return ExtractorResponse.from_domain(container.extractor_service.get(extractor_id))
+@extractors_router.get("/{extractor_ref}")
+def get_extractor(extractor_ref: str, container: ContainerDep) -> ExtractorResponse:
+    return ExtractorResponse.from_domain(container.extractor_service.get_by_ref(extractor_ref))
 
 
-@extractors_router.patch("/{extractor_id}")
+@extractors_router.patch("/{extractor_ref}")
 def update_extractor(
-    extractor_id: str,
+    extractor_ref: str,
     request: UpdateExtractorRequest,
     container: ContainerDep,
 ) -> ExtractorResponse:
     extractor = container.extractor_service.update(
-        extractor_id,
-        name=request.name,
+        extractor_ref,
+        display_name=request.display_name,
         instructions=request.instructions,
         enable_thinking=request.enable_thinking,
         provider_name=request.provider_name,
@@ -216,9 +218,29 @@ def update_extractor(
     return ExtractorResponse.from_domain(extractor)
 
 
-@extractors_router.delete("/{extractor_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_extractor(extractor_id: str, container: ContainerDep) -> None:
-    container.extractor_service.delete(extractor_id)
+@extractors_router.put("/{extractor_ref}")
+def upsert_extractor(
+    extractor_ref: str,
+    request: UpsertExtractorRequest,
+    container: ContainerDep,
+) -> ExtractorResponse:
+    extractor = container.extractor_service.upsert(
+        extractor_ref,
+        body_name=request.name,
+        display_name=request.display_name,
+        instructions=request.instructions,
+        enable_thinking=request.enable_thinking,
+        provider_name=request.provider_name,
+        model=request.model,
+        schema=request.schema_,
+        examples=[example.model_dump() for example in request.examples],
+    )
+    return ExtractorResponse.from_domain(extractor)
+
+
+@extractors_router.delete("/{extractor_ref}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_extractor(extractor_ref: str, container: ContainerDep) -> None:
+    container.extractor_service.delete(extractor_ref)
 
 
 @providers_router.get("")
@@ -268,6 +290,7 @@ def list_provider_models(name: ProviderName, container: ContainerDep) -> Provide
 def create_job(request: CreateJobRequest, container: ContainerDep) -> JobResponse:
     job = container.job_service.create(
         extractor_id=request.extractor_id,
+        extractor_name=request.extractor_name,
         file_id=request.file_id,
         text=request.text,
     )
@@ -282,10 +305,14 @@ def create_job(request: CreateJobRequest, container: ContainerDep) -> JobRespons
 def list_jobs(
     container: ContainerDep,
     extractor_id: Annotated[str | None, Query()] = None,
+    extractor_name: Annotated[str | None, Query()] = None,
 ) -> list[JobResponse]:
     return [
         JobResponse.from_domain(job)
-        for job in container.job_service.list(extractor_id=extractor_id)
+        for job in container.job_service.list(
+            extractor_id=extractor_id,
+            extractor_name=extractor_name,
+        )
     ]
 
 

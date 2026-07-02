@@ -18,7 +18,8 @@ from parsehawk.server.adapters.persistence.sqlite import connect, init_db
 # Migration ids (each ``.sql`` filename without the suffix), in apply order.
 BASELINE_ID = "20260701092442_initial_schema"
 ADD_PROVIDERS_ID = "20260701121138_add_providers"
-ALL_MIGRATION_IDS = [BASELINE_ID, ADD_PROVIDERS_ID]
+EXTRACTOR_DISPLAY_NAMES_ID = "20260702160000_extractor_display_names"
+ALL_MIGRATION_IDS = [BASELINE_ID, ADD_PROVIDERS_ID, EXTRACTOR_DISPLAY_NAMES_ID]
 
 # The full current schema after all migrations. ALTER-added columns
 # (provider_name, model) are appended after the original extractor columns.
@@ -38,6 +39,7 @@ EXPECTED_COLUMNS = {
     "extractors": [
         "id",
         "name",
+        "display_name",
         "instructions",
         "enable_thinking",
         "schema",
@@ -105,6 +107,7 @@ def test_baseline_applied_to_fresh_db_matches_current_schema(conn: sqlite3.Conne
         "idx_jobs_extractor_id",
         "idx_jobs_status_created_at",
     }
+    assert "idx_extractors_name" in indexes(conn, "extractors")
     assert foreign_keys(conn, "jobs") == {
         ("file_id", "files", "id", "CASCADE"),
         ("extractor_id", "extractors", "id", "CASCADE"),
@@ -149,8 +152,101 @@ def test_baseline_converges_existing_v012_db_without_data_loss(conn: sqlite3.Con
 
     assert applied == ALL_MIGRATION_IDS
     assert migration_status(conn).applied == ALL_MIGRATION_IDS
-    row = conn.execute("SELECT name FROM extractors WHERE id = ?", ("ex_1",)).fetchone()
-    assert row is not None and row[0] == "Receipt"
+    row = conn.execute(
+        "SELECT name, display_name FROM extractors WHERE id = ?", ("ex_1",)
+    ).fetchone()
+    assert row is not None and tuple(row) == ("receipt", "Receipt")
+
+
+def test_extractor_name_migration_suffixes_user_collision_with_prebuilt_receipt(
+    conn: sqlite3.Connection,
+) -> None:
+    baseline = next(m for m in discover_migrations() if m.id == BASELINE_ID)
+    providers = next(m for m in discover_migrations() if m.id == ADD_PROVIDERS_ID)
+    conn.executescript(baseline.path.read_text(encoding="utf-8"))
+    conn.executescript(providers.path.read_text(encoding="utf-8"))
+    conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+        [(BASELINE_ID, "t"), (ADD_PROVIDERS_ID, "t")],
+    )
+    rows = [
+        ("extractor_prebuilt", "Receipt", "prebuilt", "prebuilt:receipt:v1"),
+        ("extractor_userabc", "Receipt", "user", None),
+    ]
+    for extractor_id, name, source, seed_key in rows:
+        conn.execute(
+            """
+            INSERT INTO extractors (
+                id, name, instructions, enable_thinking, schema, examples,
+                source, seed_key, seed_version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (extractor_id, name, "Extract.", 0, "{}", "[]", source, seed_key, 1, "t0", "t1"),
+        )
+    conn.commit()
+
+    apply_pending(conn)
+
+    migrated = {
+        row["id"]: (row["name"], row["display_name"])
+        for row in conn.execute("SELECT id, name, display_name FROM extractors")
+    }
+    assert migrated["extractor_prebuilt"] == ("receipt", "Receipt")
+    assert migrated["extractor_userabc"] == ("receipt-userab", "Receipt")
+
+
+def test_extractor_name_migration_preserves_job_foreign_keys(conn: sqlite3.Connection) -> None:
+    baseline = next(m for m in discover_migrations() if m.id == BASELINE_ID)
+    providers = next(m for m in discover_migrations() if m.id == ADD_PROVIDERS_ID)
+    conn.executescript(baseline.path.read_text(encoding="utf-8"))
+    conn.executescript(providers.path.read_text(encoding="utf-8"))
+    conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+        [(BASELINE_ID, "t"), (ADD_PROVIDERS_ID, "t")],
+    )
+    conn.execute(
+        """
+        INSERT INTO extractors (
+            id, name, instructions, enable_thinking, schema, examples,
+            source, seed_key, seed_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "extractor_invoice",
+            "Invoice Extractor",
+            "Extract.",
+            0,
+            "{}",
+            "[]",
+            "user",
+            None,
+            1,
+            "t0",
+            "t1",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            id, extractor_id, file_id, source_text, status, result, error,
+            created_at, started_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("job_1", "extractor_invoice", None, "text", "completed", "{}", None, "t2", "t3", "t4"),
+    )
+    conn.commit()
+
+    apply_pending(conn)
+
+    job = conn.execute("SELECT extractor_id FROM jobs WHERE id = ?", ("job_1",)).fetchone()
+    extractor = conn.execute(
+        "SELECT id, name, display_name FROM extractors WHERE id = ?",
+        ("extractor_invoice",),
+    ).fetchone()
+    assert tuple(job) == ("extractor_invoice",)
+    assert tuple(extractor) == ("extractor_invoice", "invoice-extractor", "Invoice Extractor")
 
 
 def test_apply_pending_is_atomic_on_failure(tmp_path: Path) -> None:

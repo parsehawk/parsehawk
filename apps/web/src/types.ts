@@ -12,6 +12,7 @@ export type FileRecord = {
 export type Extractor = {
   id: string;
   name: string;
+  display_name: string;
   instructions: string;
   enable_thinking: boolean;
   schema: Record<string, unknown>;

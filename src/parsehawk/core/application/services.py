@@ -33,7 +33,10 @@ from parsehawk.core.domain.models import (
     Provider,
     ProviderName,
     ValidationIssue,
+    extractor_name_suffix,
+    slugify_extractor_name,
     utc_now,
+    validate_extractor_name,
 )
 from parsehawk.core.domain.schemas import MODE_JSON_SCHEMA, validate_extraction_schema
 
@@ -117,7 +120,8 @@ class ExtractorService:
     def create(
         self,
         *,
-        name: str,
+        display_name: str | None = None,
+        name: str | None = None,
         instructions: str,
         enable_thinking: bool = False,
         provider_name: ProviderName | None = None,
@@ -128,11 +132,20 @@ class ExtractorService:
         seed_key: str | None = None,
         seed_version: int | None = None,
     ) -> Extractor:
+        if display_name is None:
+            if name is None:
+                raise ValidationFailure("display_name is required")
+            display_name = name
+        self._validate_display_name(display_name)
+        extractor_id = new_id("extractor")
+        stable_name = name or self._unique_generated_name(display_name, extractor_id)
+        self._validate_new_name(stable_name)
         schema = self._validate_schema(schema)
         parsed_examples = self._validate_examples(examples or [])
         extractor = Extractor(
-            id=new_id("extractor"),
-            name=name,
+            id=extractor_id,
+            name=stable_name,
+            display_name=display_name,
             instructions=instructions,
             enable_thinking=enable_thinking,
             provider_name=provider_name or self._default_provider,
@@ -155,11 +168,17 @@ class ExtractorService:
             raise NotFoundError("extractor", extractor_id)
         return extractor
 
+    def get_by_ref(self, extractor_ref: str) -> Extractor:
+        extractor = self._resolve_ref(extractor_ref)
+        if extractor is None:
+            raise NotFoundError("extractor", extractor_ref)
+        return extractor
+
     def update(
         self,
-        extractor_id: str,
+        extractor_ref: str,
         *,
-        name: str | None = None,
+        display_name: str | None = None,
         instructions: str | None = None,
         enable_thinking: bool | None = None,
         provider_name: ProviderName | None = None,
@@ -167,11 +186,12 @@ class ExtractorService:
         schema: dict[str, Any] | None = None,
         examples: List[dict[str, Any]] | None = None,
     ) -> Extractor:
-        current = self.get(extractor_id)
+        current = self.get_by_ref(extractor_ref)
         self._ensure_mutable(current)
         updates: dict[str, Any] = {"updated_at": utc_now()}
-        if name is not None:
-            updates["name"] = name
+        if display_name is not None:
+            self._validate_display_name(display_name)
+            updates["display_name"] = display_name
         if instructions is not None:
             updates["instructions"] = instructions
         if enable_thinking is not None:
@@ -188,9 +208,105 @@ class ExtractorService:
         self._extractors.save(updated)
         return updated
 
-    def delete(self, extractor_id: str) -> None:
-        self._ensure_mutable(self.get(extractor_id))
-        self._extractors.delete(extractor_id)
+    def upsert(
+        self,
+        extractor_ref: str,
+        *,
+        display_name: str,
+        body_name: str | None = None,
+        instructions: str,
+        enable_thinking: bool = False,
+        provider_name: ProviderName | None = None,
+        model: str | None = None,
+        schema: dict[str, Any] | None = None,
+        examples: List[dict[str, Any]] | None = None,
+    ) -> Extractor:
+        existing = self._resolve_ref(extractor_ref)
+        if existing is not None:
+            self._ensure_mutable(existing)
+            if body_name is not None and body_name != existing.name:
+                raise ValidationFailure("request body name must match the target extractor name")
+            return self._replace(
+                existing,
+                display_name=display_name,
+                instructions=instructions,
+                enable_thinking=enable_thinking,
+                provider_name=provider_name,
+                model=model,
+                schema=schema,
+                examples=examples,
+            )
+        self._validate_new_name(extractor_ref)
+        if body_name is not None and body_name != extractor_ref:
+            raise ValidationFailure("request body name must match the target extractor name")
+        return self.create(
+            name=extractor_ref,
+            display_name=display_name,
+            instructions=instructions,
+            enable_thinking=enable_thinking,
+            provider_name=provider_name,
+            model=model,
+            schema=schema,
+            examples=examples,
+        )
+
+    def delete(self, extractor_ref: str) -> None:
+        extractor = self.get_by_ref(extractor_ref)
+        self._ensure_mutable(extractor)
+        self._extractors.delete(extractor.id)
+
+    def _replace(
+        self,
+        current: Extractor,
+        *,
+        display_name: str,
+        instructions: str,
+        enable_thinking: bool,
+        provider_name: ProviderName | None,
+        model: str | None,
+        schema: dict[str, Any] | None,
+        examples: List[dict[str, Any]] | None,
+    ) -> Extractor:
+        self._validate_display_name(display_name)
+        updated = current.model_copy(
+            update={
+                "display_name": display_name,
+                "instructions": instructions,
+                "enable_thinking": enable_thinking,
+                "provider_name": provider_name or self._default_provider,
+                "model": model or self._default_model,
+                "schema_": self._validate_schema(schema),
+                "examples": self._validate_examples(examples or []),
+                "updated_at": utc_now(),
+            }
+        )
+        self._extractors.save(updated)
+        return updated
+
+    def _resolve_ref(self, extractor_ref: str) -> Extractor | None:
+        return self._extractors.get(extractor_ref) or self._extractors.get_by_name(extractor_ref)
+
+    def _unique_generated_name(self, display_name: str, extractor_id: str) -> str:
+        base = slugify_extractor_name(display_name)
+        if self._extractors.get_by_name(base) is None:
+            return base
+        suffix = extractor_name_suffix(extractor_id)
+        max_base_len = 64 - len(suffix) - 1
+        return f"{base[:max_base_len].rstrip('-_')}-{suffix}"
+
+    def _validate_new_name(self, name: str) -> None:
+        try:
+            validate_extractor_name(name)
+        except ValueError as exc:
+            raise ValidationFailure(str(exc)) from exc
+        existing = self._extractors.get_by_name(name)
+        if existing is not None:
+            raise ValidationFailure(f"extractor name already exists: {name}")
+
+    @staticmethod
+    def _validate_display_name(display_name: str) -> None:
+        if not display_name.strip():
+            raise ValidationFailure("display_name is required")
 
     @staticmethod
     def _ensure_mutable(extractor: Extractor) -> None:
@@ -300,10 +416,23 @@ class JobService:
         self._engine_factory = engine_factory
 
     def create(
-        self, *, extractor_id: str, file_id: str | None = None, text: str | None = None
+        self,
+        *,
+        extractor_id: str | None = None,
+        extractor_name: str | None = None,
+        file_id: str | None = None,
+        text: str | None = None,
     ) -> Job:
-        if self._extractors.get(extractor_id) is None:
-            raise NotFoundError("extractor", extractor_id)
+        provided_extractors = [extractor_id is not None, extractor_name is not None]
+        if provided_extractors.count(True) != 1:
+            raise ValidationFailure("provide exactly one of extractor_id or extractor_name")
+        extractor = (
+            self._extractors.get(extractor_id)
+            if extractor_id is not None
+            else self._extractors.get_by_name(extractor_name or "")
+        )
+        if extractor is None:
+            raise NotFoundError("extractor", extractor_id or extractor_name or "")
         provided_inputs = [file_id is not None, text is not None]
         if provided_inputs.count(True) != 1:
             raise ValidationFailure("provide exactly one of file_id or text")
@@ -314,7 +443,7 @@ class JobService:
         job_id = new_id("job")
         job = Job(
             id=job_id,
-            extractor_id=extractor_id,
+            extractor_id=extractor.id,
             file_id=file_id,
             source_text=text,
             status=JobStatus.QUEUED,
@@ -322,10 +451,20 @@ class JobService:
         self._jobs.save(job)
         return job
 
-    def list(self, extractor_id: str | None = None) -> List[Job]:
-        if extractor_id is not None and self._extractors.get(extractor_id) is None:
-            raise NotFoundError("extractor", extractor_id)
-        return self._jobs.list(extractor_id=extractor_id)
+    def list(self, extractor_id: str | None = None, extractor_name: str | None = None) -> List[Job]:
+        provided_extractors = [extractor_id is not None, extractor_name is not None]
+        if provided_extractors.count(True) > 1:
+            raise ValidationFailure("provide only one of extractor_id or extractor_name")
+        if extractor_id is None and extractor_name is None:
+            return self._jobs.list()
+        extractor = (
+            self._extractors.get(extractor_id)
+            if extractor_id is not None
+            else self._extractors.get_by_name(extractor_name or "")
+        )
+        if extractor is None:
+            raise NotFoundError("extractor", extractor_id or extractor_name or "")
+        return self._jobs.list(extractor_id=extractor.id)
 
     def get(self, job_id: str) -> Job:
         job = self._jobs.get(job_id)

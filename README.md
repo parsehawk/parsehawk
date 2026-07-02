@@ -161,7 +161,7 @@ with `parsehawk start -x migrate` or `PARSEHAWK_SKIP_MIGRATIONS=1`, then run
 ## First Extraction
 
 The easiest first run is image-to-JSON extraction with the bundled receipt image
-and the seeded prebuilt `Receipt` extractor.
+and the seeded prebuilt `Receipt` extractor. Its stable API name is `receipt`.
 
 ### Option A: Web UI
 
@@ -188,24 +188,16 @@ Expected fields include:
 
 ```bash
 parsehawk files upload tests/fixtures/receipt/receipt.jpg
-parsehawk extractors list
 parsehawk extract \
   tests/fixtures/receipt/receipt.jpg \
-  --extractor extractor_... \
+  --extractor receipt \
   --wait
 ```
-
-Use the `Receipt` extractor ID from `extractors list`.
 
 ### Option C: API
 
 ```bash
 API=http://127.0.0.1:8000
-
-EXTRACTOR_ID=$(
-  curl -s "$API/v1/extractors" |
-    jq -r '.[] | select(.name=="Receipt" and .is_prebuilt==true) | .id'
-)
 
 FILE_ID=$(
   curl -s -X POST "$API/v1/files" \
@@ -216,7 +208,7 @@ FILE_ID=$(
 JOB_ID=$(
   curl -s -X POST "$API/v1/jobs" \
     -H "Content-Type: application/json" \
-    -d "{\"extractor_id\":\"$EXTRACTOR_ID\",\"file_id\":\"$FILE_ID\"}" |
+    -d "{\"extractor_name\":\"receipt\",\"file_id\":\"$FILE_ID\"}" |
     jq -r '.id'
 )
 
@@ -248,9 +240,10 @@ POST   /v1/schemas/validate
 
 POST   /v1/extractors
 GET    /v1/extractors
-GET    /v1/extractors/{extractor_id}
-PATCH  /v1/extractors/{extractor_id}
-DELETE /v1/extractors/{extractor_id}
+GET    /v1/extractors/{extractor_ref}
+PATCH  /v1/extractors/{extractor_ref}
+PUT    /v1/extractors/{extractor_ref}
+DELETE /v1/extractors/{extractor_ref}
 
 POST   /v1/jobs
 GET    /v1/jobs
@@ -267,8 +260,9 @@ Useful CLI commands:
 parsehawk files upload document.pdf
 parsehawk files list
 parsehawk schemas validate schema.json
-parsehawk extractors create --name invoice_v1 --schema schema.json --instructions "Extract invoice fields."
-parsehawk jobs create --extractor extractor_... --file-id file_...
+parsehawk extractors create --name invoice_v1 --display-name "Invoice Extractor" --schema schema.json --instructions "Extract invoice fields."
+parsehawk extractors put invoice_v1 --display-name "Invoice Extractor" --schema schema.json --instructions "Extract invoice fields."
+parsehawk jobs create --extractor receipt --file-id file_...
 parsehawk jobs get job_...
 parsehawk extract document.pdf --schema schema.json --instructions "Extract invoice fields." --wait
 ```
@@ -276,11 +270,21 @@ parsehawk extract document.pdf --schema schema.json --instructions "Extract invo
 Public IDs are TypeID-style strings with resource prefixes such as `file_...`,
 `extractor_...`, and `job_...`.
 
+Extractor `id` is the server-generated canonical ID. Extractor `name` is a
+user-controlled API-safe identifier, such as `receipt` or `invoice_v1`; it uses
+lowercase ASCII letters, digits, hyphen, and underscore, and is immutable after
+creation through normal update flows. `display_name` is the editable label shown
+to people. Use `PUT /v1/extractors/{name}` or `parsehawk extractors put <name>`
+to sync a full extractor definition idempotently from external config or CI. In
+ParseHawk Cloud, names are intended to be unique per organization/workspace
+resolved from the bearer API key, not globally.
+
 ## Extractors And Schemas
 
 An extractor combines:
 
-- a name
+- an immutable stable `name` for API and CLI references, unique in the local workspace
+- a mutable `display_name` for human-facing UI text
 - natural-language instructions
 - JSON Schema Draft 2020-12
 - optional few-shot examples
@@ -313,6 +317,7 @@ Few-shot examples can use inline text or uploaded files:
 ```json
 {
   "name": "invoice_v1",
+  "display_name": "Invoice Extractor",
   "instructions": "Extract the invoice fields exactly.",
   "schema": {
     "type": "object",
@@ -406,7 +411,7 @@ at rest and never returned by the API):
 ```bash
 # Use OpenAI for one extractor:
 parsehawk providers configure openai --api-key "$OPENAI_API_KEY"
-parsehawk extractors update <extractor-id> --provider openai --model gpt-4o-mini
+parsehawk extractors update invoice_v1 --provider openai --model gpt-4o-mini
 
 # ...or import the key from an environment variable:
 parsehawk providers configure openai --api-key-env OPENAI_API_KEY
