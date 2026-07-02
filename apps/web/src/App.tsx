@@ -2299,6 +2299,7 @@ function CopyTextButton(props: { value: string; label: string; copiedLabel?: str
 function CopyableId(props: { id: string; label?: string; className?: string }) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
+  const label = props.label ?? "ID";
 
   async function onCopy(event: React.MouseEvent) {
     // Stop the click from toggling the surrounding row's selection.
@@ -2319,7 +2320,7 @@ function CopyableId(props: { id: string; label?: string; className?: string }) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={`Copy ${props.label ?? "ID"} ${props.id}`}
+          aria-label={`Copy ${label} ${props.id}`}
           onClick={(event) => void onCopy(event)}
           className={cn(
             "inline-flex w-fit max-w-full items-center font-mono text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:text-foreground",
@@ -2329,7 +2330,7 @@ function CopyableId(props: { id: string; label?: string; className?: string }) {
           <span className="truncate">{shortId(props.id)}</span>
         </button>
       </TooltipTrigger>
-      <TooltipContent>{copied ? "Copied!" : "Click to copy full ID"}</TooltipContent>
+      <TooltipContent>{copied ? "Copied!" : `Click to copy full ${label}`}</TooltipContent>
     </Tooltip>
   );
 }
