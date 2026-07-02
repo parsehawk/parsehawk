@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from parsehawk.config import Settings
-from parsehawk.core.domain.models import ExtractorSource, Provider, ProviderName
+from parsehawk.core.domain.models import ExtractorSource, Provider, ProviderName, utc_now
 from parsehawk.server.container import Container, build_container
 
 RECEIPT_EXTRACTOR_SEED_KEY = "prebuilt:receipt:v1"
 RECEIPT_EXTRACTOR_SEED_VERSION = 1
 
 OPENAI_BASE_URL = "https://api.openai.com/v1"
+KNOWN_BUNDLED_RUNTIME_BASE_URLS = frozenset(
+    {
+        "http://127.0.0.1:8080/v1",
+        "http://localhost:8080/v1",
+        "http://host.docker.internal:8080/v1",
+        "http://runtime:8080/v1",
+    }
+)
 
 RECEIPT_SCHEMA = {
     "type": "object",
@@ -51,11 +59,12 @@ def seed_prebuilt_data(settings: Settings) -> None:
 
 
 def seed_providers_in_container(container: Container) -> None:
-    """Ensure the three fixed providers exist, preconfigured, without clobbering.
+    """Ensure fixed providers exist and bundled defaults match this runtime.
 
-    Only missing providers are created, so any base_url/api_version an operator has
-    configured (and their stored API key) survives a restart. openai_compatible_api
-    points at the bundled runtime and is the default provider new extractors use.
+    Operator-configured provider URLs survive restarts. The local bundled runtime
+    URL is the exception: older ParseHawk versions could seed a host-local URL
+    before Docker mode knew the container-facing URL, so known bundled defaults
+    are reconciled to the active topology.
     """
     default_base_urls = {
         ProviderName.OPENAI: OPENAI_BASE_URL,
@@ -63,8 +72,18 @@ def seed_providers_in_container(container: Container) -> None:
         ProviderName.AZURE_OPENAI: None,
     }
     for name, base_url in default_base_urls.items():
-        if container.providers.get(name) is None:
+        provider = container.providers.get(name)
+        if provider is None:
             container.providers.save(Provider(name=name, base_url=base_url))
+        elif (
+            name == ProviderName.OPENAI_COMPATIBLE
+            and base_url
+            and provider.base_url != base_url
+            and (provider.base_url is None or provider.base_url in KNOWN_BUNDLED_RUNTIME_BASE_URLS)
+        ):
+            container.providers.save(
+                provider.model_copy(update={"base_url": base_url, "updated_at": utc_now()})
+            )
 
 
 def seed_prebuilt_data_in_container(container: Container) -> None:
