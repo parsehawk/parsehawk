@@ -172,7 +172,15 @@ def test_extractor_name_validation_and_slug_generation() -> None:
         )
         assert extractor.name == name
 
-    for name in ("InvoiceV1", "invoice v1", "-invoice", "invoice-", "invoice.v1", "rechnung/2026"):
+    for name in (
+        "InvoiceV1",
+        "invoice v1",
+        "-invoice",
+        "invoice-",
+        "invoice.v1",
+        "rechnung/2026",
+        "extractor_receipt",
+    ):
         with pytest.raises(ValidationError):
             Extractor(
                 id="extractor_bad",

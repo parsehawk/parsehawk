@@ -809,7 +809,7 @@ export default function App() {
                         onChange={(event) => setName(event.target.value)}
                       />
                       {name && !isValidExtractorName(name) ? (
-                        <FieldDescription>Use lowercase letters, digits, hyphen, or underscore; start and end with a letter or digit.</FieldDescription>
+                        <FieldDescription>Use lowercase letters, digits, hyphen, or underscore; start and end with a letter or digit. The extractor_ prefix is reserved.</FieldDescription>
                       ) : name.length >= 64 ? (
                         <FieldDescription>Maximum of 64 characters reached.</FieldDescription>
                       ) : null}
@@ -2369,7 +2369,7 @@ function extractorLabel(extractor: Extractor) {
 }
 
 function isValidExtractorName(name: string) {
-  return /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/.test(name);
+  return !name.startsWith("extractor_") && /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/.test(name);
 }
 
 function slugifyExtractorName(displayName: string) {

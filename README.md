@@ -272,12 +272,13 @@ Public IDs are TypeID-style strings with resource prefixes such as `file_...`,
 
 Extractor `id` is the server-generated canonical ID. Extractor `name` is a
 user-controlled API-safe identifier, such as `receipt` or `invoice_v1`; it uses
-lowercase ASCII letters, digits, hyphen, and underscore, and is immutable after
-creation through normal update flows. `display_name` is the editable label shown
-to people. Use `PUT /v1/extractors/{name}` or `parsehawk extractors put <name>`
-to sync a full extractor definition idempotently from external config or CI. In
-ParseHawk Cloud, names are intended to be unique per organization/workspace
-resolved from the bearer API key, not globally.
+lowercase ASCII letters, digits, hyphen, and underscore, cannot start with the
+reserved `extractor_` prefix, and is immutable after creation through normal
+update flows. `display_name` is the editable label shown to people. Use
+`PUT /v1/extractors/{name}` or `parsehawk extractors put <name>` to sync a full
+extractor definition idempotently from external config or CI. In ParseHawk
+Cloud, names are intended to be unique per organization/workspace resolved from
+the bearer API key, not globally.
 
 ## Extractors And Schemas
 
