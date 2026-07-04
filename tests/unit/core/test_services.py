@@ -171,10 +171,12 @@ class ControlledJobRepository(MemoryJobRepository):
         self,
         *,
         status_to_apply: JobStatus | None = None,
+        complete_status_to_apply: JobStatus | None = None,
         preserve_canceled: bool = False,
     ) -> None:
         super().__init__()
         self._status_to_apply = status_to_apply
+        self._complete_status_to_apply = complete_status_to_apply
         self._preserve_canceled = preserve_canceled
 
     def save(self, job: Job) -> None:
@@ -182,6 +184,7 @@ class ControlledJobRepository(MemoryJobRepository):
             existing = self.items.get(job.id)
             if existing is not None and existing.status == JobStatus.CANCELED:
                 return
+
         if job.status == JobStatus.RUNNING and self._status_to_apply is not None:
             if self._status_to_apply == JobStatus.CANCELING:
                 job = job.mark_canceling()
@@ -189,6 +192,13 @@ class ControlledJobRepository(MemoryJobRepository):
                 job = job.mark_canceled()
             else:
                 job = job.model_copy(update={"status": self._status_to_apply})
+
+        if (
+            job.status == JobStatus.COMPLETED
+            and self._complete_status_to_apply == JobStatus.CANCELING
+        ):
+            job = job.mark_canceling()
+
         self.items[job.id] = job
 
 
@@ -638,8 +648,45 @@ def test_job_service_cancels_when_job_is_already_canceling_before_engine_extract
     completed = services["job_service"].run_claimed(job)
 
     assert completed.status == JobStatus.CANCELED
+    assert completed.result is not None
     assert services["engine"].requests == []
 
+def test_job_service_cancels_when_job_becomes_canceling_after_extraction(
+    services,
+) -> None:
+    job_repo = ControlledJobRepository(
+        complete_status_to_apply=JobStatus.CANCELING
+    )
+
+    services["jobs"] = job_repo
+    services["job_service"] = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+
+    file = services["file_service"].upload(
+        file_name="a.md",
+        content_type="text/markdown",
+        content=b"Subject: #1#",
+    )
+
+    extractor = services["extractor_service"].create(
+        name="receipt",
+        instructions="classify",
+        schema=schema(),
+    )
+
+    job = services["job_service"].create(
+        extractor_id=extractor.id,
+        file_id=file.id,
+    )
+
+    completed = services["job_service"].run_claimed(job)
+
+    assert completed.status == JobStatus.CANCELED
 
 def test_job_service_cancels_when_engine_raises_cancelled_and_job_is_canceling(
     services,
