@@ -625,6 +625,57 @@ def test_job_service_passes_cancellation_callback_to_engine(services) -> None:
     assert services["engine"].cancellation_checks[0]() is False
 
 
+def test_job_service_cancel_marks_queued_job_canceled(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    canceled = services["job_service"].cancel(job.id)
+
+    assert canceled.status == JobStatus.CANCELED
+    persisted = services["jobs"].get(job.id)
+    assert persisted is not None
+    assert persisted.status == JobStatus.CANCELED
+
+
+def test_job_service_cancel_marks_running_job_canceling(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    services["jobs"].save(job.mark_running())
+
+    canceled = services["job_service"].cancel(job.id)
+
+    assert canceled.status == JobStatus.CANCELING
+    persisted = services["jobs"].get(job.id)
+    assert persisted is not None
+    assert persisted.status == JobStatus.CANCELING
+
+
+def test_job_service_cancel_rejects_completed_job(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    services["jobs"].save(job.model_copy(update={"status": JobStatus.COMPLETED}))
+
+    with pytest.raises(ValidationFailure, match="cannot cancel job"):
+        services["job_service"].cancel(job.id)
+
+
 def test_job_service_cancels_when_job_is_already_canceling_before_engine_extract(
     services,
 ) -> None:
@@ -648,15 +699,14 @@ def test_job_service_cancels_when_job_is_already_canceling_before_engine_extract
     completed = services["job_service"].run_claimed(job)
 
     assert completed.status == JobStatus.CANCELED
-    assert completed.result is not None
+    assert completed.result is None
     assert services["engine"].requests == []
+
 
 def test_job_service_cancels_when_job_becomes_canceling_after_extraction(
     services,
 ) -> None:
-    job_repo = ControlledJobRepository(
-        complete_status_to_apply=JobStatus.CANCELING
-    )
+    job_repo = ControlledJobRepository(complete_status_to_apply=JobStatus.CANCELING)
 
     services["jobs"] = job_repo
     services["job_service"] = JobService(
@@ -686,7 +736,52 @@ def test_job_service_cancels_when_job_becomes_canceling_after_extraction(
 
     completed = services["job_service"].run_claimed(job)
 
+    assert completed.status == JobStatus.COMPLETED
+    saved_job = job_repo.get(job.id)
+    assert saved_job is not None
+    assert saved_job.status == JobStatus.CANCELING
+
+
+def test_job_service_cancels_when_job_becomes_canceling_before_saving_completed(
+    services,
+) -> None:
+    job_repo = MemoryJobRepository()
+    services["jobs"] = job_repo
+    services["job_service"] = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+
+    file = services["file_service"].upload(
+        file_name="a.md",
+        content_type="text/markdown",
+        content=b"Subject: #1#",
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt",
+        instructions="classify",
+        schema=schema(),
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    def mark_canceling(request: ExtractionRequest, cancellation_check=None) -> ExtractionResponse:
+        latest = job_repo.get(job.id)
+        assert latest is not None
+        job_repo.save(latest.mark_canceling())
+        return services["engine"].response
+
+    services["engine"].extract = mark_canceling
+
+    completed = services["job_service"].run_claimed(job)
+
     assert completed.status == JobStatus.CANCELED
+    persisted = job_repo.get(job.id)
+    assert persisted is not None
+    assert persisted.status == JobStatus.CANCELED
+
 
 def test_job_service_cancels_when_engine_raises_cancelled_and_job_is_canceling(
     services,
@@ -712,6 +807,47 @@ def test_job_service_cancels_when_engine_raises_cancelled_and_job_is_canceling(
     completed = services["job_service"].run_claimed(job)
 
     assert completed.status == JobStatus.CANCELED
+
+
+def test_job_service_cancels_when_canceling_before_extraction_cancelled_handler(
+    services,
+) -> None:
+    job_repo = MemoryJobRepository()
+    services["jobs"] = job_repo
+    services["job_service"] = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+    services["engine"].error = ExtractionCancelled("cancelled")
+    file = services["file_service"].upload(
+        file_name="a.md",
+        content_type="text/markdown",
+        content=b"Subject: #1#",
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt",
+        instructions="classify",
+        schema=schema(),
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    def mark_canceling(request: ExtractionRequest, cancellation_check=None) -> ExtractionResponse:
+        latest = job_repo.get(job.id)
+        assert latest is not None
+        job_repo.save(latest.mark_canceling())
+        raise services["engine"].error
+
+    services["engine"].extract = mark_canceling
+
+    completed = services["job_service"].run_claimed(job)
+
+    assert completed.status == JobStatus.CANCELED
+    persisted = job_repo.get(job.id)
+    assert persisted is not None
+    assert persisted.status == JobStatus.CANCELED
 
 
 def test_job_service_returns_already_canceled_job_when_engine_raises_cancelled(
