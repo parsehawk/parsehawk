@@ -604,6 +604,151 @@ describe("App run workflow", () => {
     expect(screen.getAllByText("Archived inline text").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Copy receipt_id")).toBeInTheDocument();
   });
+
+  it("sends the selected provider and model on create", async () => {
+    let createPayload: Record<string, unknown> | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url.startsWith("/v1/providers/") && url.endsWith("/models")) {
+        return jsonResponse({ models: ["gpt-4o-mini", "gpt-4o"] });
+      }
+      if (url === "/v1/extractors" && init?.method === "POST") {
+        createPayload = JSON.parse(String(init.body));
+        return jsonResponse({
+          id: "extractor_123",
+          name: "invoice",
+          display_name: "Invoice",
+          instructions: "Extract invoice fields.",
+          enable_thinking: false,
+          provider_name: createPayload?.provider_name,
+          model: createPayload?.model,
+          schema: createPayload?.schema,
+          examples: [],
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z"
+        });
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+    await userEvent.type(screen.getByLabelText("Display name"), "Invoice");
+    await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
+    await userEvent.selectOptions(screen.getByLabelText("Provider"), "openai");
+    await userEvent.type(screen.getByLabelText("Model"), "gpt-4o-mini");
+    await userEvent.click(screen.getByRole("button", { name: "Create extractor" }));
+
+    await waitFor(() => {
+      expect(createPayload?.provider_name).toBe("openai");
+      expect(createPayload?.model).toBe("gpt-4o-mini");
+    });
+  });
+
+  it("hints to configure the provider but still allows manual model entry when the model list fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      if (url.startsWith("/v1/providers/") && url.endsWith("/models")) {
+        return jsonResponse({ detail: "model provider is unreachable" }, { status: 400 });
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+
+    expect(await screen.findByText(/Couldn't load models/i)).toBeInTheDocument();
+
+    const modelInput = screen.getByLabelText("Model");
+    await userEvent.type(modelInput, "my-deployment");
+    expect(modelInput).toHaveValue("my-deployment");
+  });
+
+  it("configures a provider without ever revealing the api key", async () => {
+    let patchPayload: Record<string, unknown> | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/providers" && method === "GET") {
+        return jsonResponse([
+          {
+            name: "openai_compatible_api",
+            base_url: "http://127.0.0.1:8080/v1",
+            api_version: null,
+            has_api_key: false,
+            created_at: "2026-06-21T00:00:00Z",
+            updated_at: "2026-06-21T00:00:00Z"
+          },
+          {
+            name: "openai",
+            base_url: "https://api.openai.com/v1",
+            api_version: null,
+            has_api_key: true,
+            created_at: "2026-06-21T00:00:00Z",
+            updated_at: "2026-06-21T00:00:00Z"
+          },
+          {
+            name: "azure_openai",
+            base_url: null,
+            api_version: null,
+            has_api_key: false,
+            created_at: "2026-06-21T00:00:00Z",
+            updated_at: "2026-06-21T00:00:00Z"
+          }
+        ]);
+      }
+      if (url === "/v1/providers/openai" && method === "PATCH") {
+        patchPayload = JSON.parse(String(init?.body));
+        return jsonResponse({
+          name: "openai",
+          base_url: "https://api.openai.com/v1",
+          api_version: null,
+          has_api_key: true,
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z"
+        });
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Configure model providers" }));
+
+    // openai is seeded with a key, so it reports as configured.
+    expect(await screen.findByText("Configured")).toBeInTheDocument();
+    expect(screen.getAllByText("Not configured").length).toBe(2);
+
+    // openai is the second provider in the fixed order; set a new key and save it.
+    await userEvent.type(screen.getAllByLabelText("API key")[1], "sk-secret");
+    await userEvent.click(screen.getAllByRole("button", { name: "Save" })[1]);
+
+    await waitFor(() => {
+      expect(patchPayload?.api_key).toBe("sk-secret");
+    });
+    // The key is write-only: it is cleared after saving and never rendered back.
+    expect(screen.queryByDisplayValue("sk-secret")).not.toBeInTheDocument();
+  });
 });
 
 function jsonResponse(payload: unknown, init: ResponseInit = {}) {

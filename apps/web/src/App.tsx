@@ -20,12 +20,14 @@ import {
   PlayCircle,
   Plus,
   RefreshCw,
+  Settings,
   Sun,
   Trash2,
   UploadCloud
 } from "lucide-react";
 
 import {
+  configureProvider,
   createExtractor,
   createJob,
   deleteExtractor,
@@ -36,6 +38,8 @@ import {
   listExtractors,
   listFiles,
   listJobs,
+  listProviderModels,
+  listProviders,
   readFilePreview,
   updateExtractor,
   uploadFile,
@@ -95,7 +99,16 @@ import {
   schemaFromFields
 } from "./schemaBuilder";
 import type { SchemaField, ValidationPreset } from "./schemaBuilder";
-import type { Extractor, FileRecord, Job, JobStatus, SchemaValidation, SchemaValidationRequest } from "./types";
+import type {
+  Extractor,
+  FileRecord,
+  Job,
+  JobStatus,
+  Provider,
+  ProviderName,
+  SchemaValidation,
+  SchemaValidationRequest
+} from "./types";
 
 const terminalStates = new Set(["completed", "failed", "canceled"]);
 const activeStates = new Set<JobStatus>(["running", "canceling", "deleting"]);
@@ -104,6 +117,17 @@ type SchemaMode = "builder" | "json";
 type MainView = "run" | "editor";
 type RunInputMode = "file" | "text";
 type UploadProgressState = { total: number; completed: number; failed: number };
+
+// Fixed set of providers, in the order they are shown. Names come from the
+// backend ProviderName enum; the label is the human-readable UI text.
+const PROVIDERS: { name: ProviderName; label: string }[] = [
+  { name: "openai_compatible_api", label: "OpenAI-compatible API" },
+  { name: "openai", label: "OpenAI" },
+  { name: "azure_openai", label: "Azure OpenAI" }
+];
+const DEFAULT_PROVIDER_NAME: ProviderName = "openai_compatible_api";
+const providerLabel = (name: ProviderName): string =>
+  PROVIDERS.find((provider) => provider.name === name)?.label ?? name;
 
 const emptyExtractorName = "";
 const emptyDisplayName = "";
@@ -127,6 +151,10 @@ export default function App() {
   const [displayName, setDisplayName] = useState(emptyDisplayName);
   const [instructions, setInstructions] = useState(emptyInstructions);
   const [enableThinking, setEnableThinking] = useState(false);
+  const [providerName, setProviderName] = useState<ProviderName>(DEFAULT_PROVIDER_NAME);
+  const [model, setModel] = useState("");
+  const [providerModels, setProviderModels] = useState<string[]>([]);
+  const [providerModelsError, setProviderModelsError] = useState(false);
   const [examples, setExamples] = useState<EditableExample[]>([]);
   const [savedExtractorDraft, setSavedExtractorDraft] = useState(() =>
     extractorDraftSnapshot({
@@ -134,6 +162,8 @@ export default function App() {
       displayName: emptyDisplayName,
       instructions: emptyInstructions,
       enableThinking: false,
+      providerName: DEFAULT_PROVIDER_NAME,
+      model: "",
       schemaText: prettyJson(fieldSchemaFromFields([])),
       examplesText: prettyJson([])
     })
@@ -181,6 +211,8 @@ export default function App() {
     displayName,
     instructions,
     enableThinking,
+    providerName,
+    model,
     schemaText: schemaDraftText,
     examplesText: examplesDraftFingerprint(examples)
   });
@@ -198,6 +230,28 @@ export default function App() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [mainView]);
+
+  // Populate the model suggestions from the selected provider while the editor
+  // is open. An unconfigured/unreachable provider returns HTTP 400, so we clear
+  // the list and flag the error to hint the user without blocking manual entry.
+  useEffect(() => {
+    if (mainView !== "editor") return;
+    let cancelled = false;
+    setProviderModelsError(false);
+    listProviderModels(providerName)
+      .then((models) => {
+        if (!cancelled) setProviderModels(models);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProviderModels([]);
+          setProviderModelsError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mainView, providerName]);
 
   useEffect(() => {
     if (!jobFile) {
@@ -486,6 +540,10 @@ export default function App() {
       display_name: displayName,
       instructions,
       enable_thinking: enableThinking,
+      provider_name: providerName,
+      // Send the trimmed model, or omit it so the backend applies its default
+      // (the bundled NuExtract3 model) on create.
+      model: model.trim() || undefined,
       examples: examplesToPayload(examples)
     };
     const payload = draftExtractorId || !nameManuallyEdited ? base : { ...base, name };
@@ -540,6 +598,8 @@ export default function App() {
     setDisplayName(extractorLabel(extractor));
     setInstructions(extractor.instructions);
     setEnableThinking(extractor.enable_thinking ?? false);
+    setProviderName(extractor.provider_name ?? DEFAULT_PROVIDER_NAME);
+    setModel(extractor.model ?? "");
     applyExtractorArtifacts(extractor);
     setSchemaMode("builder");
     setSchemaValidation(null);
@@ -557,6 +617,8 @@ export default function App() {
     setDisplayName(emptyDisplayName);
     setInstructions(emptyInstructions);
     setEnableThinking(false);
+    setProviderName(DEFAULT_PROVIDER_NAME);
+    setModel("");
     setExamples(nextExamples);
     setSchemaFields(nextSchemaFields);
     setSchemaText(nextSchemaText);
@@ -568,6 +630,8 @@ export default function App() {
         displayName: emptyDisplayName,
         instructions: emptyInstructions,
         enableThinking: false,
+        providerName: DEFAULT_PROVIDER_NAME,
+        model: "",
         schemaText: prettyJson(fieldSchemaFromFields(nextSchemaFields)),
         examplesText: examplesDraftFingerprint(nextExamples)
       })
@@ -600,6 +664,8 @@ export default function App() {
         displayName: extractorLabel(extractor),
         instructions: extractor.instructions,
         enableThinking: extractor.enable_thinking ?? false,
+        providerName: extractor.provider_name ?? DEFAULT_PROVIDER_NAME,
+        model: extractor.model ?? "",
         schemaText: prettyJson(fieldSchemaFromFields(nextFields)),
         examplesText: examplesDraftFingerprint(nextExamples)
       })
@@ -629,6 +695,7 @@ export default function App() {
               <img src={logoDark} alt="ParseHawk" className="hidden h-12 w-auto dark:block" />
             </div>
             <div className="flex items-center gap-1">
+              <ProvidersDialog />
               <HelpDialog />
               <ThemeToggle />
             </div>
@@ -836,6 +903,48 @@ export default function App() {
                         onChange={(event) => setInstructions(event.target.value)}
                         rows={4}
                       />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="extractor-provider">Provider</FieldLabel>
+                      <NativeSelect
+                        id="extractor-provider"
+                        value={providerName}
+                        disabled={draftExtractorIsPrebuilt}
+                        onChange={(event) => {
+                          setProviderName(event.target.value as ProviderName);
+                          setModel("");
+                        }}
+                      >
+                        {PROVIDERS.map((provider) => (
+                          <NativeSelectOption key={provider.name} value={provider.name}>
+                            {provider.label}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                      <FieldDescription>The model provider this extractor runs against.</FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="extractor-model">Model</FieldLabel>
+                      <Input
+                        id="extractor-model"
+                        value={model}
+                        list="extractor-model-options"
+                        placeholder="Leave blank for the bundled default"
+                        disabled={draftExtractorIsPrebuilt}
+                        onChange={(event) => setModel(event.target.value)}
+                      />
+                      <datalist id="extractor-model-options">
+                        {providerModels.map((modelName) => (
+                          <option key={modelName} value={modelName} />
+                        ))}
+                      </datalist>
+                      <FieldDescription>
+                        {providerModelsError
+                          ? "Couldn't load models — configure this provider first, or type the model name."
+                          : providerName === "azure_openai"
+                            ? "For Azure OpenAI, enter your deployment name."
+                            : "Pick a suggested model or type one manually."}
+                      </FieldDescription>
                     </Field>
                     <CheckboxField
                       id="extractor-enable-thinking"
@@ -1099,6 +1208,193 @@ export default function App() {
         </AlertDialogContent>
       </AlertDialog>
     </TooltipProvider>
+  );
+}
+
+function ProvidersDialog() {
+  const [open, setOpen] = useState(false);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadProviders() {
+    setLoading(true);
+    try {
+      setProviders(await listProviders());
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load providers");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next);
+    if (next) void loadProviders();
+  }
+
+  // Show providers in the fixed PROVIDERS order, ignoring the list order the API returns.
+  const orderedProviders = PROVIDERS.map(({ name }) =>
+    providers.find((provider) => provider.name === name)
+  ).filter((provider): provider is Provider => Boolean(provider));
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Configure model providers">
+              <Settings />
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Providers</TooltipContent>
+      </Tooltip>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader className="gap-1">
+          <DialogTitle>Model providers</DialogTitle>
+          <DialogDescription>
+            Configure the providers your extractors can use. API keys are write-only — they are never
+            shown back.
+          </DialogDescription>
+        </DialogHeader>
+        {error ? (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <div className="flex max-h-[60vh] flex-col gap-4 overflow-y-auto pr-1">
+          {loading && orderedProviders.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Loading providers…</p>
+          ) : (
+            orderedProviders.map((provider) => (
+              <ProviderCard
+                key={provider.name}
+                provider={provider}
+                onConfigured={(updated) =>
+                  setProviders((current) =>
+                    current.map((item) => (item.name === updated.name ? updated : item))
+                  )
+                }
+              />
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ProviderCard(props: { provider: Provider; onConfigured: (provider: Provider) => void }) {
+  const { provider } = props;
+  const [baseUrl, setBaseUrl] = useState(provider.base_url ?? "");
+  const [apiVersion, setApiVersion] = useState(provider.api_version ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  // api_version only applies to Azure OpenAI; the other providers ignore it.
+  const showApiVersion = provider.name === "azure_openai";
+
+  async function onSave() {
+    setSaving(true);
+    setError("");
+    try {
+      const payload: { base_url?: string | null; api_version?: string | null; api_key?: string } = {
+        base_url: baseUrl.trim() ? baseUrl.trim() : null
+      };
+      if (showApiVersion) {
+        payload.api_version = apiVersion.trim() ? apiVersion.trim() : null;
+      }
+      if (apiKey) {
+        payload.api_key = apiKey;
+      }
+      const updated = await configureProvider(provider.name, payload);
+      props.onConfigured(updated);
+      setApiKey("");
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save provider");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{providerLabel(provider.name)}</span>
+        <Badge variant={provider.has_api_key ? "secondary" : "outline"}>
+          {provider.has_api_key ? "Configured" : "Not configured"}
+        </Badge>
+      </div>
+      <FieldGroup className="flex flex-col gap-3">
+        <Field>
+          <FieldLabel htmlFor={`provider-${provider.name}-base-url`}>Base URL</FieldLabel>
+          <Input
+            id={`provider-${provider.name}-base-url`}
+            value={baseUrl}
+            placeholder="https://api.openai.com/v1"
+            onChange={(event) => {
+              setBaseUrl(event.target.value);
+              setSaved(false);
+            }}
+          />
+          {provider.name === "azure_openai" ? (
+            <FieldDescription>Set this to your Azure OpenAI v1 endpoint.</FieldDescription>
+          ) : null}
+        </Field>
+        {showApiVersion ? (
+          <Field>
+            <FieldLabel htmlFor={`provider-${provider.name}-api-version`}>API version</FieldLabel>
+            <Input
+              id={`provider-${provider.name}-api-version`}
+              value={apiVersion}
+              placeholder="2024-08-01-preview"
+              onChange={(event) => {
+                setApiVersion(event.target.value);
+                setSaved(false);
+              }}
+            />
+          </Field>
+        ) : null}
+        <Field>
+          <FieldLabel htmlFor={`provider-${provider.name}-api-key`}>API key</FieldLabel>
+          <Input
+            id={`provider-${provider.name}-api-key`}
+            type="password"
+            value={apiKey}
+            autoComplete="off"
+            placeholder={provider.has_api_key ? "•••••••• (configured)" : "Not set"}
+            onChange={(event) => {
+              setApiKey(event.target.value);
+              setSaved(false);
+            }}
+          />
+          <FieldDescription>Leave blank to keep the current key.</FieldDescription>
+        </Field>
+      </FieldGroup>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <Button size="sm" disabled={saving} onClick={() => void onSave()}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+        {saved ? (
+          <span className="flex items-center gap-1 text-sm text-muted-foreground">
+            <Check className="size-4" />
+            Saved
+          </span>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -2413,6 +2709,8 @@ function extractorDraftSnapshot(props: {
   displayName: string;
   instructions: string;
   enableThinking: boolean;
+  providerName: ProviderName;
+  model: string;
   schemaText: string;
   examplesText: string;
 }) {
@@ -2421,6 +2719,8 @@ function extractorDraftSnapshot(props: {
     displayName: props.displayName,
     instructions: props.instructions,
     enableThinking: props.enableThinking,
+    providerName: props.providerName,
+    model: props.model,
     schemaText: props.schemaText,
     examplesText: props.examplesText
   });
