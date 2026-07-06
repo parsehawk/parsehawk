@@ -505,6 +505,66 @@ Maintainers can tag internal usage instead of dropping it:
 export PARSEHAWK_TELEMETRY_INTERNAL=1
 ```
 
+## Tracing
+
+ParseHawk traces every LM request (prompts, outputs, latency, token usage) and
+ships with a bundled, self-hosted [Arize Phoenix](https://arize.com/docs/phoenix)
+backend to view them. `parsehawk start` starts Phoenix alongside the other
+services; open the UI at `http://127.0.0.1:6006`. Traces stay on your machine:
+they are stored in Phoenix's own SQLite database under `data/phoenix/` and
+survive restarts.
+
+To start without the bundled Phoenix (this also turns tracing off):
+
+```bash
+parsehawk start -x phoenix
+```
+
+The API and worker are tracing-backend agnostic: all LM requests go through the
+OpenAI SDK, instrumented with [OpenInference](https://github.com/Arize-ai/openinference)
+and exported over standard OTLP. Point them at any OTLP collector instead of the
+bundled Phoenix with the standard OpenTelemetry variables:
+
+| Environment variable | Default | Description |
+| --- | --- | --- |
+| `OTEL_SDK_DISABLED` | `false` | Master switch for tracing. `parsehawk start -x phoenix` sets it to `true` unless you set it yourself. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://phoenix:6006` | OTLP/HTTP collector base URL (the exporter appends `/v1/traces`). |
+| `OTEL_EXPORTER_OTLP_HEADERS` | unset | Optional headers, e.g. `authorization=Bearer <api key>` for an auth-enabled collector. |
+| `OTEL_SERVICE_NAME` | `parsehawk-api` / `parsehawk-worker` | Service name on exported spans. |
+
+Bring-your-own collector example:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=https://collector.example.com
+export OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer my-key"
+export OTEL_SDK_DISABLED=false
+parsehawk start -x phoenix
+```
+
+### Configuring the bundled Phoenix
+
+The Phoenix container itself is configured with its native `PHOENIX_*` variables,
+which pass through to the service (see the
+[Phoenix configuration docs](https://arize.com/docs/phoenix/self-hosting/configuration)):
+
+| Environment variable | Default | Description |
+| --- | --- | --- |
+| `PARSEHAWK_PHOENIX_VERSION` | `latest` | Phoenix image tag. |
+| `PARSEHAWK_PHOENIX_HOST` / `PARSEHAWK_PHOENIX_PORT` | `127.0.0.1` / `6006` | Host binding for the Phoenix UI/collector. |
+| `PHOENIX_SQL_DATABASE_URL` | SQLite under `data/phoenix/` | Trace storage. Set a `postgresql://` URL to use an external Postgres. |
+| `PHOENIX_DEFAULT_RETENTION_POLICY_DAYS` | `0` (keep forever) | Auto-delete traces older than this many days. |
+| `PHOENIX_ENABLE_AUTH` + `PHOENIX_SECRET` | `false` / unset | Enable Phoenix authentication (`PHOENIX_SECRET` must be 32+ characters). |
+
+To enable authentication end to end: set `PHOENIX_ENABLE_AUTH=true` and a
+`PHOENIX_SECRET`, restart, create an API key in the Phoenix UI (Settings), and
+hand it to the API/worker via
+`OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer <api key>"`.
+
+For the long tail (OAuth2/LDAP, token expiry, admin accounts, …) drop a
+`phoenix.env` file next to `docker/docker-compose.yml` (or point
+`PARSEHAWK_PHOENIX_ENV_FILE` at one); it is loaded into the Phoenix container
+when present.
+
 ## Local Data
 
 By default ParseHawk stores local state under `data/`:
@@ -515,6 +575,7 @@ data/
   files/
   logs/
   parsehawk-state.json
+  phoenix/
   telemetry-id
 ```
 
