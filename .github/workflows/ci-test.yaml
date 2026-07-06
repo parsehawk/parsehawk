@@ -67,7 +67,7 @@ jobs:
         uses: extractions/setup-just@v3
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       # `just test` == `uv run pytest`, which runs the unit + integration
       # suite with the 100% coverage gate. tests/e2e is excluded via the

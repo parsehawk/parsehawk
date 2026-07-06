@@ -4,6 +4,7 @@ import argparse
 import logging
 import time
 
+from parsehawk import tracing
 from parsehawk.logging import configure_logging
 from parsehawk.server.container import build_container
 
@@ -38,6 +39,7 @@ def main() -> None:
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=1.0)
     args = parser.parse_args()
+    tracing.configure_tracing(service_name="parsehawk-worker")
     if args.once:
         run_once()
     else:
