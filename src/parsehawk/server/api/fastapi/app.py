@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, FastAPI, File, Query, Request, UploadFil
 from fastapi.responses import FileResponse as FastAPIFileResponse
 from fastapi.responses import JSONResponse
 
-from parsehawk import telemetry
+from parsehawk import telemetry, tracing
 from parsehawk.core.domain.errors import NotFoundError, ProviderRequestError, ValidationFailure
 from parsehawk.core.domain.models import ProviderName
 from parsehawk.core.domain.schemas import (
@@ -59,6 +59,7 @@ health_router = APIRouter(tags=["health"])
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        tracing.configure_tracing(service_name="parsehawk-api")
         container = build_container()
         # Not every deployment starts through the CLI (Docker runs uvicorn
         # directly), so the API guarantees the fixed providers and prebuilt

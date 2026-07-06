@@ -85,7 +85,7 @@ jobs:
         uses: extractions/setup-just@v3
 
       - name: Sync dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       # .pre-commit-config.yaml is the single source of truth for the static
       # checks. This job runs only ruff format/check and ty; the hygiene hooks

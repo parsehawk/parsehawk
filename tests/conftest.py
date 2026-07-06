@@ -58,11 +58,12 @@ def _first_non_empty_line(text: str) -> str | None:
 
 @pytest.fixture(autouse=True)
 def _disable_telemetry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the suite hermetic: no usage analytics are sent during tests.
+    """Keep the suite hermetic: no usage analytics or trace export during tests.
 
-    Telemetry-specific tests opt back in by clearing these vars themselves.
+    Telemetry/tracing-specific tests opt back in by clearing these vars themselves.
     """
     monkeypatch.setenv("PARSEHAWK_TELEMETRY_DISABLED", "1")
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
 
 
 class _StubEngineFactory:

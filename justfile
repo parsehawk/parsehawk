@@ -4,7 +4,7 @@ export PARSEHAWK_DATA_DIR := env_var_or_default("PARSEHAWK_DATA_DIR", "data")
 export PARSEHAWK_DATABASE_PATH := env_var_or_default("PARSEHAWK_DATABASE_PATH", "data/parsehawk.db")
 
 setup:
-    uv sync
+    uv sync --all-extras
     pnpm install
     uv run pre-commit install
 
