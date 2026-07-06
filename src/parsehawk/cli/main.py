@@ -254,6 +254,8 @@ class ParseHawkState:
     mode: str = "local"
     compose_project: str | None = None
     compose_files: list[str] | None = None
+    compose_profiles: list[str] | None = None
+    phoenix_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -788,7 +790,7 @@ def start_docker(args: argparse.Namespace) -> None:
 
     web_dir = _repo_root() / "apps" / "web"
     _progress("Checking ports")
-    _ensure_start_ports_available(args, web_dir=web_dir)
+    _ensure_start_ports_available(args, web_dir=web_dir, include_phoenix=_phoenix_enabled(args))
     _progress("Checking Docker")
     _ensure_docker_available()
     _progress("Checking platform dependencies")
@@ -799,6 +801,12 @@ def start_docker(args: argparse.Namespace) -> None:
     logs_dir = data_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     database_path = data_dir / "parsehawk.db"
+    phoenix_enabled = _phoenix_enabled(args)
+    if phoenix_enabled:
+        # Phoenix persists its own SQLite database (and exports) here, kept
+        # separate from parsehawk.db: Phoenix owns its schema migrations and
+        # SQLite is single-writer, so sharing one file would entangle the two.
+        (data_dir / "phoenix").mkdir(parents=True, exist_ok=True)
     _print_telemetry_notice(data_dir)
     _apply_migrations_at_start(args, database_path)
 
@@ -879,6 +887,7 @@ def start_docker(args: argparse.Namespace) -> None:
         log_level=log_level,
         model=model,
         runtime_url=container_runtime_url,
+        phoenix_enabled=phoenix_enabled,
     )
     services = ["api", "worker"]
     web_enabled = not args.no_web and (web_dir / "package.json").exists()
@@ -886,6 +895,10 @@ def start_docker(args: argparse.Namespace) -> None:
         services.append("web")
     if args.runtime == "vllm" and _is_linux_x86_64():
         services.insert(0, "runtime")
+    compose_profiles: list[str] = []
+    if phoenix_enabled:
+        services.append("phoenix")
+        compose_profiles.append("phoenix")
 
     state = ParseHawkState(
         data_dir=str(data_dir),
@@ -896,6 +909,8 @@ def start_docker(args: argparse.Namespace) -> None:
         mode="docker",
         compose_project=compose_project,
         compose_files=[str(path) for path in compose_files],
+        compose_profiles=compose_profiles or None,
+        phoenix_url=_phoenix_url() if phoenix_enabled else None,
     )
     _write_state(state_path, state)
     try:
@@ -914,6 +929,7 @@ def start_docker(args: argparse.Namespace) -> None:
             project_name=compose_project,
             env=compose_env,
             services=services,
+            profiles=compose_profiles or None,
         )
         if runtime_url and runtime_process is None:
             _progress(f"Waiting for Model Runtime: {runtime_url}")
@@ -929,9 +945,17 @@ def start_docker(args: argparse.Namespace) -> None:
         if state.web_url:
             _progress(f"Waiting for ParseHawk Web UI: {state.web_url}")
             _wait_for_url(state.web_url, name="ParseHawk Web UI")
+        if state.phoenix_url:
+            _progress(f"Waiting for Phoenix Tracing: {state.phoenix_url}")
+            _wait_for_phoenix(state.phoenix_url)
         _ensure_managed_processes_alive(processes)
     except BaseException:
-        _compose_down(compose_files=compose_files, project_name=compose_project, env=compose_env)
+        _compose_down(
+            compose_files=compose_files,
+            project_name=compose_project,
+            env=compose_env,
+            profiles=compose_profiles or None,
+        )
         _stop_processes(processes)
         state_path.unlink(missing_ok=True)
         raise
@@ -941,6 +965,8 @@ def start_docker(args: argparse.Namespace) -> None:
         print(f"ParseHawk Web UI: {state.web_url}")
     if runtime_url:
         print(f"Model Runtime: {runtime_url}")
+    if state.phoenix_url:
+        print(f"Phoenix Tracing: {state.phoenix_url}")
     print(f"Logs: {logs_dir}")
 
 
@@ -979,10 +1005,15 @@ def _print_status(state: ParseHawkState) -> None:
         print(f"Model Runtime: {state.runtime_url}")
     if state.web_url:
         print(f"ParseHawk Web UI: {state.web_url}")
+    if state.phoenix_url:
+        print(f"Phoenix Tracing: {state.phoenix_url}")
     if state.mode == "docker" and state.compose_project and state.compose_files:
         running = "running" if _compose_is_running(state) else "stopped"
         print(f"Docker Compose: {running} project={state.compose_project}")
-        for service in ("api", "worker", "web"):
+        services = (
+            ("api", "worker", "web", "phoenix") if state.phoenix_url else ("api", "worker", "web")
+        )
+        for service in services:
             status_text = "running" if _compose_service_running(state, service) else "stopped"
             print(f"{_service_display_name(service)}: {status_text}")
     for process in state.processes:
@@ -1276,6 +1307,17 @@ def _should_skip_migrations(args: argparse.Namespace) -> bool:
     return migrations_disabled()
 
 
+def _phoenix_enabled(args: argparse.Namespace) -> bool:
+    return "phoenix" not in (getattr(args, "exclude", None) or [])
+
+
+def _phoenix_url() -> str:
+    """Host-side Phoenix UI/collector URL, honoring the compose port overrides."""
+    host = os.getenv("PARSEHAWK_PHOENIX_HOST", "127.0.0.1")
+    port = os.getenv("PARSEHAWK_PHOENIX_PORT", "6006")
+    return f"http://{host}:{port}"
+
+
 def _apply_migrations_at_start(args: argparse.Namespace, database_path: Path) -> None:
     """Apply pending migrations before serving, honoring the opt-out.
 
@@ -1490,6 +1532,7 @@ def _compose_env(
     log_level: str,
     model: str,
     runtime_url: str | None,
+    phoenix_enabled: bool,
 ) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
@@ -1515,13 +1558,28 @@ def _compose_env(
         }
     )
     env["PARSEHAWK_DATABASE_PATH"] = str(database_path).replace(str(data_dir), "/data", 1)
+    if phoenix_enabled:
+        # Traces persist next to the app data; the OTLP endpoint default lives in
+        # the compose file and an operator's OTEL_* env (copied above) still wins.
+        env["PARSEHAWK_PHOENIX_HOST_DATA_DIR"] = str(data_dir / "phoenix")
+    else:
+        # `-x phoenix` turns tracing off unless the operator explicitly pointed
+        # the exporter somewhere themselves (bring-your-own collector).
+        env.setdefault("OTEL_SDK_DISABLED", "true")
     return env
 
 
-def _compose_command(compose_files: list[Path], project_name: str, *args: str) -> list[str]:
+def _compose_command(
+    compose_files: list[Path],
+    project_name: str,
+    *args: str,
+    profiles: list[str] | None = None,
+) -> list[str]:
     command = ["docker", "compose", "--project-name", project_name]
     for compose_file in compose_files:
         command.extend(["--file", str(compose_file)])
+    for profile in profiles or []:
+        command.extend(["--profile", profile])
     command.extend(args)
     return command
 
@@ -1532,10 +1590,19 @@ def _compose_up(
     project_name: str,
     env: dict[str, str],
     services: list[str],
+    profiles: list[str] | None = None,
 ) -> None:
     try:
         subprocess.run(
-            _compose_command(compose_files, project_name, "up", "--detach", "--build", *services),
+            _compose_command(
+                compose_files,
+                project_name,
+                "up",
+                "--detach",
+                "--build",
+                *services,
+                profiles=profiles,
+            ),
             cwd=_repo_root(),
             env=env,
             check=True,
@@ -1550,9 +1617,17 @@ def _compose_up(
         ) from exc
 
 
-def _compose_down(*, compose_files: list[Path], project_name: str, env: dict[str, str]) -> None:
+def _compose_down(
+    *,
+    compose_files: list[Path],
+    project_name: str,
+    env: dict[str, str],
+    profiles: list[str] | None = None,
+) -> None:
     subprocess.run(
-        _compose_command(compose_files, project_name, "down", "--remove-orphans"),
+        _compose_command(
+            compose_files, project_name, "down", "--remove-orphans", profiles=profiles
+        ),
         cwd=_repo_root(),
         env=env,
         stdout=subprocess.DEVNULL,
@@ -1582,6 +1657,7 @@ def _compose_running_services(state: ParseHawkState) -> set[str]:
                 "running",
                 "--format",
                 "json",
+                profiles=state.compose_profiles,
             ),
             cwd=_repo_root(),
             stdout=subprocess.PIPE,
@@ -1629,7 +1705,7 @@ def _compose_service_name(item: dict[str, Any]) -> str | None:
     name = item.get("Name")
     if not isinstance(name, str) or not name:
         return None
-    for service_name in ("api", "worker", "web", "runtime"):
+    for service_name in ("api", "worker", "web", "runtime", "phoenix"):
         if (
             f"-{service_name}-" in name
             or f"_{service_name}_" in name
@@ -1646,6 +1722,7 @@ def _service_display_name(name: str) -> str:
         "worker": "ParseHawk Worker",
         "web": "ParseHawk Web UI",
         "runtime": "Model Runtime",
+        "phoenix": "Phoenix Tracing",
     }.get(name, name)
 
 
@@ -1660,6 +1737,7 @@ def _stop_state(state: ParseHawkState) -> None:
                 "PARSEHAWK_HOST_DATA_DIR": str(data_dir),
                 "PARSEHAWK_DATA_DIR": "/data",
             },
+            profiles=state.compose_profiles,
         )
     _stop_processes(state.processes)
 
@@ -1966,13 +2044,15 @@ def _add_start_options(
         "-x",
         "--exclude",
         action="append",
-        choices=["migrate", "runtime"],
+        choices=["migrate", "runtime", "phoenix"],
         default=None,
         metavar="COMPONENT",
         help=(
             "Skip a start-time component. Repeatable. Supports: migrate (database "
-            "migrations) and runtime (the bundled model runtime; use this to run "
-            "against a configured cloud/remote provider instead)."
+            "migrations), runtime (the bundled model runtime; use this to run "
+            "against a configured cloud/remote provider instead), and phoenix (the "
+            "bundled Phoenix tracing backend; also turns off LM request tracing "
+            "unless OTEL_SDK_DISABLED is set explicitly)."
         ),
     )
     parser.add_argument(
@@ -2032,12 +2112,17 @@ def _dev_checkout_root() -> Path | None:
     return None
 
 
-def _ensure_start_ports_available(args: argparse.Namespace, *, web_dir: Path) -> None:
+def _ensure_start_ports_available(
+    args: argparse.Namespace, *, web_dir: Path, include_phoenix: bool = False
+) -> None:
     checks = [("API", args.host, args.port)]
     if args.runtime == "vllm":
         checks.append(("Model Runtime", args.runtime_host, args.runtime_port))
     if not args.no_web and (web_dir / "package.json").exists():
         checks.append(("Web UI", args.web_host, args.web_port))
+    if include_phoenix:
+        phoenix = urllib.parse.urlsplit(_phoenix_url())
+        checks.append(("Phoenix Tracing", phoenix.hostname or "127.0.0.1", phoenix.port or 6006))
 
     for name, host, port in checks:
         if _tcp_port_open(host, port):
@@ -2100,6 +2185,22 @@ def _wait_for_url(url: str, name: str = "URL", timeout_seconds: int = 30) -> Non
     raise SystemExit(f"{name} did not become ready at {url}")
 
 
+def _wait_for_phoenix(phoenix_url: str) -> None:
+    """Wait for the tracing backend without failing the start.
+
+    Tracing is best-effort: the OTLP exporter buffers and retries, so a slow or
+    broken Phoenix must not take the app stack down with it.
+    """
+    try:
+        _wait_for_url(phoenix_url, name="Phoenix Tracing", timeout_seconds=60)
+    except SystemExit:
+        _progress(
+            f"Phoenix Tracing did not become ready at {phoenix_url}; continuing without "
+            "it. Inspect the phoenix container logs, or start with `-x phoenix` to "
+            "disable tracing."
+        )
+
+
 def _wait_for_runtime(health_url: str, process: ManagedProcess, *, timeout_seconds: int) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -2150,6 +2251,8 @@ def _load_state(path: Path) -> ParseHawkState:
         mode=payload.get("mode", "local"),
         compose_project=payload.get("compose_project"),
         compose_files=payload.get("compose_files"),
+        compose_profiles=payload.get("compose_profiles"),
+        phoenix_url=payload.get("phoenix_url"),
     )
 
 

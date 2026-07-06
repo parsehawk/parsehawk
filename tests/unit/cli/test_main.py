@@ -887,7 +887,7 @@ def test_start_uses_docker_compose_mode(tmp_path, monkeypatch: pytest.MonkeyPatc
 
     cli.main(["start", "-x", "runtime"])
 
-    assert compose_ups[0]["services"] == ["api", "worker", "web"]
+    assert compose_ups[0]["services"] == ["api", "worker", "web", "phoenix"]
     assert compose_ups[0]["env"]["PARSEHAWK_INFERENCE_ENGINE"] == "none"
     assert compose_ups[0]["env"]["PARSEHAWK_HOST_DATA_DIR"] == str(data_dir.resolve())
     state = cli._load_state(data_dir / "parsehawk-state.json")
@@ -897,7 +897,7 @@ def test_start_uses_docker_compose_mode(tmp_path, monkeypatch: pytest.MonkeyPatc
     output = capsys.readouterr().out
     assert "==> Starting ParseHawk in Docker mode" in output
     assert "==> Checking Docker" in output
-    assert "==> Building and starting Docker services: api, worker, web" in output
+    assert "==> Building and starting Docker services: api, worker, web, phoenix" in output
     assert "ParseHawk started: http://127.0.0.1:8000" in output
 
 
@@ -940,7 +940,7 @@ def test_start_macos_docker_vllm_seeds_container_runtime_provider_url(
     cli.main(["start", "--runtime-port", "18080", "--no-web"])
 
     assert [process["name"] for process in spawned] == ["runtime"]
-    assert compose_ups[0]["services"] == ["api", "worker"]
+    assert compose_ups[0]["services"] == ["api", "worker", "phoenix"]
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_BASE_URL"] == (
         "http://host.docker.internal:18080/v1"
     )
@@ -1051,7 +1051,7 @@ def test_start_linux_vllm_uses_internal_runtime_port(
     monkeypatch.setattr(cli, "_default_runtime", lambda: "vllm")
     cli.main(["start", "--runtime-port", "18080", "--no-web"])
 
-    assert compose_ups[0]["services"] == ["runtime", "api", "worker"]
+    assert compose_ups[0]["services"] == ["runtime", "api", "worker", "phoenix"]
     assert any(path.name == "docker-compose.linux.yml" for path in compose_ups[0]["compose_files"])
     assert compose_ups[0]["env"]["PARSEHAWK_RUNTIME_PORT"] == "18080"
     assert compose_ups[0]["env"]["PARSEHAWK_INFERENCE_ENGINE"] == "vllm"
@@ -1060,7 +1060,8 @@ def test_start_linux_vllm_uses_internal_runtime_port(
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_MAX_MODEL_LEN"] == "16384"
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_MAX_NUM_SEQS"] == "4"
     assert compose_ups[0]["env"]["PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION"] == "0.85"
-    assert runtime_health_urls == ["http://127.0.0.1:18080/health"]
+    # Runtime health first, then the Phoenix Tracing readiness probe.
+    assert runtime_health_urls == ["http://127.0.0.1:18080/health", "http://127.0.0.1:6006"]
     state = cli._load_state(data_dir / "parsehawk-state.json")
     assert state.runtime_url == "http://127.0.0.1:18080/v1"
     output = capsys.readouterr().out
@@ -1155,6 +1156,7 @@ def test_restart_stops_tracked_processes_then_starts(
     monkeypatch.setattr(cli, "_ensure_docker_available", lambda: None)
     monkeypatch.setattr(cli, "_ensure_platform_dependencies", lambda runtime: None)
     monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_wait_for_phoenix", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         cli,
         "_compose_down",
@@ -1179,7 +1181,7 @@ def test_restart_stops_tracked_processes_then_starts(
 
     state = cli._load_state(tmp_path / "parsehawk-state.json")
     assert compose_downs == ["parsehawk_test"]
-    assert compose_ups == [["api", "worker"]]
+    assert compose_ups == [["api", "worker", "phoenix"]]
     assert state.mode == "docker"
     assert state.processes == []
     assert "ParseHawk stopped" in capsys.readouterr().out
@@ -1535,12 +1537,113 @@ def test_start_exclude_migrate_propagates_skip_to_containers(
     monkeypatch.setattr(cli, "_ensure_docker_available", lambda: None)
     monkeypatch.setattr(cli, "_ensure_platform_dependencies", lambda runtime: None)
     monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_wait_for_phoenix", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: compose_ups.append(kwargs))
 
     cli.main(["start", "-x", "runtime", "--no-web", "-x", "migrate"])
 
     assert compose_ups[0]["env"]["PARSEHAWK_SKIP_MIGRATIONS"] == "1"
     assert "Skipping database migrations" in capsys.readouterr().out
+
+
+def _mock_docker_start_infra(
+    monkeypatch: pytest.MonkeyPatch, compose_ups: list[dict[str, Any]]
+) -> None:
+    monkeypatch.setattr(cli, "_ensure_start_ports_available", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_ensure_docker_available", lambda: None)
+    monkeypatch.setattr(cli, "_ensure_platform_dependencies", lambda runtime: None)
+    monkeypatch.setattr(cli, "_wait_for_api", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_wait_for_phoenix", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "_compose_up", lambda **kwargs: compose_ups.append(kwargs))
+
+
+def test_start_includes_phoenix_by_default(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    data_dir = tmp_path / "data"
+    compose_ups: list[dict[str, Any]] = []
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("PARSEHAWK_SKIP_MIGRATIONS", "0")
+    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
+    _mock_docker_start_infra(monkeypatch, compose_ups)
+
+    cli.main(["start", "-x", "runtime", "--no-web"])
+
+    up = compose_ups[0]
+    assert "phoenix" in up["services"]
+    assert up["profiles"] == ["phoenix"]
+    # Traces persist under the data directory; tracing stays enabled.
+    assert up["env"]["PARSEHAWK_PHOENIX_HOST_DATA_DIR"] == str(data_dir / "phoenix")
+    assert "OTEL_SDK_DISABLED" not in up["env"]
+    assert (data_dir / "phoenix").is_dir()
+    state = json.loads((data_dir / "parsehawk-state.json").read_text(encoding="utf-8"))
+    assert state["compose_profiles"] == ["phoenix"]
+    assert state["phoenix_url"] == "http://127.0.0.1:6006"
+    assert "Phoenix Tracing: http://127.0.0.1:6006" in capsys.readouterr().out
+
+
+def test_start_exclude_phoenix_omits_service_and_disables_tracing(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    data_dir = tmp_path / "data"
+    compose_ups: list[dict[str, Any]] = []
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("PARSEHAWK_SKIP_MIGRATIONS", "0")
+    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
+    _mock_docker_start_infra(monkeypatch, compose_ups)
+
+    cli.main(["start", "-x", "runtime", "-x", "phoenix", "--no-web"])
+
+    up = compose_ups[0]
+    assert "phoenix" not in up["services"]
+    assert up["profiles"] is None
+    assert up["env"]["OTEL_SDK_DISABLED"] == "true"
+    assert not (data_dir / "phoenix").exists()
+    state = json.loads((data_dir / "parsehawk-state.json").read_text(encoding="utf-8"))
+    assert state["compose_profiles"] is None
+    assert state["phoenix_url"] is None
+    assert "Phoenix Tracing" not in capsys.readouterr().out
+
+
+def test_start_exclude_phoenix_keeps_explicit_otel_override(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`-x phoenix` with a bring-your-own collector keeps tracing on."""
+    data_dir = tmp_path / "data"
+    compose_ups: list[dict[str, Any]] = []
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("PARSEHAWK_SKIP_MIGRATIONS", "0")
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318")
+    _mock_docker_start_infra(monkeypatch, compose_ups)
+
+    cli.main(["start", "-x", "runtime", "-x", "phoenix", "--no-web"])
+
+    assert compose_ups[0]["env"]["OTEL_SDK_DISABLED"] == "false"
+    assert compose_ups[0]["env"]["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://collector:4318"
+
+
+def test_compose_command_places_profiles_before_subcommand() -> None:
+    command = cli._compose_command(
+        [Path("docker-compose.yml")],
+        "parsehawk_test",
+        "up",
+        "--detach",
+        profiles=["phoenix"],
+    )
+
+    assert command == [
+        "docker",
+        "compose",
+        "--project-name",
+        "parsehawk_test",
+        "--file",
+        "docker-compose.yml",
+        "--profile",
+        "phoenix",
+        "up",
+        "--detach",
+    ]
 
 
 def test_providers_list_get_and_models_hit_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
