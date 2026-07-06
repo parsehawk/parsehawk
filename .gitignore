@@ -13,3 +13,4 @@ apps/*/coverage/
 playwright-report/
 test-results/
 .env
+phoenix.env
