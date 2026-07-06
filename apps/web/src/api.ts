@@ -3,6 +3,8 @@ import type {
   ExtractorExample,
   FileRecord,
   Job,
+  Provider,
+  ProviderName,
   SchemaValidation,
   SchemaValidationRequest
 } from "./types";
@@ -82,6 +84,8 @@ export function createExtractor(payload: {
   display_name: string;
   instructions: string;
   enable_thinking: boolean;
+  provider_name?: ProviderName;
+  model?: string;
   schema: Record<string, unknown>;
   examples?: ExtractorExample[];
 }): Promise<Extractor> {
@@ -98,6 +102,8 @@ export function updateExtractor(
     display_name: string;
     instructions: string;
     enable_thinking: boolean;
+    provider_name?: ProviderName;
+    model?: string;
     schema?: Record<string, unknown>;
     examples?: ExtractorExample[];
   }
@@ -111,6 +117,26 @@ export function updateExtractor(
 
 export function deleteExtractor(extractorId: string): Promise<void> {
   return request<void>(`/v1/extractors/${extractorId}`, { method: "DELETE" });
+}
+
+export function listProviders(): Promise<Provider[]> {
+  return request<Provider[]>("/v1/providers");
+}
+
+export function configureProvider(
+  name: ProviderName,
+  payload: { base_url?: string | null; api_version?: string | null; api_key?: string }
+): Promise<Provider> {
+  return request<Provider>(`/v1/providers/${name}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function listProviderModels(name: ProviderName): Promise<string[]> {
+  const response = await request<{ models: string[] }>(`/v1/providers/${name}/models`);
+  return response.models;
 }
 
 export function validateSchema(payload: SchemaValidationRequest): Promise<SchemaValidation> {

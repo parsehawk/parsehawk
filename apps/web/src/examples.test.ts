@@ -41,6 +41,8 @@ describe("examples", () => {
       display_name: "Invoice",
       instructions: "extract",
       enable_thinking: false,
+      provider_name: "openai_compatible_api",
+      model: null,
       schema: { type: "object" },
       examples: [
         {

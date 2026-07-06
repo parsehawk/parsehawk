@@ -9,12 +9,25 @@ export type FileRecord = {
   is_example?: boolean;
 };
 
+export type ProviderName = "openai" | "azure_openai" | "openai_compatible_api";
+
+export type Provider = {
+  name: ProviderName;
+  base_url: string | null;
+  api_version: string | null;
+  has_api_key: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Extractor = {
   id: string;
   name: string;
   display_name: string;
   instructions: string;
   enable_thinking: boolean;
+  provider_name: ProviderName | null;
+  model: string | null;
   schema: Record<string, unknown>;
   examples: ExtractorExample[];
   created_at: string;
