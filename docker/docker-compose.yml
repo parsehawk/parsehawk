@@ -27,6 +27,12 @@ services:
       PARSEHAWK_TELEMETRY_DISABLED: ${PARSEHAWK_TELEMETRY_DISABLED:-0}
       PARSEHAWK_TELEMETRY_INTERNAL: ${PARSEHAWK_TELEMETRY_INTERNAL:-0}
       DO_NOT_TRACK: ${DO_NOT_TRACK:-0}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006}
+      # Pass-through (no default): only set in the container when set on the host,
+      # e.g. `authorization=Bearer <api key>` for an auth-enabled collector.
+      OTEL_EXPORTER_OTLP_HEADERS:
+      OTEL_SERVICE_NAME: parsehawk-api
     volumes:
       - ${PARSEHAWK_HOST_DATA_DIR:-../data}:/data
     ports:
@@ -55,6 +61,12 @@ services:
       PARSEHAWK_TELEMETRY_DISABLED: ${PARSEHAWK_TELEMETRY_DISABLED:-0}
       PARSEHAWK_TELEMETRY_INTERNAL: ${PARSEHAWK_TELEMETRY_INTERNAL:-0}
       DO_NOT_TRACK: ${DO_NOT_TRACK:-0}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006}
+      # Pass-through (no default): only set in the container when set on the host,
+      # e.g. `authorization=Bearer <api key>` for an auth-enabled collector.
+      OTEL_EXPORTER_OTLP_HEADERS:
+      OTEL_SERVICE_NAME: parsehawk-worker
     volumes:
       - ${PARSEHAWK_HOST_DATA_DIR:-../data}:/data
     depends_on:
@@ -68,3 +80,42 @@ services:
       - "${PARSEHAWK_WEB_HOST:-127.0.0.1}:${PARSEHAWK_WEB_PORT:-5173}:80"
     depends_on:
       - api
+
+  # Bundled tracing backend. Behind a profile so a bare `docker compose up` never
+  # starts it; `parsehawk start` activates the profile unless `-x phoenix` is set.
+  # The api/worker are intentionally not `depends_on` phoenix: tracing is
+  # best-effort (the OTLP exporter buffers and retries) and must not block the app.
+  phoenix:
+    build:
+      context: ..
+      dockerfile: services/phoenix/Dockerfile.phoenix
+      args:
+        PHOENIX_VERSION: ${PARSEHAWK_PHOENIX_VERSION:-latest}
+    profiles: ["phoenix"]
+    environment:
+      # Persistence: Phoenix's default SQLite lives in an ephemeral temp dir, so
+      # pin it to the mounted volume. Set a postgresql:// URL to use Postgres.
+      PHOENIX_WORKING_DIR: /mnt/data
+      PHOENIX_SQL_DATABASE_URL: ${PHOENIX_SQL_DATABASE_URL:-sqlite:////mnt/data/phoenix.db}
+      # Retention / metrics. Prometheus also needs a 9090 host-port mapping.
+      PHOENIX_DEFAULT_RETENTION_POLICY_DAYS: ${PHOENIX_DEFAULT_RETENTION_POLICY_DAYS:-0}
+      PHOENIX_ENABLE_PROMETHEUS: ${PHOENIX_ENABLE_PROMETHEUS:-false}
+      # Authentication: off by default. To enable, set PHOENIX_ENABLE_AUTH=true and
+      # a 32+ char PHOENIX_SECRET, create an API key in the Phoenix UI, and point
+      # the api/worker at it via OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <key>.
+      PHOENIX_ENABLE_AUTH: ${PHOENIX_ENABLE_AUTH:-false}
+      # Pass-through (no default): Phoenix rejects a set-but-empty secret.
+      PHOENIX_SECRET:
+      PHOENIX_DISABLE_BASIC_AUTH: ${PHOENIX_DISABLE_BASIC_AUTH:-false}
+      PHOENIX_USE_SECURE_COOKIES: ${PHOENIX_USE_SECURE_COOKIES:-false}
+      PHOENIX_DEFAULT_ADMIN_INITIAL_PASSWORD: ${PHOENIX_DEFAULT_ADMIN_INITIAL_PASSWORD:-admin}
+    # Optional long tail (OAuth2, LDAP, token expiry, root URL, ...) without
+    # editing this file.
+    env_file:
+      - path: ${PARSEHAWK_PHOENIX_ENV_FILE:-phoenix.env}
+        required: false
+    volumes:
+      - ${PARSEHAWK_PHOENIX_HOST_DATA_DIR:-../data/phoenix}:/mnt/data
+    ports:
+      # Port 6006 serves both the UI and OTLP/HTTP trace ingestion (/v1/traces).
+      - "${PARSEHAWK_PHOENIX_HOST:-127.0.0.1}:${PARSEHAWK_PHOENIX_PORT:-6006}:6006"
