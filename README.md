@@ -27,7 +27,7 @@
   <a href="#first-extraction">First extraction</a> ·
   <a href="#api-cli-and-web-ui">API, CLI, and Web UI</a> ·
   <a href="#requirements">Requirements</a> ·
-  <a href="#contributing">Contributing</a>
+  <a href="#community">Community</a>
 </p>
 
 ParseHawk turns PDFs, scans, images, text files, and Markdown into structured
@@ -601,12 +601,6 @@ serving from already-open SQLite handles. `parsehawk start` refuses to start
 when target ports are already occupied without a live state file. In that case,
 stop the process using the port and start again.
 
-## Contributing
-
-ParseHawk welcomes issues and pull requests. For local development setup,
-quality checks, pull request expectations, coverage requirements, and licensing
-terms, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
 ## Troubleshooting
 
 Start with the built-in health checks:
@@ -643,6 +637,22 @@ parsehawk start
 
 If the Model Runtime is slow to become ready, give it a few minutes on first
 startup while vLLM loads model weights, profiles memory, and warms kernels.
+
+## Community
+
+Contributions are welcome. Whether you are fixing a bug, improving docs, adding
+tests, or proposing a feature, thank you for helping make ParseHawk better.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local development setup, pull request
+expectations, coverage requirements, and licensing terms for the Apache-2.0
+open-source core.
+
+Thank you to all ParseHawk contributors. Every issue, pull request, review,
+bug report, docs fix, and idea helps move the project forward.
+
+<a href="https://github.com/parsehawk/parsehawk/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=parsehawk/parsehawk" alt="ParseHawk contributors">
+</a>
 
 ## Credits
 
