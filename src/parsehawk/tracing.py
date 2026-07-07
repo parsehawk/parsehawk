@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import nullcontext
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,17 @@ def configure_tracing(*, service_name: str) -> None:
         _register(service_name)
     except Exception:  # pragma: no cover - defensive; tracing must never break a Run
         logger.debug("tracing: failed to configure OTLP tracing", exc_info=True)
+
+
+def openai_extra_body_context(extra_body: dict[str, Any]):
+    """Attach OpenAI-compatible extension fields to OpenInference request spans."""
+    if not extra_body or tracing_disabled():
+        return nullcontext()
+    try:
+        from openinference.instrumentation import using_metadata
+    except Exception:
+        return nullcontext()
+    return using_metadata({"parsehawk.openai.extra_body": extra_body})
 
 
 def _register(service_name: str) -> None:

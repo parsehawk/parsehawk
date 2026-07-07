@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Callable
 
 from openai import APIConnectionError, APIStatusError, OpenAI
 
+from parsehawk import tracing
 from parsehawk.core.application.ports import ExtractionRequest, ExtractionResponse
 from parsehawk.core.domain.errors import ExtractionCancelled, ProviderRequestError
 from parsehawk.core.domain.models import NUEXTRACT3_MODELS
@@ -137,30 +139,34 @@ class OpenAIExtractionEngine:
         call_kwargs["stream"] = True
         self._debug_model_io("model runtime request: %s", call_kwargs)
         try:
-            stream = self._client.chat.completions.create(**call_kwargs)
-            content_parts: list[str] = []
-            reasoning_parts: list[str] = []
-            next_cancellation_check_at = monotonic()
-            try:
-                for chunk in stream:
-                    now = monotonic()
-                    if now >= next_cancellation_check_at:
-                        cancellation_check()
-                        next_cancellation_check_at = now + CANCELLATION_CHECK_INTERVAL_SECONDS
-                    chunk_data = chunk.model_dump()
-                    choice = (chunk_data.get("choices") or [{}])[0]
-                    delta = choice.get("delta") or {}
-                    content = delta.get("content")
-                    if isinstance(content, str):
-                        content_parts.append(content)
-                    for field in ("reasoning", "reasoning_content"):
-                        reasoning = delta.get(field)
-                        if isinstance(reasoning, str):
-                            reasoning_parts.append(reasoning)
-            finally:
-                close = getattr(stream, "close", None)
-                if close is not None:
-                    close()
+            extra_body_context = (
+                tracing.openai_extra_body_context(extra_body) if extra_body else nullcontext()
+            )
+            with extra_body_context:
+                stream = self._client.chat.completions.create(**call_kwargs)
+                content_parts: list[str] = []
+                reasoning_parts: list[str] = []
+                next_cancellation_check_at = monotonic()
+                try:
+                    for chunk in stream:
+                        now = monotonic()
+                        if now >= next_cancellation_check_at:
+                            cancellation_check()
+                            next_cancellation_check_at = now + CANCELLATION_CHECK_INTERVAL_SECONDS
+                        chunk_data = chunk.model_dump()
+                        choice = (chunk_data.get("choices") or [{}])[0]
+                        delta = choice.get("delta") or {}
+                        content = delta.get("content")
+                        if isinstance(content, str):
+                            content_parts.append(content)
+                        for field in ("reasoning", "reasoning_content"):
+                            reasoning = delta.get(field)
+                            if isinstance(reasoning, str):
+                                reasoning_parts.append(reasoning)
+                finally:
+                    close = getattr(stream, "close", None)
+                    if close is not None:
+                        close()
         except APIStatusError as exc:
             message = getattr(exc, "message", str(exc))
             raise ProviderRequestError(
