@@ -5,10 +5,22 @@ for changes to the Apache-2.0 open-source core.
 
 ## Maintainers
 
-ParseHawk is maintained by Francis Rafal and the ParseHawk maintainers. Maintainers
-review issues and pull requests, make release decisions, and keep the open-source
-core clearly separated from any future hosted cloud, enterprise, or
-source-available work.
+Maintainers review issues and pull requests, make release decisions, and keep
+the open-source core clearly separated from any future hosted cloud, enterprise,
+or source-available work.
+
+- Simon Hoffmann - Maintainer
+
+  GitHub: [@simx11](https://github.com/simx11)
+
+- Francis Rafal - Maintainer
+
+  GitHub: [@francisrafal](https://github.com/francisrafal) · X:
+  [@francisrafal](https://x.com/francisrafal)
+
+- Benedikt Hielscher - Maintainer
+
+  GitHub: [@benemanu](https://github.com/benemanu)
 
 ## Contribution Terms
 
@@ -182,9 +194,9 @@ literal `\n` escape sequences.
 
 ## Credit
 
-Contributors are credited through the GitHub issue, pull request, and commit
-history. For larger changes, maintainers may also mention contributors in release
-notes or project documentation.
+We plan to credit all contributors in the README. That contributor list is
+tracked separately from this guide; until then, GitHub issues, pull requests,
+and commit history remain the source of truth for contribution attribution.
 
 ## Getting Help
 
