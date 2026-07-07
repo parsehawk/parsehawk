@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, Protocol
+from typing import Callable, Iterable, List, Protocol
 
-from parsehawk.core.domain.models import Extractor, File, Job, Provider, ProviderName
+from parsehawk.core.domain.models import Extractor, File, Job, JobStatus, Provider, ProviderName
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,8 @@ class ExtractorRepository(Protocol):  # pragma: no cover
 
 class JobRepository(Protocol):  # pragma: no cover
     def save(self, job: Job) -> None: ...
+
+    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool: ...
 
     def list(self, extractor_id: str | None = None) -> List[Job]: ...
 

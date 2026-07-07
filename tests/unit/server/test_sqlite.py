@@ -215,6 +215,28 @@ def test_claim_next_queued_marks_oldest_job_running(conn: sqlite3.Connection) ->
     assert jobs.get(newest.id) == newest
 
 
+def test_save_if_status_refuses_stale_job_transition(conn: sqlite3.Connection) -> None:
+    files = SQLiteFileRepository(conn)
+    extractors = SQLiteExtractorRepository(conn)
+    jobs = SQLiteJobRepository(conn)
+    file = sample_file()
+    extractor = sample_extractor()
+    running = sample_job(file_id=file.id, extractor_id=extractor.id).mark_running()
+    files.save(file)
+    extractors.save(extractor)
+    jobs.save(running.mark_canceling())
+
+    saved = jobs.save_if_status(
+        running.mark_completed(JobResult(data={"receipt_id": "2"})),
+        [JobStatus.RUNNING],
+    )
+
+    assert saved is False
+    stored = jobs.get(running.id)
+    assert stored is not None
+    assert stored.status == JobStatus.CANCELING
+
+
 def test_deleting_file_or_extractor_cascades_jobs(conn: sqlite3.Connection) -> None:
     files = SQLiteFileRepository(conn)
     extractors = SQLiteExtractorRepository(conn)

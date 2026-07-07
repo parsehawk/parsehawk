@@ -7,7 +7,7 @@ import pytest
 from openai import APIConnectionError, APIStatusError, OpenAI
 
 from parsehawk.core.application.ports import ExtractionRequest
-from parsehawk.core.domain.errors import ProviderRequestError
+from parsehawk.core.domain.errors import ExtractionCancelled, ProviderRequestError
 from parsehawk.server.runtime.inference.generic import (
     REASONING_CHAT_TEMPLATE_KWARGS,
     REASONING_EFFORT,
@@ -43,11 +43,16 @@ class _FakeCompletions:
         self._data = data
         self._error = error
         self.calls: list[dict[str, Any]] = []
+        self.streams: list[_FakeStream] = []
 
     def create(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
         if self._error is not None:
             raise self._error
+        if kwargs.get("stream"):
+            stream = _FakeStream(_stream_chunks(self._data or {}))
+            self.streams.append(stream)
+            return stream
         return _FakeCompletion(self._data or {})
 
 
@@ -59,6 +64,27 @@ class _FakeCompletion:
         return self._data
 
 
+class _FakeChunk:
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._data = data
+
+    def model_dump(self) -> dict[str, Any]:
+        return self._data
+
+
+class _FakeStream:
+    def __init__(self, chunks: list[dict[str, Any]]) -> None:
+        self._chunks = chunks
+        self.closed = False
+
+    def __iter__(self):
+        for chunk in self._chunks:
+            yield _FakeChunk(chunk)
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class _FakeClient:
     def __init__(self, completions: Any) -> None:
         self.chat = type("Chat", (), {"completions": completions})()
@@ -67,6 +93,19 @@ class _FakeClient:
 def _client_returning(content: str) -> tuple[_FakeClient, _FakeCompletions]:
     completions = _FakeCompletions({"choices": [{"message": {"content": content}}]})
     return _FakeClient(completions), completions
+
+
+def _stream_chunks(data: dict[str, Any]) -> list[dict[str, Any]]:
+    message = (data.get("choices") or [{"message": {}}])[0].get("message", {})
+    chunks: list[dict[str, Any]] = []
+    for field in ("content", "reasoning_content"):
+        value = message.get(field)
+        if not isinstance(value, str):
+            continue
+        split_at = max(1, len(value) // 2)
+        for part in (value[:split_at], value[split_at:]):
+            chunks.append({"choices": [{"delta": {field: part}}]})
+    return chunks
 
 
 def test_select_adapter_matches_exact_nuextract_models() -> None:
@@ -88,6 +127,7 @@ def test_nuextract_adapter_sends_chat_template_kwargs_in_extra_body() -> None:
 
     assert result.data == {"receipt_id": "2"}
     (call,) = completions.calls
+    assert call["stream"] is True
     assert call["model"] == NUEXTRACT_MODEL
     assert call["extra_body"]["chat_template_kwargs"]["template"]
     assert call["response_format"]["type"] == "json_schema"
@@ -221,11 +261,16 @@ class _SequencedCompletions:
         self._error = error
         self._data = data
         self.calls: list[dict[str, Any]] = []
+        self.streams: list[_FakeStream] = []
 
     def create(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
         if len(self.calls) == 1:
             raise self._error
+        if kwargs.get("stream"):
+            stream = _FakeStream(_stream_chunks(self._data))
+            self.streams.append(stream)
+            return stream
         return _FakeCompletion(self._data)
 
 
@@ -247,6 +292,7 @@ def test_legacy_server_falls_back_to_max_tokens() -> None:
     assert "max_completion_tokens" in first and "max_tokens" not in first
     assert second["max_tokens"] == first["max_completion_tokens"]
     assert "max_completion_tokens" not in second
+    assert second["stream"] is True
 
 
 def test_legacy_fallback_is_cached_for_later_calls() -> None:
@@ -264,6 +310,24 @@ def test_legacy_fallback_is_cached_for_later_calls() -> None:
     assert len(completions.calls) == 3
     assert "max_tokens" in completions.calls[2]
     assert "max_completion_tokens" not in completions.calls[2]
+
+
+def test_cancellation_closes_stream_during_generation() -> None:
+    client, completions = _client_returning('{"receipt_id": "2"}')
+    engine = OpenAIExtractionEngine(
+        OpenAIEngineConfig(model="gpt-4o-mini"), client=cast(OpenAI, client)
+    )
+    checks = 0
+
+    def cancellation_check() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks > 1
+
+    with pytest.raises(ExtractionCancelled):
+        engine.extract(make_request(), cancellation_check=cancellation_check)
+
+    assert completions.streams[0].closed is True
 
 
 def test_other_400_is_not_retried() -> None:

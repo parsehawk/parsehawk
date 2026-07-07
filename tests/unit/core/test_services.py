@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import List
+from typing import Iterable, List
 
 import pytest
 
@@ -27,6 +27,7 @@ from parsehawk.core.domain.models import (
     File,
     FileSource,
     Job,
+    JobResult,
     JobStatus,
     Provider,
     ProviderName,
@@ -78,6 +79,13 @@ class MemoryJobRepository:
 
     def save(self, job: Job) -> None:
         self.items[job.id] = job
+
+    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
+        existing = self.items.get(job.id)
+        if existing is None or existing.status not in expected:
+            return False
+        self.items[job.id] = job
+        return True
 
     def list(self, extractor_id: str | None = None) -> List[Job]:
         jobs = list(self.items.values())
@@ -200,6 +208,32 @@ class ControlledJobRepository(MemoryJobRepository):
             job = job.mark_canceling()
 
         self.items[job.id] = job
+
+    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
+        existing = self.items.get(job.id)
+        if existing is None or existing.status not in expected:
+            return False
+        self.save(job)
+        return True
+
+
+class RejectingJobRepository(MemoryJobRepository):
+    def __init__(
+        self,
+        *,
+        replacement: Job | None = None,
+        rejected_statuses: set[JobStatus] | None = None,
+    ) -> None:
+        super().__init__()
+        self.replacement = replacement
+        self.rejected_statuses = rejected_statuses
+
+    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
+        if self.rejected_statuses is not None and job.status not in self.rejected_statuses:
+            return super().save_if_status(job, expected)
+        if self.replacement is not None:
+            self.items[job.id] = self.replacement
+        return False
 
 
 @dataclass
@@ -676,6 +710,29 @@ def test_job_service_cancel_rejects_completed_job(services) -> None:
         services["job_service"].cancel(job.id)
 
 
+def test_job_service_cancel_rechecks_when_status_transition_loses_race(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    completed = job.mark_running().mark_completed(JobResult(data={"receipt_id": "2"}))
+    job_repo = RejectingJobRepository(replacement=completed)
+    job_repo.save(job)
+    services["job_service"] = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+
+    with pytest.raises(ValidationFailure, match="cannot cancel job"):
+        services["job_service"].cancel(job.id)
+
+
 def test_job_service_cancels_when_job_is_already_canceling_before_engine_extract(
     services,
 ) -> None:
@@ -701,6 +758,94 @@ def test_job_service_cancels_when_job_is_already_canceling_before_engine_extract
     assert completed.status == JobStatus.CANCELED
     assert completed.result is None
     assert services["engine"].requests == []
+
+
+def test_job_service_does_not_overwrite_concurrent_canceling_state(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    stale_running = job.mark_running()
+    services["jobs"].save(stale_running.mark_canceling())
+
+    completed = services["job_service"].run_claimed(stale_running)
+
+    assert completed.status == JobStatus.CANCELED
+    persisted = services["jobs"].get(job.id)
+    assert persisted is not None
+    assert persisted.status == JobStatus.CANCELED
+    assert services["engine"].requests == []
+
+
+def test_job_service_returns_latest_when_initial_running_transition_loses_race(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    completed = job.mark_running().mark_completed(JobResult(data={"receipt_id": "2"}))
+    services["jobs"].save(completed)
+
+    result = services["job_service"].run_claimed(job)
+
+    assert result == completed
+    assert services["engine"].requests == []
+
+
+def test_job_service_returns_latest_when_final_save_loses_race(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    running = job.mark_running()
+    failed = running.mark_failed("already failed")
+    services["jobs"].save(running)
+
+    def mark_failed(request: ExtractionRequest, cancellation_check=None) -> ExtractionResponse:
+        services["jobs"].save(failed)
+        return services["engine"].response
+
+    services["engine"].extract = mark_failed
+
+    result = services["job_service"].run_claimed(running)
+
+    assert result == failed
+
+
+def test_job_service_cancels_when_final_save_loses_race_to_canceling(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    running = job.mark_running()
+    canceling = running.mark_canceling()
+    job_repo = RejectingJobRepository(
+        replacement=canceling,
+        rejected_statuses={JobStatus.COMPLETED},
+    )
+    job_repo.save(running)
+    job_service = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+
+    result = job_service.run_claimed(running)
+
+    assert result.status == JobStatus.CANCELED
 
 
 def test_job_service_cancels_when_job_becomes_canceling_after_extraction(
@@ -896,6 +1041,76 @@ def test_job_service_fails_when_engine_raises_cancelled_and_job_is_neither_cance
     assert completed.status == JobStatus.FAILED
     assert completed.error is not None
     assert completed.error.message == "cancelled"
+
+
+def test_job_service_returns_latest_when_cancelled_failure_save_loses_race(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    running = job.mark_running()
+    failed = running.mark_failed("already failed")
+    services["jobs"].save(running)
+    services["engine"].error = ExtractionCancelled("cancelled")
+
+    def mark_failed(request: ExtractionRequest, cancellation_check=None) -> ExtractionResponse:
+        services["jobs"].save(failed)
+        raise services["engine"].error
+
+    services["engine"].extract = mark_failed
+
+    result = services["job_service"].run_claimed(running)
+
+    assert result == failed
+
+
+def test_job_service_cancels_when_generic_error_races_with_canceling(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    running = job.mark_running()
+    services["jobs"].save(running)
+
+    def mark_canceling(request: ExtractionRequest, cancellation_check=None) -> ExtractionResponse:
+        services["jobs"].save(running.mark_canceling())
+        raise RuntimeError("boom")
+
+    services["engine"].extract = mark_canceling
+
+    result = services["job_service"].run_claimed(running)
+
+    assert result.status == JobStatus.CANCELED
+
+
+def test_cancel_if_requested_returns_latest_when_finalize_loses_race(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    canceling = job.mark_running().mark_canceling()
+    job_repo = RejectingJobRepository(replacement=canceling)
+    job_repo.save(canceling)
+    job_service = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+
+    result = job_service._cancel_if_requested(job.id)
+
+    assert result == canceling
 
 
 def test_job_service_passes_prepared_image_inputs_to_engine(services) -> None:
