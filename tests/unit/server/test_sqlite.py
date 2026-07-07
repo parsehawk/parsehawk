@@ -237,6 +237,28 @@ def test_save_if_status_refuses_stale_job_transition(conn: sqlite3.Connection) -
     assert stored.status == JobStatus.CANCELING
 
 
+def test_delete_if_status_refuses_stale_job_delete(conn: sqlite3.Connection) -> None:
+    files = SQLiteFileRepository(conn)
+    extractors = SQLiteExtractorRepository(conn)
+    jobs = SQLiteJobRepository(conn)
+    file = sample_file()
+    extractor = sample_extractor()
+    running = sample_job(file_id=file.id, extractor_id=extractor.id).mark_running()
+    files.save(file)
+    extractors.save(extractor)
+    jobs.save(running)
+
+    deleted = jobs.delete_if_status(running.id, [JobStatus.QUEUED])
+
+    assert deleted is False
+    assert jobs.get(running.id) == running
+
+    deleted = jobs.delete_if_status(running.id, [JobStatus.RUNNING])
+
+    assert deleted is True
+    assert jobs.get(running.id) is None
+
+
 def test_deleting_file_or_extractor_cascades_jobs(conn: sqlite3.Connection) -> None:
     files = SQLiteFileRepository(conn)
     extractors = SQLiteExtractorRepository(conn)

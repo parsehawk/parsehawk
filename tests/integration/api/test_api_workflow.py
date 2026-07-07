@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from parsehawk.core.domain.models import JobStatus
 from parsehawk.server.api.fastapi.app import create_app
 from parsehawk.server.worker.main import run_once
 
@@ -156,6 +157,46 @@ def test_failed_schema_validation_hides_internal_result(
         assert payload["status"] == "failed"
         assert payload["result"] is None
         assert payload["error"]["code"] == "schema_validation_failed"
+
+
+def test_delete_running_job_returns_accepted_and_marks_deleting(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PARSEHAWK_DATABASE_PATH", str(tmp_path / "parsehawk.db"))
+
+    schema = json.loads((FIXTURE_DIR / "receipt_schema.json").read_text(encoding="utf-8"))
+
+    with TestClient(create_app()) as client:
+        extractor_response = client.post(
+            "/v1/extractors",
+            json={
+                "name": "receipt_delete_test",
+                "instructions": "Extract the receipt fields.",
+                "schema": schema,
+                "examples": [],
+            },
+        )
+        assert extractor_response.status_code == 201
+
+        job_response = client.post(
+            "/v1/jobs",
+            json={
+                "extractor_id": extractor_response.json()["id"],
+                "text": "Receipt #R-42",
+            },
+        )
+        assert job_response.status_code == 201
+        job_id = job_response.json()["id"]
+
+        job = client.app.state.container.jobs.get(job_id)
+        assert job is not None
+        client.app.state.container.jobs.save(job.mark_running())
+
+        response = client.delete(f"/v1/jobs/{job_id}")
+
+        assert response.status_code == 202
+        persisted = client.app.state.container.jobs.get(job_id)
+        assert persisted is not None
+        assert persisted.status == JobStatus.DELETING
 
 
 def test_schema_validation_reports_errors(monkeypatch, tmp_path) -> None:

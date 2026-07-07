@@ -14,6 +14,7 @@ from parsehawk.core.application.ports import (
     PreparedImage,
 )
 from parsehawk.core.application.services import (
+    DeleteJobResult,
     ExtractorService,
     FileService,
     JobService,
@@ -98,6 +99,13 @@ class MemoryJobRepository:
 
     def delete(self, job_id: str) -> None:
         self.items.pop(job_id, None)
+
+    def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool:
+        existing = self.items.get(job_id)
+        if existing is None or existing.status not in expected:
+            return False
+        self.delete(job_id)
+        return True
 
     def claim_next_queued(self) -> Job | None:
         for job in self.items.values():
@@ -240,6 +248,19 @@ class RejectingJobRepository(MemoryJobRepository):
         if self.replacement is not None:
             self.items[job.id] = self.replacement
         return False
+
+
+class RacingDeleteJobRepository(MemoryJobRepository):
+    def __init__(self, replacement: Job) -> None:
+        super().__init__()
+        self.replacement: Job | None = replacement
+
+    def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool:
+        if self.replacement is not None:
+            self.items[job_id] = self.replacement
+            self.replacement = None
+            return False
+        return super().delete_if_status(job_id, expected)
 
 
 @dataclass
@@ -628,7 +649,7 @@ def test_job_service_create_list_get_delete_and_success(services) -> None:
     assert services["engine"].requests[0].source_content_type == file.content_type
     assert services["engine"].requests[0].enable_thinking is True
 
-    job_service.delete(job.id)
+    assert job_service.delete(job.id) == DeleteJobResult.DELETED
     with pytest.raises(NotFoundError):
         job_service.get(job.id)
 
@@ -701,6 +722,86 @@ def test_job_service_cancel_marks_running_job_canceling(services) -> None:
     assert persisted.status == JobStatus.CANCELING
 
 
+def test_job_service_delete_marks_running_job_deleting(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    services["jobs"].save(job.mark_running())
+
+    result = services["job_service"].delete(job.id)
+
+    assert result == DeleteJobResult.ACCEPTED
+    persisted = services["jobs"].get(job.id)
+    assert persisted is not None
+    assert persisted.status == JobStatus.DELETING
+
+
+def test_job_service_delete_marks_canceling_job_deleting(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    services["jobs"].save(job.mark_running().mark_canceling())
+
+    result = services["job_service"].delete(job.id)
+
+    assert result == DeleteJobResult.ACCEPTED
+    persisted = services["jobs"].get(job.id)
+    assert persisted is not None
+    assert persisted.status == JobStatus.DELETING
+
+
+def test_job_service_delete_accepts_already_deleting_job(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    deleting = job.mark_running().mark_deleting()
+    services["jobs"].save(deleting)
+
+    result = services["job_service"].delete(job.id)
+
+    assert result == DeleteJobResult.ACCEPTED
+    assert services["jobs"].get(job.id) == deleting
+
+
+def test_job_service_delete_retries_when_queued_delete_loses_race(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    running = job.mark_running()
+    job_repo = RacingDeleteJobRepository(replacement=running)
+    job_repo.save(job)
+    job_service = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+
+    result = job_service.delete(job.id)
+
+    assert result == DeleteJobResult.ACCEPTED
+    persisted = job_repo.get(job.id)
+    assert persisted is not None
+    assert persisted.status == JobStatus.DELETING
+
+
 def test_job_service_cancel_rejects_completed_job(services) -> None:
     file = services["file_service"].upload(
         file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
@@ -763,6 +864,31 @@ def test_job_service_cancels_when_job_is_already_canceling_before_engine_extract
 
     assert completed.status == JobStatus.CANCELED
     assert completed.result is None
+    assert services["engine"].requests == []
+
+
+def test_job_service_deletes_when_job_is_deleting_before_engine_extract(services) -> None:
+    job_repo = ControlledJobRepository(status_to_apply=JobStatus.DELETING)
+    services["jobs"] = job_repo
+    services["job_service"] = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    result = services["job_service"].run_claimed(job)
+
+    assert result.status == JobStatus.DELETING
+    assert job_repo.get(job.id) is None
     assert services["engine"].requests == []
 
 
@@ -932,6 +1058,70 @@ def test_job_service_cancels_when_job_becomes_canceling_before_saving_completed(
     persisted = job_repo.get(job.id)
     assert persisted is not None
     assert persisted.status == JobStatus.CANCELED
+
+
+def test_job_service_deletes_when_job_becomes_deleting_before_saving_completed(
+    services,
+) -> None:
+    job_repo = MemoryJobRepository()
+    services["jobs"] = job_repo
+    services["job_service"] = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+
+    file = services["file_service"].upload(
+        file_name="a.md",
+        content_type="text/markdown",
+        content=b"Subject: #1#",
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt",
+        instructions="classify",
+        schema=schema(),
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    def mark_deleting(request: ExtractionRequest, cancellation_check=None) -> ExtractionResponse:
+        latest = job_repo.get(job.id)
+        assert latest is not None
+        job_repo.save(latest.mark_deleting())
+        return services["engine"].response
+
+    services["engine"].extract = mark_deleting
+
+    result = services["job_service"].run_claimed(job)
+
+    assert result.status == JobStatus.DELETING
+    assert job_repo.get(job.id) is None
+
+
+def test_job_service_cancellation_callback_treats_deleting_as_requested(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    def mark_deleting(request: ExtractionRequest, cancellation_check=None) -> ExtractionResponse:
+        assert cancellation_check is not None
+        latest = services["jobs"].get(job.id)
+        assert latest is not None
+        services["jobs"].save(latest.mark_deleting())
+        assert cancellation_check() is True
+        return services["engine"].response
+
+    services["engine"].extract = mark_deleting
+
+    result = services["job_service"].run_claimed(job)
+
+    assert result.status == JobStatus.DELETING
+    assert services["jobs"].get(job.id) is None
 
 
 def test_job_service_cancels_when_engine_raises_cancelled_and_job_is_canceling(

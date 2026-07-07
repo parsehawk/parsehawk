@@ -56,6 +56,10 @@ def test_job_state_transitions_and_result_validity() -> None:
     assert failed.error.message == "boom"
     assert failed.error.code == "custom"
 
+    deleting = running.mark_deleting()
+    assert deleting.status == JobStatus.DELETING
+    assert deleting.completed_at is None
+
     canceled = running.mark_canceled()
     assert canceled.status == JobStatus.CANCELED
     assert canceled.completed_at is not None

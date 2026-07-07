@@ -4,11 +4,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Depends, FastAPI, File, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, FastAPI, File, Query, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse as FastAPIFileResponse
 from fastapi.responses import JSONResponse
 
 from parsehawk import telemetry, tracing
+from parsehawk.core.application.services import DeleteJobResult
 from parsehawk.core.domain.errors import NotFoundError, ProviderRequestError, ValidationFailure
 from parsehawk.core.domain.models import ProviderName
 from parsehawk.core.domain.schemas import (
@@ -327,9 +328,16 @@ def cancel_job(job_id: str, container: ContainerDep) -> JobResponse:
     return JobResponse.from_domain(container.job_service.cancel(job_id))
 
 
-@jobs_router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_job(job_id: str, container: ContainerDep) -> None:
-    container.job_service.delete(job_id)
+@jobs_router.delete(
+    "/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={status.HTTP_202_ACCEPTED: {"description": "Deletion accepted"}},
+)
+def delete_job(job_id: str, container: ContainerDep) -> Response:
+    result = container.job_service.delete(job_id)
+    if result == DeleteJobResult.ACCEPTED:
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 app = create_app()

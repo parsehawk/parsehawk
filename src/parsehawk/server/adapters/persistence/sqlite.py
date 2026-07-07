@@ -451,6 +451,19 @@ class SQLiteJobRepository:
             self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
             self._conn.commit()
 
+    def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool:
+        statuses = tuple(status.value for status in expected)
+        if not statuses:
+            return False
+        placeholders = ",".join("?" for _ in statuses)
+        with _write_lock:
+            cursor = self._conn.execute(
+                f"DELETE FROM jobs WHERE id = ? AND status IN ({placeholders})",
+                (job_id, *statuses),
+            )
+            self._conn.commit()
+            return cursor.rowcount == 1
+
     def claim_next_queued(self) -> Job | None:
         with _write_lock:
             try:
