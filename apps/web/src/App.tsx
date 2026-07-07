@@ -98,6 +98,7 @@ import type { SchemaField, ValidationPreset } from "./schemaBuilder";
 import type { Extractor, FileRecord, Job, JobStatus, SchemaValidation, SchemaValidationRequest } from "./types";
 
 const terminalStates = new Set(["completed", "failed", "canceled"]);
+const activeStates = new Set<JobStatus>(["running", "canceling", "deleting"]);
 const FILE_UPLOAD_CONCURRENCY = 3;
 type SchemaMode = "builder" | "json";
 type MainView = "run" | "editor";
@@ -1938,7 +1939,7 @@ function JobHistory(props: {
                       <div className="flex items-center gap-3 px-2 py-1.5 text-left">
                         <Icon
                           data-icon="inline-start"
-                          className={cn("size-4 shrink-0", historyJob.status === "running" && "animate-spin")}
+                          className={cn("size-4 shrink-0", activeStates.has(historyJob.status) && "animate-spin")}
                         />
                         <span className="min-w-0">
                           <span className="flex flex-wrap items-center gap-2">
@@ -2117,7 +2118,7 @@ function JobProgressPanel(props: { job: Job | null }) {
                   "size-5",
                   status.tone === "destructive" && "text-destructive",
                   status.tone === "success" && "text-primary",
-                  props.job.status === "running" && "animate-spin"
+                  activeStates.has(props.job.status) && "animate-spin"
                 )}
               />
             </div>
@@ -2559,10 +2560,13 @@ function jobStatusCopy(status: JobStatus): {
       icon: CheckCircle2
     };
   }
-  if (status === "canceling") {
+  if (status === "canceling" || status === "deleting") {
     return {
-      title: "Canceling",
-      description: "ParseHawk is stopping this job.",
+      title: status === "deleting" ? "Deleting" : "Canceling",
+      description:
+        status === "deleting"
+          ? "ParseHawk is stopping and removing this job."
+          : "ParseHawk is stopping this job.",
       progress: 50,
       tone: "default",
       icon: Loader2
