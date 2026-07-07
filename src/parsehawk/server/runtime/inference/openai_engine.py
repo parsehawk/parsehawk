@@ -105,13 +105,13 @@ class OpenAIExtractionEngine:
         standard, extra_body = self._build_payload(request)
         try:
             raise_if_cancelled()
-            raw = self._post_chat(standard, extra_body)
+            raw = self._post_chat(standard, extra_body, cancellation_check=raise_if_cancelled)
         except ProviderRequestError as exc:
             if self._legacy_max_tokens or not _requires_legacy_max_tokens(exc):
                 raise
             raise_if_cancelled()
             self._legacy_max_tokens = True
-            raw = self._post_chat(standard, extra_body)
+            raw = self._post_chat(standard, extra_body, cancellation_check=raise_if_cancelled)
 
         raise_if_cancelled()
         self._debug_model_io("model runtime response: %s", raw)
@@ -120,15 +120,41 @@ class OpenAIExtractionEngine:
             content = strip_hidden_thinking(content)
         return ExtractionResponse(data=extract_json_object(content))
 
-    def _post_chat(self, standard: dict[str, Any], extra_body: dict[str, Any]) -> dict[str, Any]:
+    def _post_chat(
+        self,
+        standard: dict[str, Any],
+        extra_body: dict[str, Any],
+        *,
+        cancellation_check: Callable[[], None],
+    ) -> dict[str, Any]:
         call_kwargs = dict(standard)
         if self._legacy_max_tokens and "max_completion_tokens" in call_kwargs:
             call_kwargs["max_tokens"] = call_kwargs.pop("max_completion_tokens")
         if extra_body:
             call_kwargs["extra_body"] = extra_body
+        call_kwargs["stream"] = True
         self._debug_model_io("model runtime request: %s", call_kwargs)
         try:
-            completion = self._client.chat.completions.create(**call_kwargs)
+            stream = self._client.chat.completions.create(**call_kwargs)
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            try:
+                for chunk in stream:
+                    cancellation_check()
+                    chunk_data = chunk.model_dump()
+                    choice = (chunk_data.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
+                    content = delta.get("content")
+                    if isinstance(content, str):
+                        content_parts.append(content)
+                    for field in ("reasoning", "reasoning_content"):
+                        reasoning = delta.get(field)
+                        if isinstance(reasoning, str):
+                            reasoning_parts.append(reasoning)
+            finally:
+                close = getattr(stream, "close", None)
+                if close is not None:
+                    close()
         except APIStatusError as exc:
             message = getattr(exc, "message", str(exc))
             raise ProviderRequestError(
@@ -137,7 +163,12 @@ class OpenAIExtractionEngine:
             ) from exc
         except APIConnectionError as exc:
             raise ProviderRequestError(f"model provider is unreachable: {exc}") from exc
-        return completion.model_dump()
+        message: dict[str, str] = {}
+        if content_parts:
+            message["content"] = "".join(content_parts)
+        if reasoning_parts:
+            message["reasoning_content"] = "".join(reasoning_parts)
+        return {"choices": [{"message": message}]}
 
     def _build_payload(self, request: ExtractionRequest) -> tuple[dict[str, Any], dict[str, Any]]:
         if self._adapter == ADAPTER_NUEXTRACT:

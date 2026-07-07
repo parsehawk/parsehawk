@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List
+from typing import Any, Iterable, List
 
 from parsehawk.core.domain.models import (
     Example,
@@ -393,6 +393,44 @@ class SQLiteJobRepository:
                 ),
             )
             self._conn.commit()
+
+    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
+        statuses = tuple(status.value for status in expected)
+        if not statuses:
+            return False
+        row = SQLiteJobRow.from_domain(job)
+        placeholders = ",".join("?" for _ in statuses)
+        with _write_lock:
+            cursor = self._conn.execute(
+                f"""
+                UPDATE jobs
+                SET extractor_id = ?,
+                    file_id = ?,
+                    source_text = ?,
+                    status = ?,
+                    result = ?,
+                    error = ?,
+                    created_at = ?,
+                    started_at = ?,
+                    completed_at = ?
+                WHERE id = ? AND status IN ({placeholders})
+                """,
+                (
+                    row.extractor_id,
+                    row.file_id,
+                    row.source_text,
+                    row.status,
+                    row.result,
+                    row.error,
+                    row.created_at,
+                    row.started_at,
+                    row.completed_at,
+                    row.id,
+                    *statuses,
+                ),
+            )
+            self._conn.commit()
+            return cursor.rowcount == 1
 
     def list(self, extractor_id: str | None = None) -> List[Job]:
         if extractor_id is None:

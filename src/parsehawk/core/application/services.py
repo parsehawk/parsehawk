@@ -480,14 +480,17 @@ class JobService:
         job = self.get(job_id)
 
         if job.status == JobStatus.QUEUED:
-            job = job.mark_canceled()
+            canceled = job.mark_canceled()
+            if self._jobs.save_if_status(canceled, [JobStatus.QUEUED]):
+                return canceled
         elif job.status == JobStatus.RUNNING:
-            job = job.mark_canceling()
+            canceling = job.mark_canceling()
+            if self._jobs.save_if_status(canceling, [JobStatus.RUNNING]):
+                return canceling
         else:
             raise ValidationFailure(f"cannot cancel job in '{job.status.value}' state")
 
-        self._jobs.save(job)
-        return job
+        return self.cancel(job_id)
 
     def delete(self, job_id: str) -> None:
         self.get(job_id)
@@ -501,7 +504,13 @@ class JobService:
 
     def run_claimed(self, job: Job) -> Job:
         running = job if job.status == JobStatus.RUNNING else job.mark_running()
-        self._jobs.save(running)
+        if job.status != JobStatus.RUNNING and not self._jobs.save_if_status(running, [job.status]):
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
+                return canceled
+            latest = self._jobs.get(running.id)
+            if latest is not None:
+                return latest
         try:
             extractor = self._extractors.get(running.extractor_id)
             if extractor is None:
@@ -514,10 +523,8 @@ class JobService:
                 latest = self._jobs.get(running.id)
                 return latest is not None and latest.status == JobStatus.CANCELING
 
-            latest = self._jobs.get(running.id)
-            if latest is not None and latest.status == JobStatus.CANCELING:
-                canceled = latest.mark_canceled()
-                self._jobs.save(canceled)
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
                 return canceled
             response = engine.extract(
                 ExtractionRequest(
@@ -544,32 +551,50 @@ class JobService:
                     "extraction did not match schema", code="schema_validation_failed"
                 ).model_copy(update={"result": result})
             )
-            latest = self._jobs.get(running.id)
-
-            if latest is not None and latest.status == JobStatus.CANCELING:
-                canceled = latest.mark_canceled()
-                self._jobs.save(canceled)
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
                 return canceled
 
-            self._jobs.save(completed)
-            return completed
+            if self._jobs.save_if_status(completed, [JobStatus.RUNNING]):
+                return completed
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
+                return canceled
+            latest = self._jobs.get(running.id)
+            return latest if latest is not None else completed
 
         except ExtractionCancelled as exc:
-            latest = self._jobs.get(running.id)
-            if latest is not None and latest.status == JobStatus.CANCELED:
-                return latest
-            if latest is not None and latest.status == JobStatus.CANCELING:
-                canceled = latest.mark_canceled()
-                self._jobs.save(canceled)
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
                 return canceled
             failed = running.mark_failed(str(exc))
-            self._jobs.save(failed)
-            return failed
+            if self._jobs.save_if_status(failed, [JobStatus.RUNNING]):
+                return failed
+            latest = self._jobs.get(running.id)
+            return latest if latest is not None else failed
 
         except Exception as exc:
             failed = running.mark_failed(str(exc))
-            self._jobs.save(failed)
-            return failed
+            if self._jobs.save_if_status(failed, [JobStatus.RUNNING]):
+                return failed
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
+                return canceled
+            latest = self._jobs.get(running.id)
+            return latest if latest is not None else failed
+
+    def _cancel_if_requested(self, job_id: str) -> Job | None:
+        latest = self._jobs.get(job_id)
+        if latest is None:
+            return None
+        if latest.status == JobStatus.CANCELED:
+            return latest
+        if latest.status != JobStatus.CANCELING:
+            return None
+        canceled = latest.mark_canceled()
+        if self._jobs.save_if_status(canceled, [JobStatus.CANCELING]):
+            return canceled
+        return self._jobs.get(job_id) or canceled
 
     @staticmethod
     def _validate_output(schema: dict[str, Any], data: dict[str, Any]) -> List[ValidationIssue]:
