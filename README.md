@@ -531,6 +531,7 @@ bundled Phoenix with the standard OpenTelemetry variables:
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://phoenix:6006` | OTLP/HTTP collector **base URL** — the exporter appends `/v1/traces` itself. If the collector URL you were handed already ends in `/v1/traces`, strip that suffix. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | unset | Optional headers, e.g. `authorization=Bearer <api key>` for an auth-enabled collector. Values are URL-encoded per the OTLP spec (space → `%20`). |
 | `OTEL_SERVICE_NAME` | `parsehawk-api` / `parsehawk-worker` | Service name on exported spans. |
+| `OTEL_RESOURCE_ATTRIBUTES` | `openinference.project.name=parsehawk` | Extra resource attributes. `openinference.project.name` sets the Phoenix project traces are grouped under (an OpenInference convention — other backends ignore it and group by service name). |
 
 Bring-your-own collector example:
 
