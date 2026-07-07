@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import sys
+from types import ModuleType
+
 import pytest
 
 from parsehawk import tracing
@@ -70,3 +73,37 @@ def test_configure_tracing_swallows_registration_errors(
     monkeypatch.setattr(tracing, "_register", _boom)
 
     tracing.configure_tracing(service_name="parsehawk-api")
+
+
+def test_openai_extra_body_context_uses_openinference_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contexts: list[dict[str, object]] = []
+    extra_body = {
+        "chat_template_kwargs": {
+            "instructions": "Extract receipt fields.",
+            "template": '{"receipt_id": "string"}',
+            "enable_thinking": False,
+        }
+    }
+    module = ModuleType("openinference.instrumentation")
+
+    def fake_using_metadata(metadata: dict[str, object]) -> _FakeMetadataContext:
+        contexts.append(metadata)
+        return _FakeMetadataContext()
+
+    setattr(module, "using_metadata", fake_using_metadata)
+    monkeypatch.setitem(sys.modules, "openinference.instrumentation", module)
+
+    with tracing.openai_extra_body_context(extra_body):
+        pass
+
+    assert contexts == [{"parsehawk.openai.extra_body": extra_body}]
+
+
+class _FakeMetadataContext:
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *args: object) -> None:
+        return None

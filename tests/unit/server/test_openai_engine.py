@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any, cast
 
 import httpx
@@ -135,6 +136,53 @@ def test_nuextract_adapter_sends_chat_template_kwargs_in_extra_body() -> None:
     assert call["model"] == NUEXTRACT_MODEL
     assert call["extra_body"]["chat_template_kwargs"]["template"]
     assert call["response_format"]["type"] == "json_schema"
+
+
+def test_nuextract_adapter_records_extra_body_for_tracing_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[dict[str, Any]] = []
+
+    @contextmanager
+    def fake_extra_body_context(extra_body: dict[str, Any]):
+        recorded.append(extra_body)
+        yield
+
+    monkeypatch.setattr(
+        openai_engine_module.tracing, "openai_extra_body_context", fake_extra_body_context
+    )
+    client, completions = _client_returning('{"receipt_id": "2"}')
+    engine = OpenAIExtractionEngine(
+        OpenAIEngineConfig(model=NUEXTRACT_MODEL), client=cast(OpenAI, client)
+    )
+
+    engine.extract(make_request())
+
+    assert recorded == [completions.calls[0]["extra_body"]]
+    assert recorded[0]["chat_template_kwargs"]["instructions"] == "Extract the receipt id."
+
+
+def test_generic_adapter_records_no_extra_body_for_tracing_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[dict[str, Any]] = []
+
+    @contextmanager
+    def fake_extra_body_context(extra_body: dict[str, Any]):
+        recorded.append(extra_body)
+        yield
+
+    monkeypatch.setattr(
+        openai_engine_module.tracing, "openai_extra_body_context", fake_extra_body_context
+    )
+    client, _ = _client_returning('{"receipt_id": "2"}')
+    engine = OpenAIExtractionEngine(
+        OpenAIEngineConfig(model="gpt-4o-mini"), client=cast(OpenAI, client)
+    )
+
+    engine.extract(make_request())
+
+    assert recorded == []
 
 
 def test_generic_adapter_builds_system_prompt_without_nuextract_kwargs() -> None:
