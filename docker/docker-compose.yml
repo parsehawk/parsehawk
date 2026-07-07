@@ -28,12 +28,10 @@ services:
       PARSEHAWK_TELEMETRY_INTERNAL: ${PARSEHAWK_TELEMETRY_INTERNAL:-0}
       DO_NOT_TRACK: ${DO_NOT_TRACK:-0}
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      # Base URL only — the exporter appends /v1/traces itself.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006}
-      # Pass-through (no default): only set in the container when set on the host.
-      # TRACES_ENDPOINT is the OTel signal-specific override, used verbatim — for
-      # collectors addressed by their full ingest URL (…/v1/traces). HEADERS carries
-      # auth, e.g. `authorization=Bearer <api key>` for an auth-enabled collector.
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:
+      # Pass-through (no default): only set in the container when set on the host,
+      # e.g. `authorization=Bearer <api key>` for an auth-enabled collector.
       OTEL_EXPORTER_OTLP_HEADERS:
       OTEL_SERVICE_NAME: parsehawk-api
     volumes:
@@ -65,12 +63,10 @@ services:
       PARSEHAWK_TELEMETRY_INTERNAL: ${PARSEHAWK_TELEMETRY_INTERNAL:-0}
       DO_NOT_TRACK: ${DO_NOT_TRACK:-0}
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      # Base URL only — the exporter appends /v1/traces itself.
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006}
-      # Pass-through (no default): only set in the container when set on the host.
-      # TRACES_ENDPOINT is the OTel signal-specific override, used verbatim — for
-      # collectors addressed by their full ingest URL (…/v1/traces). HEADERS carries
-      # auth, e.g. `authorization=Bearer <api key>` for an auth-enabled collector.
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:
+      # Pass-through (no default): only set in the container when set on the host,
+      # e.g. `authorization=Bearer <api key>` for an auth-enabled collector.
       OTEL_EXPORTER_OTLP_HEADERS:
       OTEL_SERVICE_NAME: parsehawk-worker
     volumes:
