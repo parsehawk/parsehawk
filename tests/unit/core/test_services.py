@@ -213,6 +213,12 @@ class ControlledJobRepository(MemoryJobRepository):
         existing = self.items.get(job.id)
         if existing is None or existing.status not in expected:
             return False
+        if (
+            job.status == JobStatus.COMPLETED
+            and self._complete_status_to_apply == JobStatus.CANCELING
+        ):
+            self.items[job.id] = job.mark_canceling()
+            return False
         self.save(job)
         return True
 
@@ -879,12 +885,12 @@ def test_job_service_cancels_when_job_becomes_canceling_after_extraction(
         file_id=file.id,
     )
 
-    completed = services["job_service"].run_claimed(job)
+    canceled = services["job_service"].run_claimed(job)
 
-    assert completed.status == JobStatus.COMPLETED
+    assert canceled.status == JobStatus.CANCELED
     saved_job = job_repo.get(job.id)
     assert saved_job is not None
-    assert saved_job.status == JobStatus.CANCELING
+    assert saved_job.status == JobStatus.CANCELED
 
 
 def test_job_service_cancels_when_job_becomes_canceling_before_saving_completed(
