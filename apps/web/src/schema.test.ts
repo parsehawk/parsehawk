@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { formatApiError } from "./api";
+import { deleteJob, formatApiError } from "./api";
 import { parseJsonObject, prettyJson, receiptSchema } from "./schema";
 import {
   field,
@@ -375,6 +375,15 @@ describe("schema helpers", () => {
 });
 
 describe("api helpers", () => {
+  it("accepts successful empty responses", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 202 }));
+
+    await expect(deleteJob("job_123")).resolves.toBeUndefined();
+
+    expect(fetch).toHaveBeenCalledWith("/v1/jobs/job_123", { method: "DELETE" });
+    fetch.mockRestore();
+  });
+
   it("formats FastAPI validation errors for display", () => {
     expect(
       formatApiError(

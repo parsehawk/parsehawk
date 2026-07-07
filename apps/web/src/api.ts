@@ -13,10 +13,11 @@ async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise
     const body = await response.text();
     throw new Error(formatApiError(body, response.status));
   }
-  if (response.status === 204) {
+  const body = await response.text();
+  if (!body) {
     return undefined as T;
   }
-  return response.json() as Promise<T>;
+  return JSON.parse(body) as T;
 }
 
 export function formatApiError(body: string, status: number): string {
