@@ -41,7 +41,7 @@ export type ExtractorExample = {
   output: Record<string, unknown> | string;
 };
 
-export type JobStatus = "queued" | "running" | "completed" | "failed" | "canceling" | "canceled";
+export type JobStatus = "queued" | "running" | "completed" | "failed" | "canceling" | "deleting" | "canceled";
 
 export type Job = {
   id: string;

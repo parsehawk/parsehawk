@@ -477,6 +477,51 @@ describe("App run workflow", () => {
     expect(requests).toContainEqual({ method: "DELETE", url: "/v1/jobs/job_123" });
   });
 
+  it("renders deleting jobs as active", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([
+          {
+            id: "extractor_123",
+            name: "receipt_v1",
+            instructions: "Extract receipt fields.",
+            schema: { type: "object" },
+            examples: [],
+            created_at: "2026-06-21T00:00:00Z",
+            updated_at: "2026-06-21T00:00:00Z"
+          }
+        ]);
+      }
+      if (url === "/v1/jobs?extractor_id=extractor_123") {
+        return jsonResponse([
+          {
+            id: "job_deleting",
+            extractor_id: "extractor_123",
+            file_id: null,
+            source_text: "Corner Market",
+            status: "deleting",
+            result: null,
+            error: null,
+            created_at: "2026-06-21T00:00:00Z",
+            started_at: "2026-06-21T00:00:01Z",
+            completed_at: null
+          }
+        ]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Deleting")).toBeInTheDocument();
+    expect(screen.getAllByText("ParseHawk is stopping and removing this job.").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Extraction failed")).not.toBeInTheDocument();
+  });
+
   it("switches the input preview when selecting file and text jobs from history", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
