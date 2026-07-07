@@ -95,7 +95,9 @@ def _register(service_name: str) -> None:
     # Every provider goes through the OpenAI SDK, so instrumenting it covers all
     # LM requests (chat completions and model listing alike).
     OpenAIInstrumentor().instrument(tracer_provider=provider)
-    logger.info(
-        "Tracing LM requests via OTLP: %s",
-        os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+    # Mirror the exporter's endpoint resolution: the signal-specific variable is a
+    # full ingest URL used verbatim; the generic one gets /v1/traces appended.
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"
     )
+    logger.info("Tracing LM requests via OTLP: %s", endpoint)

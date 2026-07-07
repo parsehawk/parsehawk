@@ -529,7 +529,8 @@ bundled Phoenix with the standard OpenTelemetry variables:
 | --- | --- | --- |
 | `OTEL_SDK_DISABLED` | `false` | Master switch for tracing. `parsehawk start -x phoenix` sets it to `true` unless you set it yourself. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://phoenix:6006` | OTLP/HTTP collector base URL (the exporter appends `/v1/traces`). |
-| `OTEL_EXPORTER_OTLP_HEADERS` | unset | Optional headers, e.g. `authorization=Bearer <api key>` for an auth-enabled collector. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | unset | Signal-specific override, used verbatim — set this when your collector is addressed by its full ingest URL (`…/v1/traces`). |
+| `OTEL_EXPORTER_OTLP_HEADERS` | unset | Optional headers, e.g. `authorization=Bearer <api key>` for an auth-enabled collector. Values are URL-encoded per the OTLP spec (space → `%20`). |
 | `OTEL_SERVICE_NAME` | `parsehawk-api` / `parsehawk-worker` | Service name on exported spans. |
 
 Bring-your-own collector example:
