@@ -192,6 +192,7 @@ class JobStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELING = "canceling"
+    DELETING = "deleting"
     CANCELED = "canceled"
 
 
@@ -247,6 +248,13 @@ class Job(Entity):
         return self.model_copy(
             update={
                 "status": JobStatus.CANCELING,
+            }
+        )
+
+    def mark_deleting(self) -> Job:
+        return self.model_copy(
+            update={
+                "status": JobStatus.DELETING,
             }
         )
 

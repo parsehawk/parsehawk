@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import asdict
+from enum import StrEnum
 from typing import Any, List
 
 from jsonschema import Draft202012Validator
@@ -45,6 +46,11 @@ SUPPORTED_FILE_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".txt", ".md", ".mar
 # The provider new extractors default to when none is specified: the bundled
 # OpenAI-compatible runtime that serves NuExtract3.
 DEFAULT_PROVIDER_NAME = ProviderName.OPENAI_COMPATIBLE
+
+
+class DeleteJobResult(StrEnum):
+    DELETED = "deleted"
+    ACCEPTED = "accepted"
 
 
 class FileService:
@@ -492,9 +498,27 @@ class JobService:
 
         return self.cancel(job_id)
 
-    def delete(self, job_id: str) -> None:
-        self.get(job_id)
-        self._jobs.delete(job_id)
+    def delete(self, job_id: str) -> DeleteJobResult:
+        job = self.get(job_id)
+
+        if job.status in {
+            JobStatus.QUEUED,
+            JobStatus.COMPLETED,
+            JobStatus.FAILED,
+            JobStatus.CANCELED,
+        }:
+            if self._jobs.delete_if_status(job_id, [job.status]):
+                return DeleteJobResult.DELETED
+        elif job.status == JobStatus.RUNNING:
+            if self._jobs.save_if_status(job.mark_deleting(), [JobStatus.RUNNING]):
+                return DeleteJobResult.ACCEPTED
+        elif job.status == JobStatus.CANCELING:
+            if self._jobs.save_if_status(job.mark_deleting(), [JobStatus.CANCELING]):
+                return DeleteJobResult.ACCEPTED
+        elif job.status == JobStatus.DELETING:
+            return DeleteJobResult.ACCEPTED
+
+        return self.delete(job_id)
 
     def run_next_queued(self) -> Job | None:
         claimed = self._jobs.claim_next_queued()
@@ -521,7 +545,10 @@ class JobService:
 
             def cancellation_requested() -> bool:
                 latest = self._jobs.get(running.id)
-                return latest is not None and latest.status == JobStatus.CANCELING
+                return latest is not None and latest.status in {
+                    JobStatus.CANCELING,
+                    JobStatus.DELETING,
+                }
 
             canceled = self._cancel_if_requested(running.id)
             if canceled is not None:
@@ -588,6 +615,9 @@ class JobService:
         if latest is None:
             return None
         if latest.status == JobStatus.CANCELED:
+            return latest
+        if latest.status == JobStatus.DELETING:
+            self._jobs.delete(latest.id)
             return latest
         if latest.status != JobStatus.CANCELING:
             return None
