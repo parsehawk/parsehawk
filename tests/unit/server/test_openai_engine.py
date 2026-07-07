@@ -8,6 +8,7 @@ from openai import APIConnectionError, APIStatusError, OpenAI
 
 from parsehawk.core.application.ports import ExtractionRequest
 from parsehawk.core.domain.errors import ExtractionCancelled, ProviderRequestError
+from parsehawk.server.runtime.inference import openai_engine as openai_engine_module
 from parsehawk.server.runtime.inference.generic import (
     REASONING_CHAT_TEMPLATE_KWARGS,
     REASONING_EFFORT,
@@ -44,13 +45,16 @@ class _FakeCompletions:
         self._error = error
         self.calls: list[dict[str, Any]] = []
         self.streams: list[_FakeStream] = []
+        self.chunks: list[dict[str, Any]] | None = None
 
     def create(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
         if self._error is not None:
             raise self._error
         if kwargs.get("stream"):
-            stream = _FakeStream(_stream_chunks(self._data or {}))
+            stream = _FakeStream(
+                self.chunks if self.chunks is not None else _stream_chunks(self._data or {})
+            )
             self.streams.append(stream)
             return stream
         return _FakeCompletion(self._data or {})
@@ -328,6 +332,37 @@ def test_cancellation_closes_stream_during_generation() -> None:
         engine.extract(make_request(), cancellation_check=cancellation_check)
 
     assert completions.streams[0].closed is True
+
+
+def test_stream_cancellation_check_is_rate_limited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, completions = _client_returning('{"receipt_id": "2"}')
+    completions.chunks = [
+        {"choices": [{"delta": {"content": "{"}}]},
+        {"choices": [{"delta": {"content": '"receipt_id"'}}]},
+        {"choices": [{"delta": {"content": ":"}}]},
+        {"choices": [{"delta": {"content": '"2"'}}]},
+        {"choices": [{"delta": {"content": "}"}}]},
+    ]
+    times = iter([0.0, 0.0, 0.2, 0.8, 1.0, 1.1])
+    monkeypatch.setattr(openai_engine_module, "monotonic", lambda: next(times))
+    engine = OpenAIExtractionEngine(
+        OpenAIEngineConfig(model="gpt-4o-mini"), client=cast(OpenAI, client)
+    )
+    checks = 0
+
+    def cancellation_check() -> bool:
+        nonlocal checks
+        checks += 1
+        return False
+
+    result = engine.extract(make_request(), cancellation_check=cancellation_check)
+
+    assert result.data == {"receipt_id": "2"}
+    # One check before the request, two rate-limited checks during five chunks,
+    # and one final check after the stream completes.
+    assert checks == 4
 
 
 def test_other_400_is_not_retried() -> None:

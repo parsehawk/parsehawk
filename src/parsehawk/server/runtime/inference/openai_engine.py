@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any, Callable
 
 from openai import APIConnectionError, APIStatusError, OpenAI
@@ -39,6 +40,7 @@ logger = logging.getLogger("parsehawk.runtime")
 
 ADAPTER_NUEXTRACT = "nuextract"
 ADAPTER_GENERIC = "generic"
+CANCELLATION_CHECK_INTERVAL_SECONDS = 1.0
 
 # Top-level OpenAI chat-completion params; everything else rides in extra_body.
 _STANDARD_KEYS = frozenset(
@@ -138,9 +140,13 @@ class OpenAIExtractionEngine:
             stream = self._client.chat.completions.create(**call_kwargs)
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
+            next_cancellation_check_at = monotonic()
             try:
                 for chunk in stream:
-                    cancellation_check()
+                    now = monotonic()
+                    if now >= next_cancellation_check_at:
+                        cancellation_check()
+                        next_cancellation_check_at = now + CANCELLATION_CHECK_INTERVAL_SECONDS
                     chunk_data = chunk.model_dump()
                     choice = (chunk_data.get("choices") or [{}])[0]
                     delta = choice.get("delta") or {}
