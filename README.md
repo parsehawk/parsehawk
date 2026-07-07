@@ -215,8 +215,9 @@ JOB_ID=$(
 curl -s "$API/v1/jobs/$JOB_ID" | jq .
 ```
 
-Jobs are asynchronous. Poll `GET /v1/jobs/{job_id}` until `status` is
-`completed` or `failed`.
+Jobs are asynchronous. Poll `GET /v1/jobs/{job_id}` until `status` is terminal:
+`completed`, `failed`, or `canceled`. In-progress jobs can be `queued`,
+`running`, `canceling`, or `deleting`.
 
 ## API, CLI, And Web UI
 
@@ -248,11 +249,18 @@ DELETE /v1/extractors/{extractor_ref}
 POST   /v1/jobs
 GET    /v1/jobs
 GET    /v1/jobs/{job_id}
+POST   /v1/jobs/{job_id}/cancel
 DELETE /v1/jobs/{job_id}
 ```
 
 Jobs return the canonical extracted JSON inline as `job.result.data` once
 completed.
+
+Canceling a queued job marks it `canceled`; canceling a running job marks it
+`canceling` until the worker stops the extraction. Deleting a queued or terminal
+job removes it immediately with `204 No Content`. Deleting a running or
+canceling job returns `202 Accepted`, marks it `deleting`, and removes it after
+the worker observes the cancellation request.
 
 Useful CLI commands:
 
