@@ -27,7 +27,7 @@
   <a href="#first-extraction">First extraction</a> ·
   <a href="#api-cli-and-web-ui">API, CLI, and Web UI</a> ·
   <a href="#requirements">Requirements</a> ·
-  <a href="#development">Development</a>
+  <a href="#contributing">Contributing</a>
 </p>
 
 ParseHawk turns PDFs, scans, images, text files, and Markdown into structured
@@ -601,79 +601,11 @@ serving from already-open SQLite handles. `parsehawk start` refuses to start
 when target ports are already occupied without a live state file. In that case,
 stop the process using the port and start again.
 
-## Development
+## Contributing
 
-Development requires:
-
-- `git`
-- `just`
-- `uv`
-- `pnpm`
-
-Useful commands:
-
-```bash
-just setup          # install dependencies and pre-commit hooks
-just start          # product-like Docker mode
-just dev            # local-source development mode
-just web-dev        # Web UI dev server only
-just smoke          # local smoke flow
-just test           # Python tests
-just e2e            # local end-to-end API tests (needs the model runtime up)
-just format         # format Python
-just lint           # Ruff linting
-just typecheck      # ty type checking
-just web-typecheck  # TypeScript checks
-just web-test       # Web UI tests
-just web-build      # production Web UI build
-just check          # all standard checks
-just hooks-run      # run pre-commit on all files
-```
-
-Pre-commit hooks are not installed automatically by Git. Run this once per
-clone:
-
-```bash
-just setup
-```
-
-The hooks run Ruff, ty, Python tests, Web UI typecheck, and Web UI tests. CI
-should still run the same checks; hooks are just the fast local feedback loop.
-
-#### Upgrading an editable tool install
-
-`parsehawk` installed with `uv tool install --editable .` runs from its own tool
-environment, which `uv sync` does not update. After pulling changes that add or
-bump a dependency, refresh the tool so the CLI picks them up:
-
-```bash
-uv tool install --force --editable .
-```
-
-A stale tool environment surfaces as a `ModuleNotFoundError` for a newly added
-dependency when you run `parsehawk`.
-
-#### Development mode:
-
-Includes hot reload for the web UI.
-
-```bash
-parsehawk dev
-```
-
-```bash
-parsehawk dev -x runtime  # starts the API and Web UI without the bundled runtime
-```
-
-#### Product-like local mode:
-
-```bash
-parsehawk start
-```
-
-```bash
-parsehawk start -x runtime  # starts the API and Web UI without the bundled runtime
-```
+ParseHawk welcomes issues and pull requests. For local development setup,
+quality checks, pull request expectations, coverage requirements, and licensing
+terms, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Troubleshooting
 
