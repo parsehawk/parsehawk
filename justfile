@@ -51,13 +51,13 @@ web-dev:
     pnpm --dir apps/web dev
 
 web-build:
-    pnpm --dir apps/web build
+    CI=true pnpm --dir apps/web build
 
 web-test:
-    pnpm --dir apps/web test
+    CI=true pnpm --dir apps/web test
 
 web-typecheck:
-    pnpm --dir apps/web typecheck
+    CI=true pnpm --dir apps/web typecheck
 
 check: format-check lint typecheck test web-typecheck web-test web-build
 

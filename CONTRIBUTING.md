@@ -133,6 +133,9 @@ Pre-commit hooks are not installed automatically by Git. Run `just setup` once
 per clone, or run `just hooks-install` if dependencies are already installed.
 The hooks run Ruff, ty, Python tests, Web UI typecheck, and Web UI tests. CI
 should still run the same checks; hooks are just the fast local feedback loop.
+Because `pre-commit` is installed in the project `uv` environment, run it via
+`just hooks-run` or `uv run pre-commit run --all-files` instead of calling
+`pre-commit` directly.
 
 ## End-to-End Verification
 
