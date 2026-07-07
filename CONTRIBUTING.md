@@ -31,12 +31,20 @@ Development requires:
 - `git`
 - `just`
 - `uv`
+- `node`
 - `pnpm`
+- Docker
 
 `pnpm` is required for the standard development workflow because the Web UI
 typecheck, tests, build, and pre-commit hooks use it. Backend-only changes may
 not need `pnpm` for every edit-test loop, but a PR-ready checkout should have it
 installed.
+
+Docker is part of the development toolchain so contributors can build images and
+run the local stack:
+
+- macOS: Docker Desktop
+- Linux: Docker Engine and Docker Compose
 
 Clone the repository and install dependencies:
 
