@@ -3,5 +3,5 @@
 # A thin wrapper over the upstream image so the version pin and any future
 # customization live in-repo. Persistence, ports, retention, and authentication
 # are configured through environment variables in docker/docker-compose.yml.
-ARG PHOENIX_VERSION=latest
+ARG PHOENIX_VERSION=17.20.0
 FROM arizephoenix/phoenix:${PHOENIX_VERSION}
