@@ -2,6 +2,11 @@ packages:
   - "apps/*"
 allowBuilds:
   esbuild: true
+# esbuild only reaches us transitively (vite, vitest, @vitejs/plugin-react).
+# Force every copy to a patched release so the fix is not gated on those
+# dependents bumping their own ranges.
+overrides:
+  esbuild: ">=0.28.1"
 
 # systeminformation is a transitive dep (shadcn -> @dotenvx/dotenvx) whose 5.31.8
 # release landed in our lockfile <24h after publish, tripping pnpm's
