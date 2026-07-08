@@ -36,7 +36,7 @@ describe("schema helpers", () => {
     expect(
       schemaFromFields([
         field({ name: "vendor", type: "verbatim-string", nullable: true }),
-        field({ name: "currency", type: "currency", enumText: "EUR, USD", nullable: true }),
+        field({ name: "currency", type: "currency", enumValues: ["EUR", "USD"], nullable: true }),
         field({ name: "line_items", type: "string", list: true, nullable: false }),
         field({
           name: "vendor_account",
@@ -116,7 +116,7 @@ describe("schema helpers", () => {
         type: "currency",
         required: true,
         nullable: true,
-        enumText: "EUR, USD"
+        enumValues: ["EUR", "USD"]
       },
       {
         name: "vendor_account",
@@ -131,12 +131,37 @@ describe("schema helpers", () => {
     ]);
   });
 
+  it("preserves comma-containing enum values when round-tripping JSON Schema", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        procedure: {
+          type: "string",
+          enum: ["Angiography (CT, MR, DSA)", "Other"]
+        }
+      },
+      required: ["procedure"]
+    };
+
+    expect(schemaFromFields(fieldsFromSchema(schema))).toEqual({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        procedure: {
+          type: "string",
+          enum: ["Angiography (CT, MR, DSA)", "Other"]
+        }
+      },
+      required: ["procedure"]
+    });
+  });
+
   it("builds canonical field schema from editable fields", () => {
     expect(
       fieldSchemaFromFields([
         field({ name: "vendor", type: "verbatim-string", nullable: true }),
-        field({ name: "currency", enumText: "EUR, USD", nullable: true }),
-        field({ name: "tags", enumText: "paid, urgent", list: true }),
+        field({ name: "currency", enumValues: ["EUR", "USD"], nullable: true }),
+        field({ name: "tags", enumValues: ["paid", "urgent"], list: true }),
         field({
           name: "vendor_account",
           validationPreset: "exact_digits",
@@ -203,11 +228,11 @@ describe("schema helpers", () => {
       })
     ).toMatchObject([{ name: "total", type: "number", required: true, nullable: true }]);
 
-    expect(nuextractTemplateFromFields([field({ name: "currency", enumText: "EUR, USD" })])).toEqual({
+    expect(nuextractTemplateFromFields([field({ name: "currency", enumValues: ["EUR", "USD"] })])).toEqual({
       currency: ["EUR", "USD"]
     });
     expect(fieldsFromNuextractTemplate({ tags: [["paid", "urgent"]] })).toMatchObject([
-      { name: "tags", shape: "array", itemShape: "scalar", enumText: "paid, urgent" }
+      { name: "tags", shape: "array", itemShape: "scalar", enumValues: ["paid", "urgent"] }
     ]);
   });
 
