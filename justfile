@@ -59,7 +59,42 @@ web-test:
 web-typecheck:
     CI=true pnpm --dir apps/web typecheck
 
-check: format-check lint typecheck test web-typecheck web-test web-build
+check: format-check lint typecheck test web-typecheck web-test web-build licenses
+
+# Permissive SPDX ids osv-scanner treats as always-allowed, so it only surfaces the
+# licenses worth adjudicating. The real block/flag/allow decision is made by
+# scripts/check_dep_licenses.py, so this list only needs to be safe, not exhaustive.
+license_allow := "MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0,0BSD,Python-2.0,PSF-2.0,Unlicense,CC0-1.0,BlueOak-1.0.0,OFL-1.1,Zlib,BSL-1.0,MIT-0,CC-BY-4.0"
+
+# License compliance (issue #92): Apache-2.0 shipping surface. Runs both halves.
+licenses: licenses-deps licenses-manifest
+
+# Dependency licenses: osv-scanner reads both uv.lock and pnpm-lock.yaml in one pass
+# (licenses via deps.dev) and feeds one policy in scripts/check_dep_licenses.py.
+# Needs osv-scanner on PATH and network (deps.dev). Locally it degrades to a
+# skip-with-warning when osv-scanner is absent, so `just check` and pre-commit stay
+# green for contributors without it; CI installs osv-scanner and is the authority.
+licenses-deps:
+    #!/usr/bin/env bash
+    set -eu
+    if ! command -v osv-scanner >/dev/null 2>&1; then
+        echo "⚠ osv-scanner not found — skipping dependency license scan (CI runs it)." >&2
+        echo "  install: https://google.github.io/osv-scanner/installation/" >&2
+        exit 0
+    fi
+    osv-scanner scan source --format json --licenses="{{license_allow}}" --lockfile uv.lock --lockfile pnpm-lock.yaml | uv run python scripts/check_dep_licenses.py --source osv
+
+# Bundled-image manifest guard: fails on any Dockerfile FROM or Compose image: ref
+# missing from the reviewed manifest (e.g. the ELv2 Phoenix image), which no
+# dependency scanner sees. Offline and instant (file + TOML parsing only), so it
+# also runs in pre-commit.
+licenses-manifest:
+    uv run python scripts/check_bundled_images.py
+
+# Additionally pull the small referenced images and check for in-image license
+# drift with trivy (catches a vendor relicensing an image). Needs trivy + Docker.
+licenses-images:
+    uv run python scripts/check_bundled_images.py --scan-images
 
 hooks-install:
     uv run pre-commit install

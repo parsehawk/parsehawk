@@ -52,3 +52,24 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+
+      # License check (issue #92), offline half: guards that every image a
+      # Dockerfile or Compose file references is in the reviewed manifest. Fast
+      # and network-free, so it runs on every commit.
+      - id: licenses-manifest
+        name: bundled image licenses
+        entry: just licenses-manifest
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # License check, dependency half: osv-scanner resolves licenses via deps.dev
+      # (network), so it is scoped to lockfile changes rather than always_run —
+      # it fires only when a dependency could have changed, keeping unrelated
+      # (and offline) commits fast and network-free.
+      - id: licenses-deps
+        name: dependency licenses
+        entry: just licenses-deps
+        language: system
+        pass_filenames: false
+        files: ^(uv\.lock|pnpm-lock\.yaml)$
