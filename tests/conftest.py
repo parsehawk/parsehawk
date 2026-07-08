@@ -4,8 +4,13 @@ import re
 
 import pytest
 
-from parsehawk.core.application.ports import ExtractionRequest, ExtractionResponse
-from parsehawk.core.domain.models import Extractor
+from parsehawk.config import DEFAULT_VLLM_MODEL
+from parsehawk.core.application.ports import (
+    ExtractionRequest,
+    ExtractionResponse,
+    ResolvedExecutionConfig,
+)
+from parsehawk.core.domain.models import Extractor, ProviderName
 
 
 class MockInference:
@@ -75,6 +80,12 @@ class _StubEngineFactory:
 
     def __init__(self, engine: MockInference) -> None:
         self._engine = engine
+
+    def resolve_extractor_config(self, extractor: Extractor) -> ResolvedExecutionConfig:
+        return ResolvedExecutionConfig(
+            provider_name=extractor.provider_name or ProviderName.OPENAI_COMPATIBLE,
+            model=extractor.model or DEFAULT_VLLM_MODEL,
+        )
 
     def for_extractor(self, extractor: Extractor) -> MockInference:
         return self._engine

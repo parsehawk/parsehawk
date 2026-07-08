@@ -38,6 +38,8 @@ describe("App run workflow", () => {
           extractor_id: "extractor_123",
           file_id: null,
           source_text: "Corner Market",
+          provider_name_used: null,
+          model_used: null,
           status: "queued",
           result: null,
           error: null,
@@ -443,6 +445,8 @@ describe("App run workflow", () => {
             extractor_id: "extractor_123",
             file_id: null,
             source_text: "Corner Market",
+            provider_name_used: "openai_compatible_api",
+            model_used: "numind/NuExtract3-W4A16",
             status: "completed",
             result: {
               data: { receipt_id: "R-42" }
@@ -465,6 +469,7 @@ describe("App run workflow", () => {
     expect(await screen.findByText("Jobs")).toBeInTheDocument();
     expect(await screen.findByText("job_123")).toBeInTheDocument();
     expect((await screen.findAllByText("1s")).length).toBeGreaterThan(0);
+    expect(screen.getByText("numind/NuExtract3-W4A16")).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Raw" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Validation" })).not.toBeInTheDocument();
 
@@ -503,6 +508,8 @@ describe("App run workflow", () => {
             extractor_id: "extractor_123",
             file_id: null,
             source_text: "Corner Market",
+            provider_name_used: "openai_compatible_api",
+            model_used: "numind/NuExtract3-W4A16",
             status: "deleting",
             result: null,
             error: null,
@@ -563,6 +570,8 @@ describe("App run workflow", () => {
             extractor_id: "extractor_123",
             file_id: "file_123",
             source_text: null,
+            provider_name_used: "openai_compatible_api",
+            model_used: "numind/NuExtract3-W4A16",
             status: "completed",
             result: {
               data: { receipt_id: "R-file" }
@@ -577,6 +586,8 @@ describe("App run workflow", () => {
             extractor_id: "extractor_123",
             file_id: null,
             source_text: "Archived inline text",
+            provider_name_used: "openai_compatible_api",
+            model_used: "numind/NuExtract3-W4A16",
             status: "completed",
             result: {
               data: { receipt_id: "R-text" }

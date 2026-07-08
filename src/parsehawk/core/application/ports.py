@@ -21,6 +21,12 @@ class PreparedDocument:
     images: list[PreparedImage]
 
 
+@dataclass(frozen=True)
+class ResolvedExecutionConfig:
+    provider_name: ProviderName
+    model: str
+
+
 class FileRepository(Protocol):  # pragma: no cover
     def save(self, file: File) -> None: ...
 
@@ -96,6 +102,8 @@ class ExtractionEngine(Protocol):  # pragma: no cover
 
 
 class EngineFactory(Protocol):  # pragma: no cover
+    def resolve_extractor_config(self, extractor: Extractor) -> ResolvedExecutionConfig: ...
+
     def for_extractor(self, extractor: Extractor) -> ExtractionEngine: ...
 
 

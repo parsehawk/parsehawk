@@ -12,6 +12,7 @@ from parsehawk.core.application.ports import (
     ExtractionResponse,
     PreparedDocument,
     PreparedImage,
+    ResolvedExecutionConfig,
 )
 from parsehawk.core.application.services import (
     DeleteJobResult,
@@ -286,6 +287,12 @@ class StubEngine:
 @dataclass
 class StubEngineFactory:
     engine: StubEngine
+
+    def resolve_extractor_config(self, extractor: Extractor) -> ResolvedExecutionConfig:
+        return ResolvedExecutionConfig(
+            provider_name=extractor.provider_name or ProviderName.OPENAI_COMPATIBLE,
+            model=extractor.model or DEFAULT_MODEL,
+        )
 
     def for_extractor(self, extractor: Extractor) -> StubEngine:
         return self.engine
@@ -642,6 +649,8 @@ def test_job_service_create_list_get_delete_and_success(services) -> None:
     completed = job_service.run_next_queued()
     assert completed is not None
     assert completed.status == JobStatus.COMPLETED
+    assert completed.provider_name_used == ProviderName.OPENAI_COMPATIBLE
+    assert completed.model_used == DEFAULT_MODEL
     assert completed.result is not None
     assert completed.result.data == {"receipt_id": "2"}
     assert services["engine"].requests[0].source_text == "Subject: #1#"
@@ -652,6 +661,24 @@ def test_job_service_create_list_get_delete_and_success(services) -> None:
     assert job_service.delete(job.id) == DeleteJobResult.DELETED
     with pytest.raises(NotFoundError):
         job_service.get(job.id)
+
+
+def test_job_service_records_resolved_provider_and_model_at_execution_time(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    services["extractor_service"].update(extractor.id, model="custom/local-model")
+    completed = services["job_service"].run_next_queued()
+
+    assert completed is not None
+    assert completed.provider_name_used == ProviderName.OPENAI_COMPATIBLE
+    assert completed.model_used == "custom/local-model"
+    assert services["job_service"].get(job.id).model_used == "custom/local-model"
 
 
 def test_job_service_runs_inline_text_input(services) -> None:
@@ -889,6 +916,71 @@ def test_job_service_deletes_when_job_is_deleting_before_engine_extract(services
 
     assert result.status == JobStatus.DELETING
     assert job_repo.get(job.id) is None
+    assert services["engine"].requests == []
+
+
+def test_job_service_returns_latest_when_execution_config_save_loses_race(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    running = job.mark_running()
+    replacement = running.mark_completed(JobResult(data={"receipt_id": "2"}))
+    job_repo = RejectingJobRepository(replacement=replacement)
+    job_repo.save(running)
+    job_service = JobService(
+        job_repo,
+        services["files"],
+        services["extractors"],
+        services["storage"],
+        StubEngineFactory(services["engine"]),
+    )
+
+    result = job_service.run_claimed(running)
+
+    assert result == replacement
+    assert services["engine"].requests == []
+
+
+def test_job_service_cancels_when_job_is_canceling_after_execution_config_save(
+    services,
+) -> None:
+    class CancelingStorage(MemoryStorage):
+        job_id: str | None = None
+
+        def prepare_document(self, file: File) -> PreparedDocument:
+            if self.job_id is not None:
+                latest = services["jobs"].get(self.job_id)
+                assert latest is not None
+                services["jobs"].save(latest.mark_canceling())
+            return super().prepare_document(file)
+
+    storage = CancelingStorage()
+    services["storage"] = storage
+    services["file_service"] = FileService(services["files"], storage)
+    services["job_service"] = JobService(
+        services["jobs"],
+        services["files"],
+        services["extractors"],
+        storage,
+        StubEngineFactory(services["engine"]),
+    )
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Subject: #1#"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="classify", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    storage.job_id = job.id
+
+    result = services["job_service"].run_claimed(job)
+
+    assert result.status == JobStatus.CANCELED
+    assert result.model_used == DEFAULT_MODEL
     assert services["engine"].requests == []
 
 

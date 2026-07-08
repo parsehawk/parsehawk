@@ -75,8 +75,11 @@ def test_factory_defaults_provider_and_uses_empty_key_for_local_runtime() -> Non
     settings = Settings()
     factory = EngineFactory(providers, _Secrets(), settings)
 
+    resolved = factory.resolve_extractor_config(_extractor())
     engine = factory.for_extractor(_extractor())  # no provider/model -> defaults
 
+    assert resolved.provider_name == ProviderName.OPENAI_COMPATIBLE
+    assert resolved.model == settings.vllm_model
     assert engine._config.base_url == "http://127.0.0.1:8080/v1"
     assert engine._config.api_key == "EMPTY"
     assert engine._config.model == settings.vllm_model

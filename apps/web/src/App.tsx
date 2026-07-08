@@ -1132,6 +1132,14 @@ export default function App() {
                       </div>
                       <div className="flex shrink-0 gap-3">
                         <JobFact label="Status" value={job.status} className="min-w-[140px]" />
+                        {job.model_used ? (
+                          <JobFact
+                            label="Model"
+                            value={job.model_used}
+                            title={job.provider_name_used ? providerLabel(job.provider_name_used) : undefined}
+                            className="min-w-[180px]"
+                          />
+                        ) : null}
                         <JobFact label="Duration" value={formatJobDuration(job)} className="min-w-[140px]" />
                       </div>
                     </CardHeader>

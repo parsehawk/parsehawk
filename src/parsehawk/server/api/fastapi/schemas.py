@@ -235,6 +235,8 @@ class JobResponse(ApiModel):
     extractor_id: str
     file_id: str | None
     source_text: str | None
+    provider_name_used: ProviderName | None
+    model_used: str | None
     status: JobStatus
     result: JobResultResponse | None
     error: JobErrorResponse | None
@@ -249,6 +251,8 @@ class JobResponse(ApiModel):
             extractor_id=job.extractor_id,
             file_id=job.file_id,
             source_text=job.source_text,
+            provider_name_used=job.provider_name_used,
+            model_used=job.model_used,
             status=job.status,
             result=JobResultResponse.from_domain(job.result)
             if job.status == JobStatus.COMPLETED and job.result

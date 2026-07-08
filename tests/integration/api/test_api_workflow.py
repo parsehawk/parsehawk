@@ -111,6 +111,8 @@ def test_receipt_api_workflow(monkeypatch, tmp_path, mock_inference) -> None:
         assert result_response.status_code == 200
         payload = result_response.json()
         assert payload["status"] == "completed"
+        assert payload["provider_name_used"] == "openai_compatible_api"
+        assert payload["model_used"] == "numind/NuExtract3-W4A16"
         assert "artifact_dir" not in payload
         assert "raw_output" not in payload["result"]
         assert "valid" not in payload["result"]
