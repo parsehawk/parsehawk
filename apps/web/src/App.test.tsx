@@ -735,9 +735,9 @@ describe("App run workflow", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Configure model providers" }));
 
-    // openai is seeded with a key, so it reports as configured.
-    expect(await screen.findByText("Configured")).toBeInTheDocument();
-    expect(screen.getAllByText("Not configured").length).toBe(2);
+    await screen.findByText("OpenAI-compatible API");
+    expect(screen.getAllByText("Configured").length).toBe(2);
+    expect(screen.getAllByText("Not configured").length).toBe(1);
 
     // openai is the second provider in the fixed order; set a new key and save it.
     await userEvent.type(screen.getAllByLabelText("API key")[1], "sk-secret");
