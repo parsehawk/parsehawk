@@ -1,0 +1,11 @@
+# Reviewed dependency-license exceptions for scripts/check_dep_licenses.py.
+#
+# One package per line, either `name` or `name==reason`. A listed package is
+# skipped by the gate. Only add a package after a human has confirmed its real
+# license is compatible (e.g. metadata was ambiguous, or a flagged classification
+# is a false positive). Keep a reason so the next reader knows why.
+#
+# Example:
+#   some-pkg==dual-licensed MIT OR GPL; we use it under MIT
+
+parsehawk==our own package (Apache-2.0); shows as UNKNOWN in deps.dev
