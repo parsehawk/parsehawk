@@ -209,7 +209,6 @@ def _vllm_runtime_command(
         str(settings.vllm_max_model_len),
         "--max-num-seqs",
         str(settings.vllm_max_num_seqs),
-        "--structured-outputs-config.enable_in_reasoning=True",
     ]
     if settings.vllm_enable_mtp:
         command += [

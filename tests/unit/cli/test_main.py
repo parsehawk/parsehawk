@@ -601,7 +601,7 @@ def test_dev_launches_vllm_runtime_when_selected(
     assert runtime_cmd[runtime_cmd.index("--gpu-memory-utilization") + 1] == "0.85"
     assert runtime_cmd[runtime_cmd.index("--max-model-len") + 1] == "16384"
     assert runtime_cmd[runtime_cmd.index("--max-num-seqs") + 1] == "4"
-    assert "--structured-outputs-config.enable_in_reasoning=True" in runtime_cmd
+    assert "--structured-outputs-config.enable_in_reasoning=True" not in runtime_cmd
     assert spawned[0]["env"]["VLLM_USE_FLASHINFER_SAMPLER"] == "0"
     api_env = spawned[1]["env"]
     assert api_env["PARSEHAWK_INFERENCE_ENGINE"] == "vllm"
