@@ -1,0 +1,51 @@
+# Reviewed manifest of every third-party container image referenced by a
+# Dockerfile or Compose file in this repo. scripts/check_bundled_images.py
+# enforces it: any referenced image that is missing here fails CI, forcing a
+# human to record its license and how it ships before merge. This is the guard
+# that catches a source-available image (e.g. Arize Phoenix, ELv2) entering via
+# a Dockerfile `FROM` or a Compose `image:` — where a dependency scanner is
+# blind, because such an image never appears in a lockfile.
+#
+# Fields:
+#   name    bare image repository (no tag/digest), as written in the reference.
+#   license best-effort SPDX id of the image's own software. Base OS images carry
+#           many licenses; record the license that governs *shipping* the image.
+#   ships   how the image reaches users:
+#             redistributed  we push these layers to a registry (GHCR) -> a
+#                            forbidden license here FAILS the check.
+#             runtime-pull   the operator pulls it at deploy time; we do not
+#                            redistribute it -> forbidden license is allowed, but
+#                            must be documented in THIRD_PARTY_NOTICES.md.
+#             build-only     used only in a build stage; not present in any
+#                            shipped layer -> forbidden license is allowed.
+#   note    why this classification holds; keep it truthful and specific.
+
+[[image]]
+name = "python"
+license = "PSF-2.0"
+ships = "redistributed"
+note = "Base of the published API/worker image (docker/Dockerfile.api). Debian slim base; system packages are standard permissive/copyleft OS licenses shipped as mere aggregation."
+
+[[image]]
+name = "node"
+license = "MIT"
+ships = "build-only"
+note = "Build stage that compiles the web UI (docker/Dockerfile.web); not present in the served nginx layer."
+
+[[image]]
+name = "nginx"
+license = "BSD-2-Clause"
+ships = "redistributed"
+note = "Serves the static web UI (docker/Dockerfile.web). Alpine base; OS packages shipped as mere aggregation."
+
+[[image]]
+name = "vllm/vllm-openai"
+license = "Apache-2.0"
+ships = "runtime-pull"
+note = "Model serving runtime (docker/runtime/Dockerfile.linux-vllm, docker/docker-compose.linux.yml), pulled at deploy time. Not redistributed by the project (see publish-image.yaml)."
+
+[[image]]
+name = "arizephoenix/phoenix"
+license = "Elastic-2.0"
+ships = "runtime-pull"
+note = "Optional tracing backend (services/phoenix/Dockerfile.phoenix). Source-available (Elastic License 2.0), pulled by the operator, NOT redistributed by the project. Documented in THIRD_PARTY_NOTICES.md. ELv2 restricts offering it as a managed service."
