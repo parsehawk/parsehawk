@@ -46,10 +46,9 @@ class ProviderName(StrEnum):
 class MicrosoftFoundryProviderConfiguration(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    api_version: str | None = None
     project_url: str | None = None
 
-    @field_validator("api_version", "project_url", mode="before")
+    @field_validator("project_url", mode="before")
     @classmethod
     def normalize_optional_string(cls, value: Any) -> Any:
         if value is None:
@@ -231,10 +230,6 @@ class Provider(Entity):
     def configuration_string(self, key: str) -> str | None:
         value = self.configuration.get(key)
         return value if isinstance(value, str) and value else None
-
-    @property
-    def api_version(self) -> str | None:
-        return self.configuration_string("api_version")
 
     @property
     def project_url(self) -> str | None:

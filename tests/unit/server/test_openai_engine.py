@@ -340,7 +340,6 @@ def test_list_foundry_chat_deployments_filters_chat_capable_deployments(
     models = openai_engine_module.list_foundry_chat_deployments(
         project_url="https://resource.services.ai.azure.com/api/projects/project/",
         api_key="sk-secret",
-        api_version="2025-05-01",
         timeout_seconds=7,
     )
 
@@ -348,7 +347,7 @@ def test_list_foundry_chat_deployments_filters_chat_capable_deployments(
     assert captured == {
         "url": "https://resource.services.ai.azure.com/api/projects/project/deployments",
         "headers": {"api-key": "sk-secret"},
-        "params": {"api-version": "2025-05-01"},
+        "params": {"api-version": "v1"},
         "timeout": 7,
     }
 

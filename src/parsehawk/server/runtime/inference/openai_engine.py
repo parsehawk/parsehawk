@@ -44,7 +44,7 @@ logger = logging.getLogger("parsehawk.runtime")
 ADAPTER_NUEXTRACT = "nuextract"
 ADAPTER_GENERIC = "generic"
 CANCELLATION_CHECK_INTERVAL_SECONDS = 1.0
-FOUNDRY_DEPLOYMENTS_API_VERSION = "2025-05-01"
+FOUNDRY_DEPLOYMENTS_API_VERSION = "v1"
 
 # Top-level OpenAI chat-completion params; everything else rides in extra_body.
 _STANDARD_KEYS = frozenset(
@@ -75,7 +75,6 @@ class OpenAIEngineConfig:
     model: str
     base_url: str | None = None
     api_key: str = "EMPTY"
-    api_version: str | None = None
     max_tokens: int = 2048
     temperature: float = 0.2
     timeout_seconds: int = 600
@@ -217,14 +216,10 @@ def _split_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     return standard, extra_body
 
 
-def build_openai_client(
-    *, base_url: str | None, api_key: str, api_version: str | None, timeout_seconds: int
-) -> OpenAI:
+def build_openai_client(*, base_url: str | None, api_key: str, timeout_seconds: int) -> OpenAI:
     kwargs: dict[str, Any] = {"api_key": api_key or "EMPTY", "timeout": timeout_seconds}
     if base_url:
         kwargs["base_url"] = base_url
-    if api_version:
-        kwargs["default_query"] = {"api-version": api_version}
     return OpenAI(**kwargs)
 
 
@@ -232,7 +227,6 @@ def _build_client(config: OpenAIEngineConfig) -> OpenAI:
     return build_openai_client(
         base_url=config.base_url,
         api_key=config.api_key,
-        api_version=config.api_version,
         timeout_seconds=config.timeout_seconds,
     )
 
@@ -241,14 +235,12 @@ def list_models(
     *,
     base_url: str | None,
     api_key: str,
-    api_version: str | None = None,
     timeout_seconds: int = 30,
 ) -> list[str]:
     """List the model ids a provider offers (for the Web UI's model dropdown)."""
     client = build_openai_client(
         base_url=base_url,
         api_key=api_key,
-        api_version=api_version,
         timeout_seconds=timeout_seconds,
     )
     try:
@@ -268,7 +260,6 @@ def list_foundry_chat_deployments(
     *,
     project_url: str | None,
     api_key: str,
-    api_version: str | None = None,
     timeout_seconds: int = 30,
 ) -> list[str]:
     """List Microsoft Foundry deployment names usable by chat completions."""
@@ -280,7 +271,7 @@ def list_foundry_chat_deployments(
         response = httpx.get(
             f"{project_url.rstrip('/')}/deployments",
             headers={"api-key": api_key},
-            params={"api-version": api_version or FOUNDRY_DEPLOYMENTS_API_VERSION},
+            params={"api-version": FOUNDRY_DEPLOYMENTS_API_VERSION},
             timeout=timeout_seconds,
         )
         response.raise_for_status()

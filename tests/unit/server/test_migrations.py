@@ -14,7 +14,10 @@ from parsehawk.server.adapters.persistence.migrations import (
     migration_status,
     migrations_disabled,
 )
-from parsehawk.server.adapters.persistence.migrations.runner import _split_statements
+from parsehawk.server.adapters.persistence.migrations.runner import (
+    _register_functions,
+    _split_statements,
+)
 from parsehawk.server.adapters.persistence.sqlite import connect, init_db
 
 # Migration ids (each ``.sql`` filename without the suffix), in apply order.
@@ -22,11 +25,13 @@ BASELINE_ID = "20260701092442_initial_schema"
 ADD_PROVIDERS_ID = "20260701121138_add_providers"
 EXTRACTOR_DISPLAY_NAMES_ID = "20260702160000_extractor_display_names"
 PROVIDER_CONFIGURATION_ID = "20260708093000_provider_configuration"
+REMOVE_FOUNDRY_API_VERSION_CONFIG_ID = "20260708112000_remove_foundry_api_version_config"
 ALL_MIGRATION_IDS = [
     BASELINE_ID,
     ADD_PROVIDERS_ID,
     EXTRACTOR_DISPLAY_NAMES_ID,
     PROVIDER_CONFIGURATION_ID,
+    REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
 ]
 
 # The full current schema after all migrations. ALTER-added columns
@@ -368,7 +373,11 @@ def test_provider_configuration_migration_renames_foundry_without_data_loss(
     )
     conn.commit()
 
-    assert apply_pending(conn) == [EXTRACTOR_DISPLAY_NAMES_ID, PROVIDER_CONFIGURATION_ID]
+    assert apply_pending(conn) == [
+        EXTRACTOR_DISPLAY_NAMES_ID,
+        PROVIDER_CONFIGURATION_ID,
+        REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
+    ]
 
     assert columns(conn, "providers") == EXPECTED_COLUMNS["providers"]
     provider = conn.execute(
@@ -376,7 +385,7 @@ def test_provider_configuration_migration_renames_foundry_without_data_loss(
     ).fetchone()
     assert provider is not None
     assert provider["base_url"] == "https://resource.services.ai.azure.com/openai/v1"
-    assert json.loads(provider["configuration"]) == {"api_version": "2025-05-01"}
+    assert json.loads(provider["configuration"]) == {}
     assert (
         conn.execute("SELECT 1 FROM providers WHERE name = ?", ("azure_openai",)).fetchone() is None
     )
@@ -386,6 +395,51 @@ def test_provider_configuration_migration_renames_foundry_without_data_loss(
         "SELECT provider_name FROM extractors WHERE id = ?", ("extractor_invoice",)
     ).fetchone()
     assert tuple(extractor) == ("microsoft_foundry",)
+
+
+def test_remove_foundry_api_version_config_migration_strips_already_migrated_config(
+    conn: sqlite3.Connection,
+) -> None:
+    _register_functions(conn)
+    applied_ids = [
+        BASELINE_ID,
+        ADD_PROVIDERS_ID,
+        EXTRACTOR_DISPLAY_NAMES_ID,
+        PROVIDER_CONFIGURATION_ID,
+    ]
+    for migration_id in applied_ids:
+        migration = next(
+            migration for migration in discover_migrations() if migration.id == migration_id
+        )
+        conn.executescript(migration.path.read_text(encoding="utf-8"))
+    conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+        [(migration_id, "t") for migration_id in applied_ids],
+    )
+    conn.execute(
+        """
+        INSERT INTO providers (name, base_url, configuration, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            "microsoft_foundry",
+            "https://resource.services.ai.azure.com/openai/v1",
+            '{"api_version":"2025-05-01","project_url":"https://resource.services.ai.azure.com/api/projects/project"}',
+            "t0",
+            "t1",
+        ),
+    )
+    conn.commit()
+
+    assert apply_pending(conn) == [REMOVE_FOUNDRY_API_VERSION_CONFIG_ID]
+
+    provider = conn.execute(
+        "SELECT configuration FROM providers WHERE name = ?", ("microsoft_foundry",)
+    ).fetchone()
+    assert json.loads(provider["configuration"]) == {
+        "project_url": "https://resource.services.ai.azure.com/api/projects/project"
+    }
 
 
 def test_apply_pending_is_atomic_on_failure(tmp_path: Path) -> None:

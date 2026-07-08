@@ -12,7 +12,6 @@ export type FileRecord = {
 export type ProviderName = "openai" | "microsoft_foundry" | "openai_compatible_api";
 
 export type ProviderConfiguration = {
-  api_version?: string | null;
   project_url?: string | null;
 };
 

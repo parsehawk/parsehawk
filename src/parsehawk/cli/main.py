@@ -466,7 +466,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     providers_configure_parser.add_argument("name", choices=_PROVIDER_NAMES)
     providers_configure_parser.add_argument("--base-url")
-    providers_configure_parser.add_argument("--api-version", help="Provider-specific API version")
     providers_configure_parser.add_argument(
         "--project-url", help="Microsoft Foundry project URL for deployment discovery"
     )
@@ -1136,8 +1135,6 @@ def providers(args: argparse.Namespace) -> None:
         if args.base_url is not None:
             payload["base_url"] = args.base_url
         configuration: dict[str, Any] = {}
-        if args.api_version is not None:
-            configuration["api_version"] = args.api_version
         if args.project_url is not None:
             configuration["project_url"] = args.project_url
         if configuration:

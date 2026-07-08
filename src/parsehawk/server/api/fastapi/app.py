@@ -287,13 +287,11 @@ def list_provider_models(name: ProviderName, container: ContainerDep) -> Provide
         models = list_foundry_chat_deployments(
             project_url=provider.project_url,
             api_key=api_key,
-            api_version=provider.api_version,
         )
     else:
         models = list_models(
             base_url=provider.base_url,
             api_key=api_key,
-            api_version=provider.api_version,
         )
     return ProviderModelsResponse(models=models)
 

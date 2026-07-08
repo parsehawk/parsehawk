@@ -429,7 +429,6 @@ parsehawk providers configure openai --api-key-env OPENAI_API_KEY
 parsehawk providers configure microsoft_foundry \
   --base-url https://resource.services.ai.azure.com/openai/v1 \
   --project-url https://resource.services.ai.azure.com/api/projects/project-name \
-  --api-version 2025-05-01 \
   --api-key "$MICROSOFT_FOUNDRY_API_KEY"
 parsehawk extractors update invoice_v1 --provider microsoft_foundry --model my-chat-deployment
 

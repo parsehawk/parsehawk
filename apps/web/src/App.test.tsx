@@ -779,7 +779,6 @@ describe("App run workflow", () => {
           name: "microsoft_foundry",
           base_url: "https://resource.services.ai.azure.com/openai/v1",
           configuration: {
-            api_version: "2025-05-01",
             project_url: "https://resource.services.ai.azure.com/api/projects/project"
           },
           has_api_key: true,
@@ -806,7 +805,6 @@ describe("App run workflow", () => {
       screen.getByLabelText("Project URL"),
       "https://resource.services.ai.azure.com/api/projects/project"
     );
-    await userEvent.type(screen.getByLabelText("API version"), "2025-05-01");
     await userEvent.type(screen.getByLabelText("API key"), "sk-secret");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -814,7 +812,6 @@ describe("App run workflow", () => {
       expect(patchPayload).toMatchObject({
         base_url: "https://resource.services.ai.azure.com/openai/v1",
         configuration: {
-          api_version: "2025-05-01",
           project_url: "https://resource.services.ai.azure.com/api/projects/project"
         },
         api_key: "sk-secret"
