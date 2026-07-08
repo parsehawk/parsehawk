@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentType, ReactNode } from "react";
+import type { ClipboardEvent, ComponentType, ReactNode } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -1653,8 +1653,9 @@ function SchemaFieldEditor(props: {
   const usesScalarControls = props.field.shape === "scalar" || (props.field.shape === "array" && props.field.itemShape === "scalar");
   const typeLabel = props.field.shape === "array" ? "Item type" : "Type";
   const enumLabel = props.field.shape === "array" ? "Item enum choices" : "Enum choices";
-  const canUseTextPattern = usesScalarControls && props.field.type === "string" && !props.field.enumText.trim();
+  const canUseTextPattern = usesScalarControls && props.field.type === "string" && props.field.enumValues.length === 0;
   const selectedType = nuextractTypeMetadata[props.field.type];
+  const enumEditorValue = props.field.enumValues.join("\n");
 
   return (
     <section
@@ -1782,13 +1783,24 @@ function SchemaFieldEditor(props: {
           </Field>
           <Field>
             <FieldLabel htmlFor={`${props.field.id}-enum`}>{enumLabel}</FieldLabel>
-            <Input
+            <Textarea
               id={`${props.field.id}-enum`}
               aria-label="Enum values"
-              placeholder="EUR, USD, Other"
-              value={props.field.enumText}
+              placeholder={"EUR\nUSD\nOther"}
+              value={enumEditorValue}
               disabled={props.readOnly}
-              onChange={(event) => props.onChange(props.field.id, { enumText: event.target.value })}
+              rows={Math.min(8, Math.max(2, props.field.enumValues.length))}
+              onChange={(event) =>
+                props.onChange(props.field.id, { enumValues: enumValuesFromEditorText(event.target.value) })
+              }
+              onPaste={(event) => {
+                const pastedValues = pastedCommaSeparatedEnumValues(event);
+                if (pastedValues.length === 0) return;
+                event.preventDefault();
+                props.onChange(props.field.id, {
+                  enumValues: [...props.field.enumValues, ...pastedValues]
+                });
+              }}
             />
           </Field>
           <Field>
@@ -1959,6 +1971,22 @@ function normalizeSchemaField(schemaField: SchemaField): SchemaField {
     return { ...nextField, fields: [field({ name: "field_1" })] };
   }
   return nextField;
+}
+
+function enumValuesFromEditorText(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function pastedCommaSeparatedEnumValues(event: ClipboardEvent<HTMLTextAreaElement>): string[] {
+  const text = event.clipboardData.getData("text");
+  if (!text.includes(",") || /\r?\n/.test(text)) return [];
+  return text
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function ExamplesEditor(props: {

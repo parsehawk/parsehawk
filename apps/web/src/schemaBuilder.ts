@@ -128,7 +128,7 @@ export type SchemaField = {
   required: boolean;
   nullable: boolean;
   itemShape: SchemaArrayItemShape;
-  enumText: string;
+  enumValues: string[];
   description: string;
   validationPreset: ValidationPreset;
   validationPattern: string;
@@ -158,6 +158,7 @@ export type FieldSchemaField = {
 
 type FieldOverrides = Partial<SchemaField> & {
   list?: boolean;
+  enumText?: string;
 };
 
 export const defaultSchemaFields: SchemaField[] = [
@@ -165,7 +166,7 @@ export const defaultSchemaFields: SchemaField[] = [
   field({ name: "receipt_id", type: "verbatim-string" }),
   field({ name: "date", type: "date" }),
   field({ name: "total", type: "number" }),
-  field({ name: "currency", type: "currency", enumText: "EUR, USD, GBP" }),
+  field({ name: "currency", type: "currency", enumValues: ["EUR", "USD", "GBP"] }),
   field({
     name: "line_items",
     shape: "array",
@@ -195,7 +196,7 @@ export function field(overrides: FieldOverrides = {}): SchemaField {
     required: overrides.required ?? true,
     nullable: shape === "array" ? false : (overrides.nullable ?? true),
     itemShape: overrides.itemShape ?? "scalar",
-    enumText: overrides.enumText ?? "",
+    enumValues: overrides.enumValues ? [...overrides.enumValues] : enumValuesFromText(overrides.enumText ?? ""),
     description: overrides.description ?? "",
     validationPreset: overrides.validationPreset ?? "none",
     validationPattern: overrides.validationPattern ?? "",
@@ -423,7 +424,7 @@ function fieldFromJsonProperty(name: string, property: Record<string, unknown>, 
       ...common,
       shape: "scalar",
       type: nuextractTypeFromSchema(effectiveSchema),
-      enumText: enumValues.join(", ")
+      enumValues
     });
   }
 
@@ -455,7 +456,7 @@ function fieldFromJsonProperty(name: string, property: Record<string, unknown>, 
       itemShape: "scalar",
       nullable: false,
       type: nuextractTypeFromSchema(itemSchema),
-      enumText: itemEnumValues.join(", "),
+      enumValues: itemEnumValues,
       ...validationFromSchema(itemSchema)
     });
   }
@@ -504,7 +505,7 @@ function fieldFromFieldSchema(schemaField: Record<string, unknown>): SchemaField
       itemShape: "scalar",
       nullable: false,
       type: nuextractTypeFromValue(items.nuextract_type ?? items.json_type),
-      enumText: enumValues.join(", "),
+      enumValues,
       ...validationFromFieldSchema(items)
     });
   }
@@ -516,7 +517,7 @@ function fieldFromFieldSchema(schemaField: Record<string, unknown>): SchemaField
     itemShape: "scalar",
     nullable: kind === "multi_enum" ? false : common.nullable,
     type: nuextractTypeFromValue(schemaField.nuextract_type ?? schemaField.json_type),
-    enumText: enumValues.join(", "),
+    enumValues,
     ...validation
   });
 }
@@ -568,7 +569,7 @@ function fieldFromTemplateValue(name: string, value: unknown): SchemaField {
         itemShape: "scalar",
         type: "string",
         nullable: false,
-        enumText: value[0].filter(isString).join(", ")
+        enumValues: value[0].filter(isString)
       });
     }
     if (value.length === 1) {
@@ -584,7 +585,7 @@ function fieldFromTemplateValue(name: string, value: unknown): SchemaField {
       name,
       shape: "scalar",
       type: "string",
-      enumText: value.filter(isString).join(", ")
+      enumValues: value.filter(isString)
     });
   }
   return field({ name, type: nuextractTypeFromValue(value) });
@@ -686,7 +687,11 @@ function jsonTypeFromNuExtractType(type: NuExtractType): "string" | "integer" | 
 }
 
 function enumValuesFromField(schemaField: SchemaField): string[] {
-  return schemaField.enumText
+  return schemaField.enumValues.map((value) => value.trim()).filter(Boolean);
+}
+
+function enumValuesFromText(text: string): string[] {
+  return text
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
