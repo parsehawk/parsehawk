@@ -506,7 +506,7 @@ class SQLiteJobRepository:
 class SQLiteProviderRow:
     name: str
     base_url: str | None
-    api_version: str | None
+    configuration: str
     created_at: str
     updated_at: str
 
@@ -515,7 +515,7 @@ class SQLiteProviderRow:
         return cls(
             name=provider.name.value,
             base_url=provider.base_url,
-            api_version=provider.api_version,
+            configuration=_dump_json(provider.configuration),
             created_at=provider.created_at.isoformat(),
             updated_at=provider.updated_at.isoformat(),
         )
@@ -532,7 +532,7 @@ class SQLiteProviderRow:
         return Provider(
             name=ProviderName(self.name),
             base_url=self.base_url,
-            api_version=self.api_version,
+            configuration=_load_json(self.configuration),
             created_at=created_at,
             updated_at=updated_at,
         )
@@ -547,14 +547,14 @@ class SQLiteProviderRepository:
         with _write_lock:
             self._conn.execute(
                 """
-                INSERT INTO providers (name, base_url, api_version, created_at, updated_at)
+                INSERT INTO providers (name, base_url, configuration, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(name) DO UPDATE SET
                     base_url = excluded.base_url,
-                    api_version = excluded.api_version,
+                    configuration = excluded.configuration,
                     updated_at = excluded.updated_at
                 """,
-                (row.name, row.base_url, row.api_version, row.created_at, row.updated_at),
+                (row.name, row.base_url, row.configuration, row.created_at, row.updated_at),
             )
             self._conn.commit()
 

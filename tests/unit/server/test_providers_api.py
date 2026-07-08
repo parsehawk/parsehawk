@@ -35,10 +35,11 @@ def test_list_providers_never_exposes_secret(client: tuple[TestClient, Container
 
     assert response.status_code == 200
     providers = {provider["name"]: provider for provider in response.json()}
-    assert set(providers) == {"openai", "azure_openai", "openai_compatible_api"}
+    assert set(providers) == {"openai", "microsoft_foundry", "openai_compatible_api"}
     assert providers["openai"]["base_url"] == "https://api.openai.com/v1"
     assert providers["openai"]["has_api_key"] is False
-    assert providers["azure_openai"]["base_url"] is None
+    assert providers["openai"]["configuration"] == {}
+    assert providers["microsoft_foundry"]["base_url"] is None
     assert all("api_key" not in provider for provider in providers.values())
 
 
@@ -105,6 +106,41 @@ def test_list_provider_models_proxies(
     assert response.json() == {"models": ["gpt-4o", "gpt-4o-mini"]}
 
 
+def test_list_microsoft_foundry_models_uses_project_deployments(
+    client: tuple[TestClient, Container], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, _container = client
+    captured: dict[str, object] = {}
+    configured = api.patch(
+        "/v1/providers/microsoft_foundry",
+        json={
+            "base_url": "https://resource.services.ai.azure.com/openai/v1",
+            "configuration": {
+                "api_version": "2025-05-01",
+                "project_url": "https://resource.services.ai.azure.com/api/projects/project",
+            },
+            "api_key": "sk-secret",
+        },
+    )
+    assert configured.status_code == 200
+
+    def _deployments(**kwargs: object) -> list[str]:
+        captured.update(kwargs)
+        return ["gpt-5.4-dzs"]
+
+    monkeypatch.setattr(app_module, "list_foundry_chat_deployments", _deployments)
+
+    response = api.get("/v1/providers/microsoft_foundry/models")
+
+    assert response.status_code == 200
+    assert response.json() == {"models": ["gpt-5.4-dzs"]}
+    assert captured == {
+        "project_url": "https://resource.services.ai.azure.com/api/projects/project",
+        "api_key": "sk-secret",
+        "api_version": "2025-05-01",
+    }
+
+
 def test_list_provider_models_maps_provider_error_to_400(
     client: tuple[TestClient, Container], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -133,7 +169,7 @@ def test_app_lifespan_seeds_fixed_providers(tmp_path, monkeypatch: pytest.Monkey
     assert response.status_code == 200
     assert {provider["name"] for provider in response.json()} == {
         "openai",
-        "azure_openai",
+        "microsoft_foundry",
         "openai_compatible_api",
     }
 
@@ -146,14 +182,14 @@ def test_app_lifespan_seeding_keeps_operator_config(
 
     with TestClient(create_app()) as api:
         configured = api.patch(
-            "/v1/providers/azure_openai",
+            "/v1/providers/microsoft_foundry",
             json={"base_url": "https://resource.example/openai/v1", "api_key": "sk-secret"},
         )
         assert configured.status_code == 200
 
     # A restart re-runs the lifespan seeding; the operator's config survives.
     with TestClient(create_app()) as api:
-        provider = api.get("/v1/providers/azure_openai").json()
+        provider = api.get("/v1/providers/microsoft_foundry").json()
 
     assert provider["base_url"] == "https://resource.example/openai/v1"
     assert provider["has_api_key"] is True

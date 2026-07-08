@@ -37,7 +37,10 @@ from parsehawk.server.api.fastapi.schemas import (
 )
 from parsehawk.server.bootstrap.seeds import seed_prebuilt_data_in_container
 from parsehawk.server.container import Container, build_container
-from parsehawk.server.runtime.inference.openai_engine import list_models
+from parsehawk.server.runtime.inference.openai_engine import (
+    list_foundry_chat_deployments,
+    list_models,
+)
 
 configure_logging("parsehawk", configure_uvicorn=True)
 
@@ -269,7 +272,7 @@ def configure_provider(
     provider = service.configure(
         name,
         base_url=request.base_url,
-        api_version=request.api_version,
+        configuration=request.configuration,
         api_key=request.api_key,
         api_key_env=request.api_key_env,
     )
@@ -280,11 +283,18 @@ def configure_provider(
 def list_provider_models(name: ProviderName, container: ContainerDep) -> ProviderModelsResponse:
     provider = container.provider_service.get(name)
     api_key = container.secrets.get(name) or "EMPTY"
-    models = list_models(
-        base_url=provider.base_url,
-        api_key=api_key,
-        api_version=provider.api_version,
-    )
+    if provider.name == ProviderName.MICROSOFT_FOUNDRY:
+        models = list_foundry_chat_deployments(
+            project_url=provider.project_url,
+            api_key=api_key,
+            api_version=provider.api_version,
+        )
+    else:
+        models = list_models(
+            base_url=provider.base_url,
+            api_key=api_key,
+            api_version=provider.api_version,
+        )
     return ProviderModelsResponse(models=models)
 
 

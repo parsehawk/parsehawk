@@ -1475,6 +1475,7 @@ def test_migrate_status_reports_applied_and_pending(
             "20260701092442_initial_schema",
             "20260701121138_add_providers",
             "20260702160000_extractor_display_names",
+            "20260708093000_provider_configuration",
         ],
     }
 
@@ -1487,6 +1488,7 @@ def test_migrate_status_reports_applied_and_pending(
             "20260701092442_initial_schema",
             "20260701121138_add_providers",
             "20260702160000_extractor_display_names",
+            "20260708093000_provider_configuration",
         ],
         "pending": [],
     }
@@ -1515,9 +1517,9 @@ def test_apply_migrations_at_start_applies_when_not_excluded(
 
     assert database_path.exists()
     assert (
-        "Applied 3 migration(s): 20260701092442_initial_schema, "
-        "20260701121138_add_providers, 20260702160000_extractor_display_names"
-        in capsys.readouterr().out
+        "Applied 4 migration(s): 20260701092442_initial_schema, "
+        "20260701121138_add_providers, 20260702160000_extractor_display_names, "
+        "20260708093000_provider_configuration" in capsys.readouterr().out
     )
 
 
@@ -1656,12 +1658,12 @@ def test_providers_list_get_and_models_hit_endpoints(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(cli, "api_request", api_request)
 
     cli.main(["providers", "list", "--api-url", "http://api"])
-    cli.main(["providers", "get", "azure_openai", "--api-url", "http://api"])
+    cli.main(["providers", "get", "microsoft_foundry", "--api-url", "http://api"])
     cli.main(["providers", "models", "openai", "--api-url", "http://api"])
 
     assert calls == [
         ("GET", "/v1/providers"),
-        ("GET", "/v1/providers/azure_openai"),
+        ("GET", "/v1/providers/microsoft_foundry"),
         ("GET", "/v1/providers/openai/models"),
     ]
 
@@ -1701,6 +1703,52 @@ def test_providers_configure_builds_patch_payload(monkeypatch: pytest.MonkeyPatc
             "PATCH",
             "/v1/providers/openai",
             {"base_url": "https://api.openai.com/v1", "api_key": "sk-secret"},
+        )
+    ]
+
+
+def test_providers_configure_builds_provider_configuration_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def api_request(
+        api_url: str,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        captured.append((method, path, payload))
+        return {"name": "microsoft_foundry"}
+
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    cli.main(
+        [
+            "providers",
+            "configure",
+            "microsoft_foundry",
+            "--api-version",
+            "2025-05-01",
+            "--project-url",
+            "https://resource.services.ai.azure.com/api/projects/project",
+            "--api-url",
+            "http://api",
+        ]
+    )
+
+    assert captured == [
+        (
+            "PATCH",
+            "/v1/providers/microsoft_foundry",
+            {
+                "configuration": {
+                    "api_version": "2025-05-01",
+                    "project_url": "https://resource.services.ai.azure.com/api/projects/project",
+                }
+            },
         )
     ]
 

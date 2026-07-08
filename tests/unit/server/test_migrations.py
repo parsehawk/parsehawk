@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Iterator
@@ -20,7 +21,13 @@ from parsehawk.server.adapters.persistence.sqlite import connect, init_db
 BASELINE_ID = "20260701092442_initial_schema"
 ADD_PROVIDERS_ID = "20260701121138_add_providers"
 EXTRACTOR_DISPLAY_NAMES_ID = "20260702160000_extractor_display_names"
-ALL_MIGRATION_IDS = [BASELINE_ID, ADD_PROVIDERS_ID, EXTRACTOR_DISPLAY_NAMES_ID]
+PROVIDER_CONFIGURATION_ID = "20260708093000_provider_configuration"
+ALL_MIGRATION_IDS = [
+    BASELINE_ID,
+    ADD_PROVIDERS_ID,
+    EXTRACTOR_DISPLAY_NAMES_ID,
+    PROVIDER_CONFIGURATION_ID,
+]
 
 # The full current schema after all migrations. ALTER-added columns
 # (provider_name, model) are appended after the original extractor columns.
@@ -68,9 +75,9 @@ EXPECTED_COLUMNS = {
     "providers": [
         "name",
         "base_url",
-        "api_version",
         "created_at",
         "updated_at",
+        "configuration",
     ],
     "provider_secrets": [
         "provider_name",
@@ -300,6 +307,85 @@ def test_extractor_name_migration_preserves_job_foreign_keys(conn: sqlite3.Conne
     ).fetchone()
     assert tuple(job) == ("extractor_invoice",)
     assert tuple(extractor) == ("extractor_invoice", "invoice-extractor", "Invoice Extractor")
+
+
+def test_provider_configuration_migration_renames_foundry_without_data_loss(
+    conn: sqlite3.Connection,
+) -> None:
+    applied_ids = [BASELINE_ID, ADD_PROVIDERS_ID]
+    for migration_id in applied_ids:
+        migration = next(
+            migration for migration in discover_migrations() if migration.id == migration_id
+        )
+        conn.executescript(migration.path.read_text(encoding="utf-8"))
+    conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+        [(migration_id, "t") for migration_id in applied_ids],
+    )
+    conn.execute(
+        """
+        INSERT INTO providers (name, base_url, api_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            "azure_openai",
+            "https://resource.services.ai.azure.com/openai/v1",
+            "2025-05-01",
+            "t0",
+            "t1",
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO provider_secrets (provider_name, ciphertext, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        ("azure_openai", "ciphertext", "t2", "t3"),
+    )
+    conn.execute(
+        """
+        INSERT INTO extractors (
+            id, name, instructions, enable_thinking, schema, examples,
+            source, seed_key, seed_version, created_at, updated_at, provider_name, model
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "extractor_invoice",
+            "Invoice",
+            "Extract.",
+            0,
+            "{}",
+            "[]",
+            "user",
+            None,
+            None,
+            "t0",
+            "t1",
+            "azure_openai",
+            "deployment-name",
+        ),
+    )
+    conn.commit()
+
+    assert apply_pending(conn) == [EXTRACTOR_DISPLAY_NAMES_ID, PROVIDER_CONFIGURATION_ID]
+
+    assert columns(conn, "providers") == EXPECTED_COLUMNS["providers"]
+    provider = conn.execute(
+        "SELECT * FROM providers WHERE name = ?", ("microsoft_foundry",)
+    ).fetchone()
+    assert provider is not None
+    assert provider["base_url"] == "https://resource.services.ai.azure.com/openai/v1"
+    assert json.loads(provider["configuration"]) == {"api_version": "2025-05-01"}
+    assert (
+        conn.execute("SELECT 1 FROM providers WHERE name = ?", ("azure_openai",)).fetchone() is None
+    )
+    secret = conn.execute("SELECT provider_name FROM provider_secrets").fetchone()
+    assert tuple(secret) == ("microsoft_foundry",)
+    extractor = conn.execute(
+        "SELECT provider_name FROM extractors WHERE id = ?", ("extractor_invoice",)
+    ).fetchone()
+    assert tuple(extractor) == ("microsoft_foundry",)
 
 
 def test_apply_pending_is_atomic_on_failure(tmp_path: Path) -> None:

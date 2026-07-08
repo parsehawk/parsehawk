@@ -694,7 +694,7 @@ describe("App run workflow", () => {
           {
             name: "openai_compatible_api",
             base_url: "http://127.0.0.1:8080/v1",
-            api_version: null,
+            configuration: {},
             has_api_key: false,
             created_at: "2026-06-21T00:00:00Z",
             updated_at: "2026-06-21T00:00:00Z"
@@ -702,15 +702,15 @@ describe("App run workflow", () => {
           {
             name: "openai",
             base_url: "https://api.openai.com/v1",
-            api_version: null,
+            configuration: {},
             has_api_key: true,
             created_at: "2026-06-21T00:00:00Z",
             updated_at: "2026-06-21T00:00:00Z"
           },
           {
-            name: "azure_openai",
+            name: "microsoft_foundry",
             base_url: null,
-            api_version: null,
+            configuration: {},
             has_api_key: false,
             created_at: "2026-06-21T00:00:00Z",
             updated_at: "2026-06-21T00:00:00Z"
@@ -722,7 +722,7 @@ describe("App run workflow", () => {
         return jsonResponse({
           name: "openai",
           base_url: "https://api.openai.com/v1",
-          api_version: null,
+          configuration: {},
           has_api_key: true,
           created_at: "2026-06-21T00:00:00Z",
           updated_at: "2026-06-21T00:00:00Z"
@@ -748,6 +748,70 @@ describe("App run workflow", () => {
     });
     // The key is write-only: it is cleared after saving and never rendered back.
     expect(screen.queryByDisplayValue("sk-secret")).not.toBeInTheDocument();
+  });
+
+  it("stores Microsoft Foundry project settings in provider configuration", async () => {
+    let patchPayload: Record<string, unknown> | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/providers" && method === "GET") {
+        return jsonResponse([
+          {
+            name: "microsoft_foundry",
+            base_url: "",
+            configuration: {},
+            has_api_key: false,
+            created_at: "2026-06-21T00:00:00Z",
+            updated_at: "2026-06-21T00:00:00Z"
+          }
+        ]);
+      }
+      if (url === "/v1/providers/microsoft_foundry" && method === "PATCH") {
+        patchPayload = JSON.parse(String(init?.body));
+        return jsonResponse({
+          name: "microsoft_foundry",
+          base_url: "https://resource.services.ai.azure.com/openai/v1",
+          configuration: {
+            api_version: "2025-05-01",
+            project_url: "https://resource.services.ai.azure.com/api/projects/project"
+          },
+          has_api_key: true,
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z"
+        });
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Configure model providers" }));
+    await userEvent.type(screen.getByLabelText("Base URL"), "https://resource.services.ai.azure.com/openai/v1");
+    await userEvent.type(
+      screen.getByLabelText("Project URL"),
+      "https://resource.services.ai.azure.com/api/projects/project"
+    );
+    await userEvent.type(screen.getByLabelText("API version"), "2025-05-01");
+    await userEvent.type(screen.getByLabelText("API key"), "sk-secret");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(patchPayload).toMatchObject({
+        base_url: "https://resource.services.ai.azure.com/openai/v1",
+        configuration: {
+          api_version: "2025-05-01",
+          project_url: "https://resource.services.ai.azure.com/api/projects/project"
+        },
+        api_key: "sk-secret"
+      });
+    });
   });
 });
 

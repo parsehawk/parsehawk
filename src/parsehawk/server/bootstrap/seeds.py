@@ -69,7 +69,7 @@ def seed_providers_in_container(container: Container) -> None:
     default_base_urls = {
         ProviderName.OPENAI: OPENAI_BASE_URL,
         ProviderName.OPENAI_COMPATIBLE: container.settings.vllm_base_url,
-        ProviderName.AZURE_OPENAI: None,
+        ProviderName.MICROSOFT_FOUNDRY: None,
     }
     for name, base_url in default_base_urls.items():
         provider = container.providers.get(name)

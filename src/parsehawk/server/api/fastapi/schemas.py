@@ -183,7 +183,7 @@ class ExtractorResponse(ApiModel):
 class ProviderResponse(ApiModel):
     name: ProviderName
     base_url: str | None
-    api_version: str | None
+    configuration: dict[str, Any]
     has_api_key: bool
     created_at: datetime
     updated_at: datetime
@@ -193,7 +193,7 @@ class ProviderResponse(ApiModel):
         return cls(
             name=provider.name,
             base_url=provider.base_url,
-            api_version=provider.api_version,
+            configuration=provider.configuration,
             has_api_key=has_api_key,
             created_at=provider.created_at,
             updated_at=provider.updated_at,
@@ -204,7 +204,7 @@ class ConfigureProviderRequest(ApiModel):
     """Write-only provider configuration. The API never returns the API key."""
 
     base_url: str | None = None
-    api_version: str | None = None
+    configuration: dict[str, Any] | None = None
     api_key: str | None = None
     api_key_env: str | None = None
 

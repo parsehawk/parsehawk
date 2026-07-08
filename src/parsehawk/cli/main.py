@@ -462,11 +462,14 @@ def build_parser() -> argparse.ArgumentParser:
     providers_get_parser.add_argument("name", choices=_PROVIDER_NAMES)
     _add_api_url(providers_get_parser)
     providers_configure_parser = providers_subparsers.add_parser(
-        "configure", help="Set a provider's base URL, API version, or API key"
+        "configure", help="Set a provider's base URL, provider configuration, or API key"
     )
     providers_configure_parser.add_argument("name", choices=_PROVIDER_NAMES)
     providers_configure_parser.add_argument("--base-url")
-    providers_configure_parser.add_argument("--api-version")
+    providers_configure_parser.add_argument("--api-version", help="Provider-specific API version")
+    providers_configure_parser.add_argument(
+        "--project-url", help="Microsoft Foundry project URL for deployment discovery"
+    )
     providers_configure_parser.add_argument("--api-key")
     providers_configure_parser.add_argument(
         "--api-key-env", help="Read the API key from this environment variable and store it"
@@ -1132,8 +1135,13 @@ def providers(args: argparse.Namespace) -> None:
         payload: dict[str, Any] = {}
         if args.base_url is not None:
             payload["base_url"] = args.base_url
+        configuration: dict[str, Any] = {}
         if args.api_version is not None:
-            payload["api_version"] = args.api_version
+            configuration["api_version"] = args.api_version
+        if args.project_url is not None:
+            configuration["project_url"] = args.project_url
+        if configuration:
+            payload["configuration"] = configuration
         if args.api_key is not None:
             payload["api_key"] = args.api_key
         if args.api_key_env is not None:

@@ -9,12 +9,17 @@ export type FileRecord = {
   is_example?: boolean;
 };
 
-export type ProviderName = "openai" | "azure_openai" | "openai_compatible_api";
+export type ProviderName = "openai" | "microsoft_foundry" | "openai_compatible_api";
+
+export type ProviderConfiguration = {
+  api_version?: string | null;
+  project_url?: string | null;
+};
 
 export type Provider = {
   name: ProviderName;
   base_url: string | null;
-  api_version: string | null;
+  configuration: ProviderConfiguration;
   has_api_key: boolean;
   created_at: string;
   updated_at: string;

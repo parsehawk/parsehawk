@@ -123,7 +123,7 @@ type UploadProgressState = { total: number; completed: number; failed: number };
 const PROVIDERS: { name: ProviderName; label: string }[] = [
   { name: "openai_compatible_api", label: "OpenAI-compatible API" },
   { name: "openai", label: "OpenAI" },
-  { name: "azure_openai", label: "Azure OpenAI" }
+  { name: "microsoft_foundry", label: "Microsoft Foundry" }
 ];
 const DEFAULT_PROVIDER_NAME: ProviderName = "openai_compatible_api";
 const providerLabel = (name: ProviderName): string =>
@@ -941,8 +941,8 @@ export default function App() {
                       <FieldDescription>
                         {providerModelsError
                           ? "Couldn't load models — configure this provider first, or type the model name."
-                          : providerName === "azure_openai"
-                            ? "For Azure OpenAI, enter your deployment name."
+                          : providerName === "microsoft_foundry"
+                            ? "For Microsoft Foundry, enter a chat-completions deployment name."
                             : "Pick a suggested model or type one manually."}
                       </FieldDescription>
                     </Field>
@@ -1290,24 +1290,31 @@ function ProvidersDialog() {
 function ProviderCard(props: { provider: Provider; onConfigured: (provider: Provider) => void }) {
   const { provider } = props;
   const [baseUrl, setBaseUrl] = useState(provider.base_url ?? "");
-  const [apiVersion, setApiVersion] = useState(provider.api_version ?? "");
+  const [apiVersion, setApiVersion] = useState(provider.configuration.api_version ?? "");
+  const [projectUrl, setProjectUrl] = useState(provider.configuration.project_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
-  // api_version only applies to Azure OpenAI; the other providers ignore it.
-  const showApiVersion = provider.name === "azure_openai";
+  const showFoundryConfig = provider.name === "microsoft_foundry";
 
   async function onSave() {
     setSaving(true);
     setError("");
     try {
-      const payload: { base_url?: string | null; api_version?: string | null; api_key?: string } = {
+      const payload: {
+        base_url?: string | null;
+        configuration?: { api_version?: string | null; project_url?: string | null };
+        api_key?: string;
+      } = {
         base_url: baseUrl.trim() ? baseUrl.trim() : null
       };
-      if (showApiVersion) {
-        payload.api_version = apiVersion.trim() ? apiVersion.trim() : null;
+      if (showFoundryConfig) {
+        payload.configuration = {
+          api_version: apiVersion.trim() ? apiVersion.trim() : null,
+          project_url: projectUrl.trim() ? projectUrl.trim() : null
+        };
       }
       if (apiKey) {
         payload.api_key = apiKey;
@@ -1343,17 +1350,32 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
               setSaved(false);
             }}
           />
-          {provider.name === "azure_openai" ? (
-            <FieldDescription>Set this to your Azure OpenAI v1 endpoint.</FieldDescription>
+          {provider.name === "microsoft_foundry" ? (
+            <FieldDescription>Set this to your Microsoft Foundry OpenAI-compatible endpoint.</FieldDescription>
           ) : null}
         </Field>
-        {showApiVersion ? (
+        {showFoundryConfig ? (
+          <Field>
+            <FieldLabel htmlFor={`provider-${provider.name}-project-url`}>Project URL</FieldLabel>
+            <Input
+              id={`provider-${provider.name}-project-url`}
+              value={projectUrl}
+              placeholder="https://resource.services.ai.azure.com/api/projects/project-name"
+              onChange={(event) => {
+                setProjectUrl(event.target.value);
+                setSaved(false);
+              }}
+            />
+            <FieldDescription>Used to discover chat-completions deployment names.</FieldDescription>
+          </Field>
+        ) : null}
+        {showFoundryConfig ? (
           <Field>
             <FieldLabel htmlFor={`provider-${provider.name}-api-version`}>API version</FieldLabel>
             <Input
               id={`provider-${provider.name}-api-version`}
               value={apiVersion}
-              placeholder="2024-08-01-preview"
+              placeholder="2025-05-01"
               onChange={(event) => {
                 setApiVersion(event.target.value);
                 setSaved(false);
