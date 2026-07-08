@@ -25,6 +25,7 @@ jobs:
     outputs:
       lint: ${{ steps.filter.outputs.lint }}
       web: ${{ steps.filter.outputs.web }}
+      licenses: ${{ steps.filter.outputs.licenses }}
     steps:
       - name: Detect changed areas
         uses: dorny/paths-filter@v3
@@ -43,6 +44,26 @@ jobs:
               - 'apps/web/**'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci-checks.yaml'
+            licenses:
+              - 'uv.lock'
+              - 'pyproject.toml'
+              - 'pnpm-lock.yaml'
+              - 'apps/web/package.json'
+              - '.trivyaml'
+              - 'licenses/**'
+              - 'scripts/check_dep_licenses.py'
+              - 'scripts/dep_license_exceptions.txt'
+              - 'scripts/check_bundled_images.py'
+              # The image guard scans the whole repo, so trigger on any
+              # Dockerfile or Compose file wherever it lives.
+              - '**/Dockerfile*'
+              - '**/dockerfile*'
+              - '**/docker-compose*.yml'
+              - '**/docker-compose*.yaml'
+              - '**/compose*.yml'
+              - '**/compose*.yaml'
+              - 'justfile'
               - '.github/workflows/ci-checks.yaml'
 
   hygiene:
@@ -64,7 +85,7 @@ jobs:
       # SKIP list in sync with the hooks in .pre-commit-config.yaml.
       - name: Run hygiene hooks
         env:
-          SKIP: ruff-format,ruff-check,ty-check,unit-tests,web-typecheck,web-tests
+          SKIP: ruff-format,ruff-check,ty-check,unit-tests,web-typecheck,web-tests,licenses-manifest,licenses-deps
         run: uvx pre-commit run --all-files --show-diff-on-failure
 
   lint:
@@ -94,7 +115,7 @@ jobs:
       # .pre-commit-config.yaml.
       - name: Run pre-commit (ruff + ty)
         env:
-          SKIP: check-toml,check-yaml,end-of-file-fixer,trailing-whitespace,unit-tests,web-typecheck,web-tests
+          SKIP: check-toml,check-yaml,end-of-file-fixer,trailing-whitespace,unit-tests,web-typecheck,web-tests,licenses-manifest,licenses-deps
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
   web:
@@ -129,3 +150,48 @@ jobs:
 
       - name: Test
         run: just web-test
+
+  licenses:
+    name: license compliance
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.licenses == 'true') }}
+    runs-on: ubuntu-latest
+    env:
+      # osv-scanner surfaces everything outside this permissive allowlist; the real
+      # block/flag/allow decision is made by scripts/check_dep_licenses.py, so this
+      # only needs to be safe, not exhaustive. Keep in sync with justfile.
+      LICENSE_ALLOW: "MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0,0BSD,Python-2.0,PSF-2.0,Unlicense,CC0-1.0,BlueOak-1.0.0,OFL-1.1,Zlib,BSL-1.0,MIT-0,CC-BY-4.0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # osv-scanner reads uv.lock and pnpm-lock.yaml directly (licenses via
+      # deps.dev), so no uv sync / pnpm install is needed. The checker scripts are
+      # pure stdlib, so only Python 3.11+ (for tomllib) is required.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install osv-scanner
+        run: |
+          curl -sSfL https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64 -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+
+      # One pass over both lockfiles. osv exits non-zero when it surfaces anything
+      # outside the allowlist, so tolerate that and let the checker decide.
+      - name: Resolve dependency licenses (both ecosystems)
+        run: osv-scanner scan source --format json --licenses="$LICENSE_ALLOW" --lockfile uv.lock --lockfile pnpm-lock.yaml > osv-licenses.json || true
+
+      # Report-only for the initial rollout so the true baseline surfaces without
+      # blocking; flip to blocking (drop --report-only) once a green run confirms it.
+      - name: Check dependency licenses
+        run: python3 scripts/check_dep_licenses.py --source osv --report-only < osv-licenses.json
+
+      # Bundled/referenced container images. Blocking from day one: this is the
+      # guard for source-available images entering via a Dockerfile FROM or a
+      # Compose image: reference (issue #92).
+      # The heavier in-image drift scan (--scan-images, needs Docker) runs locally
+      # via `just licenses-images`, not on every PR.
+      - name: Check bundled image manifest
+        run: python3 scripts/check_bundled_images.py
