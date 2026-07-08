@@ -126,6 +126,9 @@ const PROVIDERS: { name: ProviderName; label: string }[] = [
   { name: "microsoft_foundry", label: "Microsoft Foundry" }
 ];
 const DEFAULT_PROVIDER_NAME: ProviderName = "openai_compatible_api";
+const FOUNDRY_BASE_URL_PLACEHOLDER = "https://your-resource-name.services.ai.azure.com/openai/v1";
+const FOUNDRY_PROJECT_URL_PLACEHOLDER =
+  "https://your-resource-name.services.ai.azure.com/api/projects/your-project-name";
 const providerLabel = (name: ProviderName): string =>
   PROVIDERS.find((provider) => provider.name === name)?.label ?? name;
 const providerModelPlaceholder = (name: ProviderName): string => {
@@ -1275,7 +1278,7 @@ function ProvidersDialog() {
         </TooltipTrigger>
         <TooltipContent>Providers</TooltipContent>
       </Tooltip>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-2xl lg:max-w-3xl">
         <DialogHeader className="gap-1">
           <DialogTitle>Model providers</DialogTitle>
           <DialogDescription>
@@ -1322,7 +1325,7 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
 
   const showFoundryConfig = provider.name === "microsoft_foundry";
   const baseUrlPlaceholder = showFoundryConfig
-    ? "https://your-resource-name.services.ai.azure.com/openai/v1"
+    ? FOUNDRY_BASE_URL_PLACEHOLDER
     : "https://api.openai.com/v1";
   const configured = isProviderConfigured(provider);
 
@@ -1371,6 +1374,7 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
             id={`provider-${provider.name}-base-url`}
             value={baseUrl}
             placeholder={baseUrlPlaceholder}
+            title={baseUrl || baseUrlPlaceholder}
             onChange={(event) => {
               setBaseUrl(event.target.value);
               setSaved(false);
@@ -1386,7 +1390,8 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
             <Input
               id={`provider-${provider.name}-project-url`}
               value={projectUrl}
-              placeholder="https://your-resource-name.services.ai.azure.com/api/projects/your-project-name"
+              placeholder={FOUNDRY_PROJECT_URL_PLACEHOLDER}
+              title={projectUrl || FOUNDRY_PROJECT_URL_PLACEHOLDER}
               onChange={(event) => {
                 setProjectUrl(event.target.value);
                 setSaved(false);
