@@ -85,6 +85,8 @@ def test_init_db_creates_structured_tables_indexes_and_foreign_keys(
         "created_at",
         "started_at",
         "completed_at",
+        "provider_name_used",
+        "model_used",
     ]
     assert indexes(conn, "jobs") == {
         "idx_jobs_extractor_id",
@@ -104,10 +106,17 @@ def test_repositories_round_trip_domain_models(conn: sqlite3.Connection) -> None
     file = sample_file()
     extractor = sample_extractor()
     queued = sample_job(file_id=file.id, extractor_id=extractor.id)
-    completed = queued.mark_running().mark_completed(
-        JobResult(
-            data={"receipt_id": "2"},
-            validation_errors=[ValidationIssue(path="total", message="missing")],
+    completed = (
+        queued.mark_running()
+        .with_execution_config(
+            provider_name=ProviderName.OPENAI_COMPATIBLE,
+            model="numind/NuExtract3-W4A16",
+        )
+        .mark_completed(
+            JobResult(
+                data={"receipt_id": "2"},
+                validation_errors=[ValidationIssue(path="total", message="missing")],
+            )
         )
     )
     failed = sample_job(id="job_failed", file_id=None, extractor_id=extractor.id).mark_failed(

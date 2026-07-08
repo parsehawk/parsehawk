@@ -189,6 +189,8 @@ class SQLiteJobRow:
     extractor_id: str
     file_id: str | None
     source_text: str | None
+    provider_name_used: str | None
+    model_used: str | None
     status: str
     result: str | None
     error: str | None
@@ -203,6 +205,8 @@ class SQLiteJobRow:
             extractor_id=job.extractor_id,
             file_id=job.file_id,
             source_text=job.source_text,
+            provider_name_used=job.provider_name_used.value if job.provider_name_used else None,
+            model_used=job.model_used,
             status=job.status.value,
             result=_dump_json(job.result.model_dump(mode="json")) if job.result else None,
             error=_dump_json(job.error.model_dump(mode="json")) if job.error else None,
@@ -223,6 +227,10 @@ class SQLiteJobRow:
             extractor_id=self.extractor_id,
             file_id=self.file_id,
             source_text=self.source_text,
+            provider_name_used=ProviderName(self.provider_name_used)
+            if self.provider_name_used
+            else None,
+            model_used=self.model_used,
             status=JobStatus(self.status),
             result=JobResult.model_validate(_load_json(self.result)) if self.result else None,
             error=JobError.model_validate(_load_json(self.error)) if self.error else None,
@@ -365,9 +373,9 @@ class SQLiteJobRepository:
                 """
                 INSERT INTO jobs (
                     id, extractor_id, file_id, source_text, status, result, error,
-                    created_at, started_at, completed_at
+                    created_at, started_at, completed_at, provider_name_used, model_used
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     extractor_id = excluded.extractor_id,
                     file_id = excluded.file_id,
@@ -377,7 +385,9 @@ class SQLiteJobRepository:
                     error = excluded.error,
                     created_at = excluded.created_at,
                     started_at = excluded.started_at,
-                    completed_at = excluded.completed_at
+                    completed_at = excluded.completed_at,
+                    provider_name_used = excluded.provider_name_used,
+                    model_used = excluded.model_used
                 """,
                 (
                     row.id,
@@ -390,6 +400,8 @@ class SQLiteJobRepository:
                     row.created_at,
                     row.started_at,
                     row.completed_at,
+                    row.provider_name_used,
+                    row.model_used,
                 ),
             )
             self._conn.commit()
@@ -412,7 +424,9 @@ class SQLiteJobRepository:
                     error = ?,
                     created_at = ?,
                     started_at = ?,
-                    completed_at = ?
+                    completed_at = ?,
+                    provider_name_used = ?,
+                    model_used = ?
                 WHERE id = ? AND status IN ({placeholders})
                 """,
                 (
@@ -425,6 +439,8 @@ class SQLiteJobRepository:
                     row.created_at,
                     row.started_at,
                     row.completed_at,
+                    row.provider_name_used,
+                    row.model_used,
                     row.id,
                     *statuses,
                 ),

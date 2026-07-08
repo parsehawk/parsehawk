@@ -13,7 +13,11 @@ from __future__ import annotations
 from typing import Any
 
 from parsehawk.config import Settings
-from parsehawk.core.application.ports import ProviderRepository, SecretStore
+from parsehawk.core.application.ports import (
+    ProviderRepository,
+    ResolvedExecutionConfig,
+    SecretStore,
+)
 from parsehawk.core.application.services import DEFAULT_PROVIDER_NAME
 from parsehawk.core.domain.models import Extractor
 from parsehawk.server.runtime.inference.openai_engine import (
@@ -31,9 +35,15 @@ class EngineFactory:
         self._settings = settings
         self._cache: dict[tuple[Any, ...], OpenAIExtractionEngine] = {}
 
-    def for_extractor(self, extractor: Extractor) -> OpenAIExtractionEngine:
+    def resolve_extractor_config(self, extractor: Extractor) -> ResolvedExecutionConfig:
         provider_name = extractor.provider_name or DEFAULT_PROVIDER_NAME
         model = extractor.model or self._settings.vllm_model
+        return ResolvedExecutionConfig(provider_name=provider_name, model=model)
+
+    def for_extractor(self, extractor: Extractor) -> OpenAIExtractionEngine:
+        resolved = self.resolve_extractor_config(extractor)
+        provider_name = resolved.provider_name
+        model = resolved.model
         provider = self._providers.get(provider_name)
         base_url = provider.base_url if provider else None
         api_key = self._secrets.get(provider_name) or "EMPTY"

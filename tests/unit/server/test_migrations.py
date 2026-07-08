@@ -29,6 +29,7 @@ REMOVE_FOUNDRY_API_VERSION_CONFIG_ID = "20260708112000_remove_foundry_api_versio
 INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID = (
     "20260708130000_inherit_openai_compatible_default_model"
 )
+JOB_EXECUTION_MODEL_METADATA_ID = "20260708133000_job_execution_model_metadata"
 ALL_MIGRATION_IDS = [
     BASELINE_ID,
     ADD_PROVIDERS_ID,
@@ -36,6 +37,7 @@ ALL_MIGRATION_IDS = [
     PROVIDER_CONFIGURATION_ID,
     REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
     INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
+    JOB_EXECUTION_MODEL_METADATA_ID,
 ]
 
 # The full current schema after all migrations. ALTER-added columns
@@ -80,6 +82,8 @@ EXPECTED_COLUMNS = {
         "created_at",
         "started_at",
         "completed_at",
+        "provider_name_used",
+        "model_used",
     ],
     "providers": [
         "name",
@@ -382,6 +386,7 @@ def test_provider_configuration_migration_renames_foundry_without_data_loss(
         PROVIDER_CONFIGURATION_ID,
         REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
         INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
+        JOB_EXECUTION_MODEL_METADATA_ID,
     ]
 
     assert columns(conn, "providers") == EXPECTED_COLUMNS["providers"]
@@ -440,6 +445,7 @@ def test_remove_foundry_api_version_config_migration_strips_already_migrated_con
     assert apply_pending(conn) == [
         REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
         INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
+        JOB_EXECUTION_MODEL_METADATA_ID,
     ]
 
     provider = conn.execute(
@@ -503,7 +509,10 @@ def test_inherit_openai_compatible_default_model_migration_preserves_custom_mode
         )
     conn.commit()
 
-    assert apply_pending(conn) == [INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID]
+    assert apply_pending(conn) == [
+        INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
+        JOB_EXECUTION_MODEL_METADATA_ID,
+    ]
 
     models = {
         row["id"]: row["model"]

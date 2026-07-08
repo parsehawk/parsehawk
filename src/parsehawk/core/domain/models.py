@@ -271,6 +271,8 @@ class Job(Entity):
     status: JobStatus
     file_id: str | None = None
     source_text: str | None = None
+    provider_name_used: ProviderName | None = None
+    model_used: str | None = None
     result: JobResult | None = None
     error: JobError | None = None
     created_at: datetime = Field(default_factory=utc_now)
@@ -279,6 +281,9 @@ class Job(Entity):
 
     def mark_running(self) -> Job:
         return self.model_copy(update={"status": JobStatus.RUNNING, "started_at": utc_now()})
+
+    def with_execution_config(self, *, provider_name: ProviderName, model: str) -> Job:
+        return self.model_copy(update={"provider_name_used": provider_name, "model_used": model})
 
     def mark_completed(self, result: JobResult) -> Job:
         return self.model_copy(

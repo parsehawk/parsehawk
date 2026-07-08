@@ -563,6 +563,18 @@ class JobService:
             extractor = self._extractors.get(running.extractor_id)
             if extractor is None:
                 raise NotFoundError("extractor", running.extractor_id)
+            resolved_config = self._engine_factory.resolve_extractor_config(extractor)
+            running = running.with_execution_config(
+                provider_name=resolved_config.provider_name,
+                model=resolved_config.model,
+            )
+            if not self._jobs.save_if_status(running, [JobStatus.RUNNING]):
+                canceled = self._cancel_if_requested(running.id)
+                if canceled is not None:
+                    return canceled
+                latest = self._jobs.get(running.id)
+                if latest is not None:
+                    return latest
             source = self._prepare_job_source(running)
 
             engine = self._engine_factory.for_extractor(extractor)

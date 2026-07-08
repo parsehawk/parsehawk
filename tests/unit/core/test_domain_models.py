@@ -36,9 +36,15 @@ def test_job_state_transitions_and_result_validity() -> None:
     running = job.mark_running()
     assert running.status == JobStatus.RUNNING
     assert running.started_at is not None
+    configured = running.with_execution_config(
+        provider_name=ProviderName.OPENAI_COMPATIBLE,
+        model="numind/NuExtract3-W4A16",
+    )
+    assert configured.provider_name_used == ProviderName.OPENAI_COMPATIBLE
+    assert configured.model_used == "numind/NuExtract3-W4A16"
 
     valid_result = JobResult(data={"receipt_id": "2"})
-    completed = running.mark_completed(valid_result)
+    completed = configured.mark_completed(valid_result)
     assert completed.status == JobStatus.COMPLETED
     assert completed.completed_at is not None
     assert completed.result is valid_result

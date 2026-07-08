@@ -65,6 +65,8 @@ export type Job = {
   extractor_id: string;
   file_id: string | null;
   source_text: string | null;
+  provider_name_used: ProviderName | null;
+  model_used: string | null;
   status: JobStatus;
   result: null | {
     data: Record<string, unknown>;
