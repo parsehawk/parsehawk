@@ -134,7 +134,7 @@ def test_reseeding_keeps_custom_openai_compatible_provider_url(tmp_path) -> None
     assert provider.base_url == "http://local-llm.example:11434/v1"
 
 
-def test_seeded_prebuilt_extractor_uses_default_provider_and_model(tmp_path) -> None:
+def test_seeded_prebuilt_extractor_uses_default_provider_and_inherited_model(tmp_path) -> None:
     settings = _settings(tmp_path)
 
     seed_prebuilt_data(settings)
@@ -149,4 +149,4 @@ def test_seeded_prebuilt_extractor_uses_default_provider_and_model(tmp_path) -> 
     finally:
         container.close()
     assert prebuilt.provider_name == ProviderName.OPENAI_COMPATIBLE
-    assert prebuilt.model == settings.vllm_model
+    assert prebuilt.model is None

@@ -1477,6 +1477,7 @@ def test_migrate_status_reports_applied_and_pending(
             "20260702160000_extractor_display_names",
             "20260708093000_provider_configuration",
             "20260708112000_remove_foundry_api_version_config",
+            "20260708130000_inherit_openai_compatible_default_model",
         ],
     }
 
@@ -1491,6 +1492,7 @@ def test_migrate_status_reports_applied_and_pending(
             "20260702160000_extractor_display_names",
             "20260708093000_provider_configuration",
             "20260708112000_remove_foundry_api_version_config",
+            "20260708130000_inherit_openai_compatible_default_model",
         ],
         "pending": [],
     }
@@ -1519,10 +1521,11 @@ def test_apply_migrations_at_start_applies_when_not_excluded(
 
     assert database_path.exists()
     assert (
-        "Applied 5 migration(s): 20260701092442_initial_schema, "
+        "Applied 6 migration(s): 20260701092442_initial_schema, "
         "20260701121138_add_providers, 20260702160000_extractor_display_names, "
         "20260708093000_provider_configuration, "
-        "20260708112000_remove_foundry_api_version_config" in capsys.readouterr().out
+        "20260708112000_remove_foundry_api_version_config, "
+        "20260708130000_inherit_openai_compatible_default_model" in capsys.readouterr().out
     )
 
 

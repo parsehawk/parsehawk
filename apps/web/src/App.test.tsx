@@ -652,6 +652,99 @@ describe("App run workflow", () => {
     });
   });
 
+  it("sends null model to inherit the OpenAI-compatible runtime default", async () => {
+    let createPayload: Record<string, unknown> | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url.startsWith("/v1/providers/") && url.endsWith("/models")) {
+        return jsonResponse({ models: ["numind/NuExtract3-W4A16"] });
+      }
+      if (url === "/v1/extractors" && init?.method === "POST") {
+        createPayload = JSON.parse(String(init.body));
+        return jsonResponse({
+          id: "extractor_123",
+          name: "invoice",
+          display_name: "Invoice",
+          instructions: "Extract invoice fields.",
+          enable_thinking: false,
+          provider_name: "openai_compatible_api",
+          model: null,
+          schema: createPayload?.schema,
+          examples: [],
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z"
+        });
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+    expect(screen.getByPlaceholderText("Use current bundled runtime model")).toBeInTheDocument();
+    expect(screen.getByText(/inherit the model selected for the bundled runtime/i)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Display name"), "Invoice");
+    await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
+    await userEvent.click(screen.getByRole("button", { name: "Create extractor" }));
+
+    await waitFor(() => {
+      expect(createPayload?.provider_name).toBe("openai_compatible_api");
+      expect(createPayload?.model).toBeNull();
+    });
+    expect(screen.getByLabelText("Model")).toHaveValue("");
+  });
+
+  it("updates the visible provider model from the saved extractor response", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url.startsWith("/v1/providers/") && url.endsWith("/models")) {
+        return jsonResponse({ models: ["draft-model", "server-model"] });
+      }
+      if (url === "/v1/extractors" && init?.method === "POST") {
+        const createPayload = JSON.parse(String(init.body));
+        return jsonResponse({
+          id: "extractor_123",
+          name: "invoice",
+          display_name: "Invoice",
+          instructions: "Extract invoice fields.",
+          enable_thinking: false,
+          provider_name: createPayload.provider_name,
+          model: "server-model",
+          schema: createPayload.schema,
+          examples: [],
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z"
+        });
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+    await userEvent.type(screen.getByLabelText("Display name"), "Invoice");
+    await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
+    await userEvent.selectOptions(screen.getByLabelText("Provider"), "openai");
+    await userEvent.type(screen.getByLabelText("Model"), "draft-model");
+    await userEvent.click(screen.getByRole("button", { name: "Create extractor" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Model")).toHaveValue("server-model");
+    });
+  });
+
   it("hints to configure the provider but still allows manual model entry when the model list fails", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
@@ -671,7 +764,7 @@ describe("App run workflow", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "New" }));
 
-    expect(await screen.findByText(/Couldn't load models/i)).toBeInTheDocument();
+    expect(await screen.findByText(/leave blank to inherit the bundled runtime model/i)).toBeInTheDocument();
 
     const modelInput = screen.getByLabelText("Model");
     await userEvent.type(modelInput, "my-deployment");

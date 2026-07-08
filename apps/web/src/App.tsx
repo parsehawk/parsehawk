@@ -128,6 +128,25 @@ const PROVIDERS: { name: ProviderName; label: string }[] = [
 const DEFAULT_PROVIDER_NAME: ProviderName = "openai_compatible_api";
 const providerLabel = (name: ProviderName): string =>
   PROVIDERS.find((provider) => provider.name === name)?.label ?? name;
+const providerModelPlaceholder = (name: ProviderName): string => {
+  if (name === "openai_compatible_api") return "Use current bundled runtime model";
+  if (name === "microsoft_foundry") return "your-chat-deployment-name";
+  return "gpt-4o-mini";
+};
+const providerModelDescription = (name: ProviderName, hasProviderModelsError: boolean): string => {
+  if (hasProviderModelsError) {
+    return name === "openai_compatible_api"
+      ? "Couldn't load models — leave blank to inherit the bundled runtime model, or type one manually."
+      : "Couldn't load models — configure this provider first, or type the model name.";
+  }
+  if (name === "openai_compatible_api") {
+    return "Leave blank to inherit the model selected for the bundled runtime.";
+  }
+  if (name === "microsoft_foundry") {
+    return "Enter a chat-completions deployment name.";
+  }
+  return "Pick a suggested model or type one manually.";
+};
 
 const emptyExtractorName = "";
 const emptyDisplayName = "";
@@ -417,6 +436,8 @@ export default function App() {
       setName(extractor.name);
       setDisplayName(extractorLabel(extractor));
       setNameManuallyEdited(false);
+      setProviderName(extractor.provider_name ?? DEFAULT_PROVIDER_NAME);
+      setModel(extractor.model ?? "");
       applyExtractorArtifacts(extractor);
       setDraftExtractorId(extractor.id);
       await refresh();
@@ -536,14 +557,13 @@ export default function App() {
   }
 
   function currentExtractorPayload() {
+    const trimmedModel = model.trim();
     const base = {
       display_name: displayName,
       instructions,
       enable_thinking: enableThinking,
       provider_name: providerName,
-      // Send the trimmed model, or omit it so the backend applies its default
-      // (the bundled NuExtract3 model) on create.
-      model: model.trim() || undefined,
+      model: trimmedModel || null,
       examples: examplesToPayload(examples)
     };
     const payload = draftExtractorId || !nameManuallyEdited ? base : { ...base, name };
@@ -929,7 +949,7 @@ export default function App() {
                         id="extractor-model"
                         value={model}
                         list="extractor-model-options"
-                        placeholder="Leave blank for the bundled default"
+                        placeholder={providerModelPlaceholder(providerName)}
                         disabled={draftExtractorIsPrebuilt}
                         onChange={(event) => setModel(event.target.value)}
                       />
@@ -939,11 +959,7 @@ export default function App() {
                         ))}
                       </datalist>
                       <FieldDescription>
-                        {providerModelsError
-                          ? "Couldn't load models — configure this provider first, or type the model name."
-                          : providerName === "microsoft_foundry"
-                            ? "For Microsoft Foundry, enter a chat-completions deployment name."
-                            : "Pick a suggested model or type one manually."}
+                        {providerModelDescription(providerName, providerModelsError)}
                       </FieldDescription>
                     </Field>
                     <CheckboxField
