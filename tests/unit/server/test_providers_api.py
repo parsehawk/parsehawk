@@ -135,16 +135,34 @@ def test_update_extractor_model_can_be_omitted_or_cleared_for_local_default(
     assert inherited.json()["model"] is None
 
 
-def test_list_provider_models_proxies(
+def test_list_openai_provider_models_uses_chat_filter(
     client: tuple[TestClient, Container], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     api, _container = client
-    monkeypatch.setattr(app_module, "list_models", lambda **kwargs: ["gpt-4o", "gpt-4o-mini"])
+    monkeypatch.setattr(
+        app_module, "list_openai_chat_models", lambda **kwargs: ["gpt-4o", "gpt-4o-mini"]
+    )
 
     response = api.get("/v1/providers/openai/models")
 
     assert response.status_code == 200
     assert response.json() == {"models": ["gpt-4o", "gpt-4o-mini"]}
+
+
+def test_list_openai_compatible_provider_models_uses_raw_model_list(
+    client: tuple[TestClient, Container], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, _container = client
+    monkeypatch.setattr(
+        app_module,
+        "list_models",
+        lambda **kwargs: ["numind/NuExtract3-W4A16", "custom-local-extractor"],
+    )
+
+    response = api.get("/v1/providers/openai_compatible_api/models")
+
+    assert response.status_code == 200
+    assert response.json() == {"models": ["numind/NuExtract3-W4A16", "custom-local-extractor"]}
 
 
 def test_list_microsoft_foundry_models_uses_project_deployments(
@@ -188,7 +206,7 @@ def test_list_provider_models_maps_provider_error_to_400(
     def _boom(**kwargs: object) -> list[str]:
         raise ProviderRequestError("model provider is unreachable: down")
 
-    monkeypatch.setattr(app_module, "list_models", _boom)
+    monkeypatch.setattr(app_module, "list_openai_chat_models", _boom)
 
     response = api.get("/v1/providers/openai/models")
 

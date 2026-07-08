@@ -40,6 +40,7 @@ from parsehawk.server.container import Container, build_container
 from parsehawk.server.runtime.inference.openai_engine import (
     list_foundry_chat_deployments,
     list_models,
+    list_openai_chat_models,
 )
 
 configure_logging("parsehawk", configure_uvicorn=True)
@@ -286,6 +287,11 @@ def list_provider_models(name: ProviderName, container: ContainerDep) -> Provide
     if provider.name == ProviderName.MICROSOFT_FOUNDRY:
         models = list_foundry_chat_deployments(
             project_url=provider.project_url,
+            api_key=api_key,
+        )
+    elif provider.name == ProviderName.OPENAI:
+        models = list_openai_chat_models(
+            base_url=provider.base_url,
             api_key=api_key,
         )
     else:
