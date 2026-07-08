@@ -793,6 +793,14 @@ describe("App run workflow", () => {
     render(<App />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Configure model providers" }));
+    expect(screen.getByLabelText("Base URL")).toHaveAttribute(
+      "placeholder",
+      "https://your-resource-name.services.ai.azure.com/openai/v1"
+    );
+    expect(screen.getByLabelText("Project URL")).toHaveAttribute(
+      "placeholder",
+      "https://your-resource-name.services.ai.azure.com/api/projects/your-project-name"
+    );
     await userEvent.type(screen.getByLabelText("Base URL"), "https://resource.services.ai.azure.com/openai/v1");
     await userEvent.type(
       screen.getByLabelText("Project URL"),

@@ -1298,6 +1298,9 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
   const [saved, setSaved] = useState(false);
 
   const showFoundryConfig = provider.name === "microsoft_foundry";
+  const baseUrlPlaceholder = showFoundryConfig
+    ? "https://your-resource-name.services.ai.azure.com/openai/v1"
+    : "https://api.openai.com/v1";
 
   async function onSave() {
     setSaving(true);
@@ -1344,7 +1347,7 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
           <Input
             id={`provider-${provider.name}-base-url`}
             value={baseUrl}
-            placeholder="https://api.openai.com/v1"
+            placeholder={baseUrlPlaceholder}
             onChange={(event) => {
               setBaseUrl(event.target.value);
               setSaved(false);
@@ -1360,7 +1363,7 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
             <Input
               id={`provider-${provider.name}-project-url`}
               value={projectUrl}
-              placeholder="https://resource.services.ai.azure.com/api/projects/project-name"
+              placeholder="https://your-resource-name.services.ai.azure.com/api/projects/your-project-name"
               onChange={(event) => {
                 setProjectUrl(event.target.value);
                 setSaved(false);
