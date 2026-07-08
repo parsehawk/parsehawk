@@ -36,10 +36,9 @@ class EngineFactory:
         model = extractor.model or self._settings.vllm_model
         provider = self._providers.get(provider_name)
         base_url = provider.base_url if provider else None
-        api_version = provider.api_version if provider else None
         api_key = self._secrets.get(provider_name) or "EMPTY"
 
-        cache_key = (provider_name.value, base_url, api_version, api_key, model)
+        cache_key = (provider_name.value, base_url, api_key, model)
         engine = self._cache.get(cache_key)
         if engine is None:
             engine = OpenAIExtractionEngine(
@@ -47,7 +46,6 @@ class EngineFactory:
                     model=model,
                     base_url=base_url,
                     api_key=api_key,
-                    api_version=api_version,
                     max_tokens=self._settings.vllm_max_tokens,
                     temperature=self._settings.vllm_temperature,
                     timeout_seconds=self._settings.vllm_timeout_seconds,

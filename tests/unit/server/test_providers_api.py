@@ -116,7 +116,6 @@ def test_list_microsoft_foundry_models_uses_project_deployments(
         json={
             "base_url": "https://resource.services.ai.azure.com/openai/v1",
             "configuration": {
-                "api_version": "2025-05-01",
                 "project_url": "https://resource.services.ai.azure.com/api/projects/project",
             },
             "api_key": "sk-secret",
@@ -137,7 +136,6 @@ def test_list_microsoft_foundry_models_uses_project_deployments(
     assert captured == {
         "project_url": "https://resource.services.ai.azure.com/api/projects/project",
         "api_key": "sk-secret",
-        "api_version": "2025-05-01",
     }
 
 

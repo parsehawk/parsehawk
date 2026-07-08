@@ -1290,7 +1290,6 @@ function ProvidersDialog() {
 function ProviderCard(props: { provider: Provider; onConfigured: (provider: Provider) => void }) {
   const { provider } = props;
   const [baseUrl, setBaseUrl] = useState(provider.base_url ?? "");
-  const [apiVersion, setApiVersion] = useState(provider.configuration.api_version ?? "");
   const [projectUrl, setProjectUrl] = useState(provider.configuration.project_url ?? "");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1308,14 +1307,13 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
     try {
       const payload: {
         base_url?: string | null;
-        configuration?: { api_version?: string | null; project_url?: string | null };
+        configuration?: { project_url?: string | null };
         api_key?: string;
       } = {
         base_url: baseUrl.trim() ? baseUrl.trim() : null
       };
       if (showFoundryConfig) {
         payload.configuration = {
-          api_version: apiVersion.trim() ? apiVersion.trim() : null,
           project_url: projectUrl.trim() ? projectUrl.trim() : null
         };
       }
@@ -1370,20 +1368,6 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
               }}
             />
             <FieldDescription>Used to discover chat-completions deployment names.</FieldDescription>
-          </Field>
-        ) : null}
-        {showFoundryConfig ? (
-          <Field>
-            <FieldLabel htmlFor={`provider-${provider.name}-api-version`}>API version</FieldLabel>
-            <Input
-              id={`provider-${provider.name}-api-version`}
-              value={apiVersion}
-              placeholder="2025-05-01"
-              onChange={(event) => {
-                setApiVersion(event.target.value);
-                setSaved(false);
-              }}
-            />
           </Field>
         ) : null}
         <Field>

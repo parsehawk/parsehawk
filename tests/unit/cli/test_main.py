@@ -1476,6 +1476,7 @@ def test_migrate_status_reports_applied_and_pending(
             "20260701121138_add_providers",
             "20260702160000_extractor_display_names",
             "20260708093000_provider_configuration",
+            "20260708112000_remove_foundry_api_version_config",
         ],
     }
 
@@ -1489,6 +1490,7 @@ def test_migrate_status_reports_applied_and_pending(
             "20260701121138_add_providers",
             "20260702160000_extractor_display_names",
             "20260708093000_provider_configuration",
+            "20260708112000_remove_foundry_api_version_config",
         ],
         "pending": [],
     }
@@ -1517,9 +1519,10 @@ def test_apply_migrations_at_start_applies_when_not_excluded(
 
     assert database_path.exists()
     assert (
-        "Applied 4 migration(s): 20260701092442_initial_schema, "
+        "Applied 5 migration(s): 20260701092442_initial_schema, "
         "20260701121138_add_providers, 20260702160000_extractor_display_names, "
-        "20260708093000_provider_configuration" in capsys.readouterr().out
+        "20260708093000_provider_configuration, "
+        "20260708112000_remove_foundry_api_version_config" in capsys.readouterr().out
     )
 
 
@@ -1730,8 +1733,6 @@ def test_providers_configure_builds_provider_configuration_payload(
             "providers",
             "configure",
             "microsoft_foundry",
-            "--api-version",
-            "2025-05-01",
             "--project-url",
             "https://resource.services.ai.azure.com/api/projects/project",
             "--api-url",
@@ -1745,7 +1746,6 @@ def test_providers_configure_builds_provider_configuration_payload(
             "/v1/providers/microsoft_foundry",
             {
                 "configuration": {
-                    "api_version": "2025-05-01",
                     "project_url": "https://resource.services.ai.azure.com/api/projects/project",
                 }
             },

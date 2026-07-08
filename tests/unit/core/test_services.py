@@ -1591,16 +1591,13 @@ def test_provider_service_configure_provider_specific_configuration() -> None:
     updated = service.configure(
         ProviderName.MICROSOFT_FOUNDRY,
         configuration={
-            "api_version": "2025-05-01",
             "project_url": "https://resource.services.ai.azure.com/api/projects/project",
         },
     )
 
     assert updated.configuration == {
-        "api_version": "2025-05-01",
         "project_url": "https://resource.services.ai.azure.com/api/projects/project",
     }
-    assert updated.api_version == "2025-05-01"
     assert updated.project_url == "https://resource.services.ai.azure.com/api/projects/project"
 
     with pytest.raises(ValueError):

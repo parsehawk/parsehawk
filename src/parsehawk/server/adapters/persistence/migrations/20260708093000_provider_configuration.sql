@@ -3,10 +3,6 @@
 
 ALTER TABLE providers ADD COLUMN configuration TEXT NOT NULL DEFAULT '{}';
 
-UPDATE providers
-SET configuration = json_object('api_version', api_version)
-WHERE api_version IS NOT NULL AND TRIM(api_version) <> '';
-
 INSERT INTO providers (name, base_url, configuration, created_at, updated_at)
 SELECT 'microsoft_foundry', base_url, configuration, created_at, updated_at
 FROM providers
