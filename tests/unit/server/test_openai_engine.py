@@ -162,6 +162,39 @@ def test_nuextract_adapter_records_extra_body_for_tracing_metadata(
     assert recorded[0]["chat_template_kwargs"]["instructions"] == "Extract the receipt id."
 
 
+def test_nuextract_thinking_uses_final_content_after_reasoning() -> None:
+    request = ExtractionRequest(
+        source_text="Alex packed a blue notebook.",
+        instructions="Extract the person and object.",
+        enable_thinking=True,
+        schema={
+            "type": "object",
+            "properties": {
+                "person": {"type": "string"},
+                "object": {"type": "string"},
+            },
+            "required": ["person", "object"],
+        },
+        examples=[],
+    )
+    completions = _FakeCompletions(None)
+    completions.chunks = [
+        {"choices": [{"delta": {"reasoning_content": "Find the actor and item."}}]},
+        {"choices": [{"delta": {"content": '{"person": "Alex", '}}]},
+        {"choices": [{"delta": {"content": '"object": "blue notebook"}'}}]},
+    ]
+    engine = OpenAIExtractionEngine(
+        OpenAIEngineConfig(model=NUEXTRACT_MODEL), client=cast(OpenAI, _FakeClient(completions))
+    )
+
+    result = engine.extract(request)
+
+    assert result.data == {"person": "Alex", "object": "blue notebook"}
+    (call,) = completions.calls
+    assert call["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
+    assert call["response_format"]["type"] == "json_schema"
+
+
 def test_generic_adapter_records_no_extra_body_for_tracing_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
