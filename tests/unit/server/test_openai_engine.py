@@ -298,6 +298,68 @@ def test_provider_connection_error_becomes_provider_request_error() -> None:
     assert "unreachable" in str(excinfo.value)
 
 
+def test_list_foundry_chat_deployments_filters_chat_capable_deployments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_get(**kwargs: Any) -> httpx.Response:
+        captured.update(kwargs)
+        return httpx.Response(
+            200,
+            request=httpx.Request("GET", str(kwargs["url"])),
+            json={
+                "value": [
+                    {
+                        "name": "mistral-ocr-4-0-dzs",
+                        "capabilities": {"chat_completion": "false"},
+                    },
+                    {
+                        "name": "gpt-5.4-dzs",
+                        "capabilities": {"chat_completion": "true"},
+                    },
+                    {
+                        "name": "boolean-chat",
+                        "capabilities": {"chat_completion": True},
+                    },
+                ]
+            },
+        )
+
+    def fake_httpx_get(
+        url: str,
+        *,
+        headers: dict[str, str],
+        params: dict[str, str],
+        timeout: int,
+    ) -> httpx.Response:
+        return fake_get(url=url, headers=headers, params=params, timeout=timeout)
+
+    monkeypatch.setattr(openai_engine_module.httpx, "get", fake_httpx_get)
+
+    models = openai_engine_module.list_foundry_chat_deployments(
+        project_url="https://resource.services.ai.azure.com/api/projects/project/",
+        api_key="sk-secret",
+        api_version="2025-05-01",
+        timeout_seconds=7,
+    )
+
+    assert models == ["gpt-5.4-dzs", "boolean-chat"]
+    assert captured == {
+        "url": "https://resource.services.ai.azure.com/api/projects/project/deployments",
+        "headers": {"api-key": "sk-secret"},
+        "params": {"api-version": "2025-05-01"},
+        "timeout": 7,
+    }
+
+
+def test_list_foundry_chat_deployments_requires_project_url() -> None:
+    with pytest.raises(ProviderRequestError) as excinfo:
+        openai_engine_module.list_foundry_chat_deployments(project_url=None, api_key="sk")
+
+    assert "project URL" in str(excinfo.value)
+
+
 def _legacy_max_completion_tokens_error() -> APIStatusError:
     # What a legacy OpenAI-compatible server returns when it doesn't know the param.
     request = httpx.Request("POST", "https://api.test/v1/chat/completions")

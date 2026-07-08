@@ -130,16 +130,36 @@ def test_provider_defaults_and_configuration() -> None:
     assert provider.name == ProviderName.OPENAI_COMPATIBLE
     assert provider.name.value == "openai_compatible_api"
     assert provider.base_url is None
+    assert provider.configuration == {}
     assert provider.api_version is None
     assert provider.created_at is not None and provider.updated_at is not None
 
-    azure = Provider(
-        name=ProviderName.AZURE_OPENAI,
-        base_url="https://res.openai.azure.com/openai/v1/",
-        api_version="2024-10-21",
+    foundry = Provider(
+        name=ProviderName.MICROSOFT_FOUNDRY,
+        base_url="https://res.services.ai.azure.com/openai/v1/",
+        configuration={
+            "api_version": "2025-05-01",
+            "project_url": "https://res.services.ai.azure.com/api/projects/project",
+        },
     )
-    assert azure.base_url == "https://res.openai.azure.com/openai/v1/"
-    assert azure.api_version == "2024-10-21"
+    assert foundry.base_url == "https://res.services.ai.azure.com/openai/v1/"
+    assert foundry.api_version == "2025-05-01"
+    assert foundry.project_url == "https://res.services.ai.azure.com/api/projects/project"
+
+    empty_foundry = Provider(
+        name=ProviderName.MICROSOFT_FOUNDRY,
+        configuration={"api_version": None, "project_url": " "},
+    )
+    assert empty_foundry.configuration == {}
+
+    with pytest.raises(ValidationError):
+        Provider(name=ProviderName.OPENAI, configuration={"project_url": "https://example.test"})
+
+    with pytest.raises(ValidationError):
+        Provider(name=ProviderName.MICROSOFT_FOUNDRY, configuration={"api_version": 1})
+
+    with pytest.raises(ValidationError):
+        Provider.model_validate({"base_url": "https://example.test/v1"})
 
     with pytest.raises(ValidationError):
         Provider.model_validate({"name": "not_a_provider"})

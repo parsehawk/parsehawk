@@ -53,12 +53,12 @@ def test_seed_creates_the_three_fixed_providers(tmp_path) -> None:
         container.close()
     assert set(providers) == {
         ProviderName.OPENAI,
-        ProviderName.AZURE_OPENAI,
+        ProviderName.MICROSOFT_FOUNDRY,
         ProviderName.OPENAI_COMPATIBLE,
     }
     assert providers[ProviderName.OPENAI].base_url == OPENAI_BASE_URL
     assert providers[ProviderName.OPENAI_COMPATIBLE].base_url == settings.vllm_base_url
-    assert providers[ProviderName.AZURE_OPENAI].base_url is None
+    assert providers[ProviderName.MICROSOFT_FOUNDRY].base_url is None
 
 
 def test_reseeding_does_not_clobber_configured_provider(tmp_path) -> None:

@@ -1,10 +1,10 @@
 """OpenAI-compatible extraction engine driving every provider through one client.
 
-The same ``openai.OpenAI`` client talks to OpenAI, Azure OpenAI (via its v1
-endpoint), and any OpenAI-compatible server (the bundled vLLM, Ollama, …); only
-``base_url``/``api_key``/``api_version`` differ. The payload adapter is chosen by
-model: NuExtract3 variants keep their fine-tuned chat-template kwargs (sent via
-``extra_body``), everything else uses the generic template + TYPES.md prompt.
+The same ``openai.OpenAI`` client talks to OpenAI, Microsoft Foundry's
+OpenAI-compatible endpoint, and any OpenAI-compatible server (the bundled vLLM,
+Ollama, …). The payload adapter is chosen by model: NuExtract3 variants keep
+their fine-tuned chat-template kwargs (sent via ``extra_body``), everything else
+uses the generic template + TYPES.md prompt.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Callable
 
+import httpx
 from openai import APIConnectionError, APIStatusError, OpenAI
 
 from parsehawk import tracing
@@ -43,6 +44,7 @@ logger = logging.getLogger("parsehawk.runtime")
 ADAPTER_NUEXTRACT = "nuextract"
 ADAPTER_GENERIC = "generic"
 CANCELLATION_CHECK_INTERVAL_SECONDS = 1.0
+FOUNDRY_DEPLOYMENTS_API_VERSION = "2025-05-01"
 
 # Top-level OpenAI chat-completion params; everything else rides in extra_body.
 _STANDARD_KEYS = frozenset(
@@ -260,3 +262,71 @@ def list_models(
     except APIConnectionError as exc:
         raise ProviderRequestError(f"model provider is unreachable: {exc}") from exc
     return [model.id for model in page.data]
+
+
+def list_foundry_chat_deployments(
+    *,
+    project_url: str | None,
+    api_key: str,
+    api_version: str | None = None,
+    timeout_seconds: int = 30,
+) -> list[str]:
+    """List Microsoft Foundry deployment names usable by chat completions."""
+    if not project_url:
+        raise ProviderRequestError(
+            "configure Microsoft Foundry project URL to list deployment names"
+        )
+    try:
+        response = httpx.get(
+            f"{project_url.rstrip('/')}/deployments",
+            headers={"api-key": api_key},
+            params={"api-version": api_version or FOUNDRY_DEPLOYMENTS_API_VERSION},
+            timeout=timeout_seconds,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        message = _http_error_message(exc.response)
+        raise ProviderRequestError(
+            f"Microsoft Foundry deployments returned HTTP {exc.response.status_code}: {message}",
+            status_code=exc.response.status_code,
+        ) from exc
+    except httpx.RequestError as exc:
+        raise ProviderRequestError(
+            f"Microsoft Foundry project endpoint is unreachable: {exc}"
+        ) from exc
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ProviderRequestError("Microsoft Foundry deployments returned invalid JSON") from exc
+    values = payload.get("value") if isinstance(payload, dict) else None
+    if not isinstance(values, list):
+        raise ProviderRequestError("Microsoft Foundry deployments response is missing value[]")
+    return [
+        name
+        for deployment in values
+        if isinstance(deployment, dict)
+        if _deployment_supports_chat_completions(deployment)
+        if isinstance(name := deployment.get("name"), str) and name
+    ]
+
+
+def _deployment_supports_chat_completions(deployment: dict[str, Any]) -> bool:
+    capabilities = deployment.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return False
+    value = capabilities.get("chat_completion")
+    return value is True or (isinstance(value, str) and value.lower() == "true")
+
+
+def _http_error_message(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            return error["message"]
+        if isinstance(payload.get("message"), str):
+            return payload["message"]
+    return response.text

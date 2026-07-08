@@ -35,6 +35,7 @@ from parsehawk.core.domain.models import (
     ProviderName,
     ValidationIssue,
     extractor_name_suffix,
+    normalize_provider_configuration,
     slugify_extractor_name,
     utc_now,
     validate_extractor_name,
@@ -353,9 +354,9 @@ class ExtractorService:
 class ProviderService:
     """Read and configure the fixed set of model providers.
 
-    Providers are not user-creatable: only their connection config (base_url,
-    api_version) and API key can be changed. Keys are handed straight to the
-    secret store, which encrypts them; they are never returned.
+    Providers are not user-creatable: only their connection config and API key
+    can be changed. Keys are handed straight to the secret store, which encrypts
+    them; they are never returned.
     """
 
     def __init__(self, providers: ProviderRepository, secrets: SecretStore) -> None:
@@ -379,7 +380,7 @@ class ProviderService:
         name: ProviderName,
         *,
         base_url: str | None = None,
-        api_version: str | None = None,
+        configuration: dict[str, Any] | None = None,
         api_key: str | None = None,
         api_key_env: str | None = None,
     ) -> Provider:
@@ -387,11 +388,12 @@ class ProviderService:
         updates: dict[str, Any] = {}
         if base_url is not None:
             updates["base_url"] = base_url
-        if api_version is not None:
-            updates["api_version"] = api_version
+        if configuration is not None:
+            updates["configuration"] = normalize_provider_configuration(name, configuration)
         if updates:
-            updates["updated_at"] = utc_now()
-            provider = provider.model_copy(update=updates)
+            provider = Provider.model_validate(
+                {**provider.model_dump(), **updates, "updated_at": utc_now()}
+            )
             self._providers.save(provider)
         resolved_key = self._resolve_api_key(api_key, api_key_env)
         if resolved_key is not None:

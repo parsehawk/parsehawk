@@ -4,6 +4,7 @@ import type {
   FileRecord,
   Job,
   Provider,
+  ProviderConfiguration,
   ProviderName,
   SchemaValidation,
   SchemaValidationRequest
@@ -125,7 +126,7 @@ export function listProviders(): Promise<Provider[]> {
 
 export function configureProvider(
   name: ProviderName,
-  payload: { base_url?: string | null; api_version?: string | null; api_key?: string }
+  payload: { base_url?: string | null; configuration?: ProviderConfiguration; api_key?: string }
 ): Promise<Provider> {
   return request<Provider>(`/v1/providers/${name}`, {
     method: "PATCH",

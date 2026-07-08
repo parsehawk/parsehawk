@@ -1536,10 +1536,10 @@ def test_extractor_update_changes_provider_and_model(services) -> None:
     extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
 
     updated = services["extractor_service"].update(
-        extractor.id, provider_name=ProviderName.AZURE_OPENAI, model="my-deployment"
+        extractor.id, provider_name=ProviderName.MICROSOFT_FOUNDRY, model="my-deployment"
     )
 
-    assert updated.provider_name == ProviderName.AZURE_OPENAI
+    assert updated.provider_name == ProviderName.MICROSOFT_FOUNDRY
     assert updated.model == "my-deployment"
 
 
@@ -1563,7 +1563,7 @@ def test_provider_service_list_get_and_missing() -> None:
     assert service.get(ProviderName.OPENAI).name == ProviderName.OPENAI
     assert service.has_api_key(ProviderName.OPENAI) is False
     with pytest.raises(NotFoundError):
-        service.get(ProviderName.AZURE_OPENAI)
+        service.get(ProviderName.MICROSOFT_FOUNDRY)
 
 
 def test_provider_service_configure_base_url_and_api_key() -> None:
@@ -1572,17 +1572,41 @@ def test_provider_service_configure_base_url_and_api_key() -> None:
     updated = service.configure(
         ProviderName.OPENAI,
         base_url="https://api.openai.com/v1",
-        api_version="2024-10-21",
         api_key="sk-x",
     )
 
     assert updated.base_url == "https://api.openai.com/v1"
-    assert updated.api_version == "2024-10-21"
+    assert updated.configuration == {}
     assert secrets.get(ProviderName.OPENAI) == "sk-x"
     assert service.has_api_key(ProviderName.OPENAI) is True
     # Configuring nothing leaves the provider and secret untouched.
     unchanged = service.configure(ProviderName.OPENAI)
     assert unchanged.base_url == "https://api.openai.com/v1"
+
+
+def test_provider_service_configure_provider_specific_configuration() -> None:
+    service, providers, _secrets = _provider_service()
+    providers.save(Provider(name=ProviderName.MICROSOFT_FOUNDRY))
+
+    updated = service.configure(
+        ProviderName.MICROSOFT_FOUNDRY,
+        configuration={
+            "api_version": "2025-05-01",
+            "project_url": "https://resource.services.ai.azure.com/api/projects/project",
+        },
+    )
+
+    assert updated.configuration == {
+        "api_version": "2025-05-01",
+        "project_url": "https://resource.services.ai.azure.com/api/projects/project",
+    }
+    assert updated.api_version == "2025-05-01"
+    assert updated.project_url == "https://resource.services.ai.azure.com/api/projects/project"
+
+    with pytest.raises(ValueError):
+        service.configure(
+            ProviderName.OPENAI, configuration={"project_url": "https://example.test"}
+        )
 
 
 def test_provider_service_configure_reads_api_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:

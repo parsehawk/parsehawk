@@ -39,8 +39,38 @@ class ProviderName(StrEnum):
     """
 
     OPENAI = "openai"
-    AZURE_OPENAI = "azure_openai"
+    MICROSOFT_FOUNDRY = "microsoft_foundry"
     OPENAI_COMPATIBLE = "openai_compatible_api"
+
+
+class MicrosoftFoundryProviderConfiguration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    api_version: str | None = None
+    project_url: str | None = None
+
+    @field_validator("api_version", "project_url", mode="before")
+    @classmethod
+    def normalize_optional_string(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+
+def normalize_provider_configuration(
+    name: ProviderName, configuration: dict[str, Any] | None
+) -> dict[str, Any]:
+    raw_configuration = configuration or {}
+    if name == ProviderName.MICROSOFT_FOUNDRY:
+        return MicrosoftFoundryProviderConfiguration.model_validate(raw_configuration).model_dump(
+            exclude_none=True
+        )
+    if raw_configuration:
+        raise ValueError(f"{name.value} does not support provider configuration")
+    return {}
 
 
 # NuExtract3 is fine-tuned on its own chat template, so only these exact models
@@ -175,15 +205,40 @@ class Provider(Entity):
     """Connection configuration for one of the fixed model providers.
 
     The API key is never stored here; it lives encrypted in its own table keyed
-    by ``name``. ``base_url``/``api_version`` are configurable (e.g. Azure users
-    set ``base_url`` to their OpenAI-compatible v1 endpoint).
+    by ``name``. ``base_url`` is common provider connection state; provider-specific
+    knobs live in ``configuration`` and are validated per provider.
     """
 
     name: ProviderName
     base_url: str | None = None
-    api_version: str | None = None
+    configuration: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_configuration(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or "name" not in data:
+            return data
+        name = ProviderName(data["name"])
+        return {
+            **data,
+            "configuration": normalize_provider_configuration(
+                name, data.get("configuration") or {}
+            ),
+        }
+
+    def configuration_string(self, key: str) -> str | None:
+        value = self.configuration.get(key)
+        return value if isinstance(value, str) and value else None
+
+    @property
+    def api_version(self) -> str | None:
+        return self.configuration_string("api_version")
+
+    @property
+    def project_url(self) -> str | None:
+        return self.configuration_string("project_url")
 
 
 class JobStatus(StrEnum):

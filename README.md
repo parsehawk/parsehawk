@@ -412,7 +412,7 @@ delete them.
 | --- | --- | --- |
 | `openai_compatible_api` | bundled runtime `http://127.0.0.1:8080/v1` | **Default.** Serves NuExtract3; also point it at Ollama, LM Studio, or your own vLLM. |
 | `openai` | `https://api.openai.com/v1` | Configure an API key to use OpenAI models. |
-| `azure_openai` | your Azure endpoint | Set `base_url` to your Azure OpenAI **v1** endpoint; `model` is the deployment name. |
+| `microsoft_foundry` | your Foundry OpenAI-compatible endpoint | Set `base_url` to the `/openai/v1` endpoint and `project_url` to the Foundry project endpoint. `model` is the chat-completions deployment name. |
 
 Configure a provider and target it from an extractor (the API key is encrypted
 at rest and never returned by the API):
@@ -424,6 +424,14 @@ parsehawk extractors update invoice_v1 --provider openai --model gpt-4o-mini
 
 # ...or import the key from an environment variable:
 parsehawk providers configure openai --api-key-env OPENAI_API_KEY
+
+# Use a Microsoft Foundry OpenAI-compatible chat deployment:
+parsehawk providers configure microsoft_foundry \
+  --base-url https://resource.services.ai.azure.com/openai/v1 \
+  --project-url https://resource.services.ai.azure.com/api/projects/project-name \
+  --api-version 2025-05-01 \
+  --api-key "$MICROSOFT_FOUNDRY_API_KEY"
+parsehawk extractors update invoice_v1 --provider microsoft_foundry --model my-chat-deployment
 
 # Inspect providers and the models they offer:
 parsehawk providers list
