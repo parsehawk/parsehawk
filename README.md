@@ -705,4 +705,5 @@ config file format are stable enough for users to rely on.
 
 ParseHawk is open source under the Apache-2.0 license. See [`LICENSE`](LICENSE).
 
-Third-party dependencies retain their own licenses.
+Third-party dependencies retain their own licenses. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
