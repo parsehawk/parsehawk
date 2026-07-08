@@ -49,6 +49,13 @@ SUPPORTED_FILE_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".txt", ".md", ".mar
 DEFAULT_PROVIDER_NAME = ProviderName.OPENAI_COMPATIBLE
 
 
+class _ModelNotProvided:
+    pass
+
+
+MODEL_NOT_PROVIDED = _ModelNotProvided()
+
+
 class DeleteJobResult(StrEnum):
     DELETED = "deleted"
     ACCEPTED = "accepted"
@@ -147,6 +154,8 @@ class ExtractorService:
         extractor_id = new_id("extractor")
         stable_name = name or self._unique_generated_name(display_name, extractor_id)
         self._validate_new_name(stable_name)
+        resolved_provider_name = provider_name or self._default_provider
+        resolved_model = self._normalize_model(resolved_provider_name, model)
         schema = self._validate_schema(schema)
         parsed_examples = self._validate_examples(examples or [])
         extractor = Extractor(
@@ -155,8 +164,8 @@ class ExtractorService:
             display_name=display_name,
             instructions=instructions,
             enable_thinking=enable_thinking,
-            provider_name=provider_name or self._default_provider,
-            model=model or self._default_model,
+            provider_name=resolved_provider_name,
+            model=resolved_model,
             schema=schema,
             examples=parsed_examples,
             source=source,
@@ -189,7 +198,7 @@ class ExtractorService:
         instructions: str | None = None,
         enable_thinking: bool | None = None,
         provider_name: ProviderName | None = None,
-        model: str | None = None,
+        model: str | None | _ModelNotProvided = MODEL_NOT_PROVIDED,
         schema: dict[str, Any] | None = None,
         examples: List[dict[str, Any]] | None = None,
     ) -> Extractor:
@@ -203,10 +212,13 @@ class ExtractorService:
             updates["instructions"] = instructions
         if enable_thinking is not None:
             updates["enable_thinking"] = enable_thinking
+        resolved_provider_name = provider_name or current.provider_name or self._default_provider
         if provider_name is not None:
             updates["provider_name"] = provider_name
-        if model is not None:
-            updates["model"] = model
+        if not isinstance(model, _ModelNotProvided):
+            updates["model"] = self._normalize_model(resolved_provider_name, model)
+        elif provider_name is not None:
+            self._normalize_model(resolved_provider_name, current.model)
         if schema is not None:
             updates["schema_"] = self._validate_schema(schema)
         if examples is not None:
@@ -275,13 +287,15 @@ class ExtractorService:
         examples: List[dict[str, Any]] | None,
     ) -> Extractor:
         self._validate_display_name(display_name)
+        resolved_provider_name = provider_name or self._default_provider
+        resolved_model = self._normalize_model(resolved_provider_name, model)
         updated = current.model_copy(
             update={
                 "display_name": display_name,
                 "instructions": instructions,
                 "enable_thinking": enable_thinking,
-                "provider_name": provider_name or self._default_provider,
-                "model": model or self._default_model,
+                "provider_name": resolved_provider_name,
+                "model": resolved_model,
                 "schema_": self._validate_schema(schema),
                 "examples": self._validate_examples(examples or []),
                 "updated_at": utc_now(),
@@ -289,6 +303,14 @@ class ExtractorService:
         )
         self._extractors.save(updated)
         return updated
+
+    def _normalize_model(self, provider_name: ProviderName, model: str | None) -> str | None:
+        normalized = model.strip() if isinstance(model, str) else None
+        if provider_name == ProviderName.OPENAI_COMPATIBLE:
+            return normalized or None
+        if not normalized:
+            raise ValidationFailure(f"model is required for provider {provider_name.value}")
+        return normalized
 
     def _resolve_ref(self, extractor_ref: str) -> Extractor | None:
         return self._extractors.get(extractor_ref) or self._extractors.get_by_name(extractor_ref)

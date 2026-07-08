@@ -86,7 +86,7 @@ export function createExtractor(payload: {
   instructions: string;
   enable_thinking: boolean;
   provider_name?: ProviderName;
-  model?: string;
+  model?: string | null;
   schema: Record<string, unknown>;
   examples?: ExtractorExample[];
 }): Promise<Extractor> {
@@ -104,7 +104,7 @@ export function updateExtractor(
     instructions: string;
     enable_thinking: boolean;
     provider_name?: ProviderName;
-    model?: string;
+    model?: string | null;
     schema?: Record<string, unknown>;
     examples?: ExtractorExample[];
   }

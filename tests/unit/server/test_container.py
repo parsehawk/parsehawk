@@ -98,7 +98,7 @@ def test_factory_caches_by_config_and_refreshes_on_key_change() -> None:
     assert factory.for_extractor(extractor) is not first
 
 
-def test_container_wires_services_and_materializes_extractor_defaults(tmp_path: Path) -> None:
+def test_container_wires_services_and_leaves_local_model_inherited(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path, database_path=tmp_path / "db.sqlite")
     container = Container(settings)
     try:
@@ -107,6 +107,6 @@ def test_container_wires_services_and_materializes_extractor_defaults(tmp_path: 
             name="e", instructions="i", schema={"type": "object", "properties": {}}
         )
         assert extractor.provider_name == ProviderName.OPENAI_COMPATIBLE
-        assert extractor.model == settings.vllm_model
+        assert extractor.model is None
     finally:
         container.close()

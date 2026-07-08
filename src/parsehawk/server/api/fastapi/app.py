@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse as FastAPIFileResponse
 from fastapi.responses import JSONResponse
 
 from parsehawk import telemetry, tracing
-from parsehawk.core.application.services import DeleteJobResult
+from parsehawk.core.application.services import MODEL_NOT_PROVIDED, DeleteJobResult
 from parsehawk.core.domain.errors import NotFoundError, ProviderRequestError, ValidationFailure
 from parsehawk.core.domain.models import ProviderName
 from parsehawk.core.domain.schemas import (
@@ -214,7 +214,7 @@ def update_extractor(
         instructions=request.instructions,
         enable_thinking=request.enable_thinking,
         provider_name=request.provider_name,
-        model=request.model,
+        model=request.model if "model" in request.model_fields_set else MODEL_NOT_PROVIDED,
         schema=request.schema_,
         examples=[example.model_dump() for example in request.examples]
         if request.examples is not None

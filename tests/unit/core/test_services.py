@@ -1512,11 +1512,11 @@ def test_job_service_missing_file_during_run_fails_job(services) -> None:
     assert "file not found" in completed.error.message
 
 
-def test_extractor_create_materializes_default_provider_and_model(services) -> None:
+def test_extractor_create_inherits_default_openai_compatible_model(services) -> None:
     extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
 
     assert extractor.provider_name == ProviderName.OPENAI_COMPATIBLE
-    assert extractor.model == DEFAULT_MODEL
+    assert extractor.model is None
 
 
 def test_extractor_create_uses_supplied_provider_and_model(services) -> None:
@@ -1532,6 +1532,25 @@ def test_extractor_create_uses_supplied_provider_and_model(services) -> None:
     assert extractor.model == "gpt-4o-mini"
 
 
+def test_extractor_create_requires_model_for_cloud_providers(services) -> None:
+    with pytest.raises(ValidationFailure, match="model is required for provider openai"):
+        services["extractor_service"].create(
+            name="e",
+            instructions="i",
+            schema=schema(),
+            provider_name=ProviderName.OPENAI,
+        )
+
+    with pytest.raises(ValidationFailure, match="model is required for provider microsoft_foundry"):
+        services["extractor_service"].create(
+            name="f",
+            instructions="i",
+            schema=schema(),
+            provider_name=ProviderName.MICROSOFT_FOUNDRY,
+            model=" ",
+        )
+
+
 def test_extractor_update_changes_provider_and_model(services) -> None:
     extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
 
@@ -1541,6 +1560,36 @@ def test_extractor_update_changes_provider_and_model(services) -> None:
 
     assert updated.provider_name == ProviderName.MICROSOFT_FOUNDRY
     assert updated.model == "my-deployment"
+
+
+def test_extractor_update_distinguishes_omitted_model_from_inherited_model(services) -> None:
+    extractor = services["extractor_service"].create(
+        name="e",
+        instructions="i",
+        schema=schema(),
+        provider_name=ProviderName.OPENAI,
+        model="gpt-4o-mini",
+    )
+
+    unchanged = services["extractor_service"].update(extractor.id, instructions="updated")
+    assert unchanged.model == "gpt-4o-mini"
+
+    inherited = services["extractor_service"].update(
+        extractor.id,
+        provider_name=ProviderName.OPENAI_COMPATIBLE,
+        model=None,
+    )
+    assert inherited.provider_name == ProviderName.OPENAI_COMPATIBLE
+    assert inherited.model is None
+
+
+def test_extractor_update_rejects_missing_model_when_switching_to_cloud_provider(
+    services,
+) -> None:
+    extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
+
+    with pytest.raises(ValidationFailure, match="model is required for provider openai"):
+        services["extractor_service"].update(extractor.id, provider_name=ProviderName.OPENAI)
 
 
 def _provider_service() -> tuple[ProviderService, MemoryProviderRepository, MemorySecretStore]:

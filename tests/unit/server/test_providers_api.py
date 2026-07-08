@@ -77,7 +77,7 @@ def test_create_extractor_defaults_and_overrides_provider(
     )
     assert default.status_code == 201
     assert default.json()["provider_name"] == "openai_compatible_api"
-    assert default.json()["model"]
+    assert default.json()["model"] is None
 
     override = api.post(
         "/v1/extractors",
@@ -92,6 +92,47 @@ def test_create_extractor_defaults_and_overrides_provider(
     assert override.status_code == 201
     assert override.json()["provider_name"] == "openai"
     assert override.json()["model"] == "gpt-4o-mini"
+
+    missing_model = api.post(
+        "/v1/extractors",
+        json={
+            "name": "missing_model",
+            "instructions": "i",
+            "provider_name": "openai",
+            "schema": _OBJECT_SCHEMA,
+        },
+    )
+    assert missing_model.status_code == 422
+    assert "model is required for provider openai" in missing_model.text
+
+
+def test_update_extractor_model_can_be_omitted_or_cleared_for_local_default(
+    client: tuple[TestClient, Container],
+) -> None:
+    api, _container = client
+    created = api.post(
+        "/v1/extractors",
+        json={
+            "name": "editable",
+            "instructions": "i",
+            "provider_name": "openai",
+            "model": "gpt-4o-mini",
+            "schema": _OBJECT_SCHEMA,
+        },
+    )
+    assert created.status_code == 201
+
+    omitted = api.patch("/v1/extractors/editable", json={"instructions": "updated"})
+    assert omitted.status_code == 200
+    assert omitted.json()["model"] == "gpt-4o-mini"
+
+    inherited = api.patch(
+        "/v1/extractors/editable",
+        json={"provider_name": "openai_compatible_api", "model": None},
+    )
+    assert inherited.status_code == 200
+    assert inherited.json()["provider_name"] == "openai_compatible_api"
+    assert inherited.json()["model"] is None
 
 
 def test_list_provider_models_proxies(

@@ -410,7 +410,7 @@ delete them.
 
 | Provider (`provider_name`) | Base URL | Notes |
 | --- | --- | --- |
-| `openai_compatible_api` | bundled runtime `http://127.0.0.1:8080/v1` | **Default.** Serves NuExtract3; also point it at Ollama, LM Studio, or your own vLLM. |
+| `openai_compatible_api` | bundled runtime `http://127.0.0.1:8080/v1` | **Default.** Serves NuExtract3; leave an extractor's `model` blank to inherit the active bundled runtime model, or point it at Ollama, LM Studio, or your own vLLM. |
 | `openai` | `https://api.openai.com/v1` | Configure an API key to use OpenAI models. |
 | `microsoft_foundry` | your Foundry OpenAI-compatible endpoint | Set `base_url` to the `/openai/v1` endpoint and `project_url` to the Foundry project endpoint. `model` is the chat-completions deployment name. |
 

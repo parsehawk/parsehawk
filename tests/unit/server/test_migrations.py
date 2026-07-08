@@ -26,12 +26,16 @@ ADD_PROVIDERS_ID = "20260701121138_add_providers"
 EXTRACTOR_DISPLAY_NAMES_ID = "20260702160000_extractor_display_names"
 PROVIDER_CONFIGURATION_ID = "20260708093000_provider_configuration"
 REMOVE_FOUNDRY_API_VERSION_CONFIG_ID = "20260708112000_remove_foundry_api_version_config"
+INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID = (
+    "20260708130000_inherit_openai_compatible_default_model"
+)
 ALL_MIGRATION_IDS = [
     BASELINE_ID,
     ADD_PROVIDERS_ID,
     EXTRACTOR_DISPLAY_NAMES_ID,
     PROVIDER_CONFIGURATION_ID,
     REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
+    INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
 ]
 
 # The full current schema after all migrations. ALTER-added columns
@@ -377,6 +381,7 @@ def test_provider_configuration_migration_renames_foundry_without_data_loss(
         EXTRACTOR_DISPLAY_NAMES_ID,
         PROVIDER_CONFIGURATION_ID,
         REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
+        INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
     ]
 
     assert columns(conn, "providers") == EXPECTED_COLUMNS["providers"]
@@ -432,13 +437,82 @@ def test_remove_foundry_api_version_config_migration_strips_already_migrated_con
     )
     conn.commit()
 
-    assert apply_pending(conn) == [REMOVE_FOUNDRY_API_VERSION_CONFIG_ID]
+    assert apply_pending(conn) == [
+        REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
+        INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
+    ]
 
     provider = conn.execute(
         "SELECT configuration FROM providers WHERE name = ?", ("microsoft_foundry",)
     ).fetchone()
     assert json.loads(provider["configuration"]) == {
         "project_url": "https://resource.services.ai.azure.com/api/projects/project"
+    }
+
+
+def test_inherit_openai_compatible_default_model_migration_preserves_custom_models(
+    conn: sqlite3.Connection,
+) -> None:
+    _register_functions(conn)
+    applied_ids = [
+        BASELINE_ID,
+        ADD_PROVIDERS_ID,
+        EXTRACTOR_DISPLAY_NAMES_ID,
+        PROVIDER_CONFIGURATION_ID,
+        REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
+    ]
+    for migration_id in applied_ids:
+        migration = next(
+            migration for migration in discover_migrations() if migration.id == migration_id
+        )
+        conn.executescript(migration.path.read_text(encoding="utf-8"))
+    conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+        [(migration_id, "t") for migration_id in applied_ids],
+    )
+    rows = [
+        ("extractor_default", "openai_compatible_api", "numind/NuExtract3-W4A16"),
+        ("extractor_custom_local", "openai_compatible_api", "custom/local-model"),
+        ("extractor_openai", "openai", "numind/NuExtract3-W4A16"),
+    ]
+    for extractor_id, provider_name, model in rows:
+        conn.execute(
+            """
+            INSERT INTO extractors (
+                id, name, display_name, instructions, enable_thinking, schema, examples,
+                source, seed_key, seed_version, created_at, updated_at, provider_name, model
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                extractor_id,
+                extractor_id.removeprefix("extractor_"),
+                extractor_id,
+                "Extract.",
+                0,
+                "{}",
+                "[]",
+                "user",
+                None,
+                None,
+                "t0",
+                "t1",
+                provider_name,
+                model,
+            ),
+        )
+    conn.commit()
+
+    assert apply_pending(conn) == [INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID]
+
+    models = {
+        row["id"]: row["model"]
+        for row in conn.execute("SELECT id, model FROM extractors ORDER BY id")
+    }
+    assert models == {
+        "extractor_custom_local": "custom/local-model",
+        "extractor_default": None,
+        "extractor_openai": "numind/NuExtract3-W4A16",
     }
 
 
