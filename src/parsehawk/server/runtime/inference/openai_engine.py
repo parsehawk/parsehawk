@@ -46,6 +46,21 @@ ADAPTER_GENERIC = "generic"
 CANCELLATION_CHECK_INTERVAL_SECONDS = 1.0
 FOUNDRY_DEPLOYMENTS_API_VERSION = "v1"
 
+# OpenAI's /models payload does not expose endpoint capability metadata. Keep
+# this filter specific to the first-party OpenAI provider so compatible servers
+# can still advertise their own non-OpenAI model names.
+_OPENAI_NON_CHAT_MODEL_MARKERS = (
+    "whisper",
+    "tts",
+    "transcribe",
+    "embedding",
+    "moderation",
+    "dall-e",
+    "gpt-image",
+    "image-",
+    "realtime",
+)
+
 # Top-level OpenAI chat-completion params; everything else rides in extra_body.
 _STANDARD_KEYS = frozenset(
     {
@@ -254,6 +269,35 @@ def list_models(
     except APIConnectionError as exc:
         raise ProviderRequestError(f"model provider is unreachable: {exc}") from exc
     return [model.id for model in page.data]
+
+
+def list_openai_chat_models(
+    *,
+    base_url: str | None,
+    api_key: str,
+    timeout_seconds: int = 30,
+) -> list[str]:
+    """List first-party OpenAI model ids that are plausible chat-completion models."""
+    return [
+        model
+        for model in list_models(
+            base_url=base_url,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+        )
+        if _is_openai_chat_completion_model(model)
+    ]
+
+
+def _is_openai_chat_completion_model(model_id: str) -> bool:
+    normalized = model_id.lower()
+    if any(marker in normalized for marker in _OPENAI_NON_CHAT_MODEL_MARKERS):
+        return False
+    if normalized.startswith(("gpt-", "chatgpt-", "ft:gpt-", "ft:chatgpt-")):
+        return True
+    if len(normalized) >= 2 and normalized[0] == "o" and normalized[1].isdigit():
+        return True
+    return normalized.startswith("ft:o") and len(normalized) >= 5 and normalized[4].isdigit()
 
 
 def list_foundry_chat_deployments(

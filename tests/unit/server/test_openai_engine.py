@@ -298,6 +298,54 @@ def test_provider_connection_error_becomes_provider_request_error() -> None:
     assert "unreachable" in str(excinfo.value)
 
 
+def test_list_openai_chat_models_filters_non_chat_openai_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_list_models(**kwargs: Any) -> list[str]:
+        captured.update(kwargs)
+        return [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4o-audio-preview",
+            "gpt-4o-mini-transcribe",
+            "gpt-image-1",
+            "o3-mini",
+            "chatgpt-4o-latest",
+            "ft:gpt-4o-mini-2024-07-18:org:extractor:id",
+            "ft:o4-mini:org:extractor:id",
+            "tts-1",
+            "whisper-1",
+            "text-embedding-3-small",
+            "omni-moderation-latest",
+            "gpt-4o-realtime-preview",
+        ]
+
+    monkeypatch.setattr(openai_engine_module, "list_models", fake_list_models)
+
+    models = openai_engine_module.list_openai_chat_models(
+        base_url="https://api.openai.com/v1",
+        api_key="sk-secret",
+        timeout_seconds=7,
+    )
+
+    assert models == [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4o-audio-preview",
+        "o3-mini",
+        "chatgpt-4o-latest",
+        "ft:gpt-4o-mini-2024-07-18:org:extractor:id",
+        "ft:o4-mini:org:extractor:id",
+    ]
+    assert captured == {
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "sk-secret",
+        "timeout_seconds": 7,
+    }
+
+
 def test_list_foundry_chat_deployments_filters_chat_capable_deployments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
