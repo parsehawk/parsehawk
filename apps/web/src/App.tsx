@@ -1300,6 +1300,7 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
   const baseUrlPlaceholder = showFoundryConfig
     ? "https://your-resource-name.services.ai.azure.com/openai/v1"
     : "https://api.openai.com/v1";
+  const configured = isProviderConfigured(provider);
 
   async function onSave() {
     setSaving(true);
@@ -1335,8 +1336,8 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
     <div className="flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium">{providerLabel(provider.name)}</span>
-        <Badge variant={provider.has_api_key ? "secondary" : "outline"}>
-          {provider.has_api_key ? "Configured" : "Not configured"}
+        <Badge variant={configured ? "secondary" : "outline"}>
+          {configured ? "Configured" : "Not configured"}
         </Badge>
       </div>
       <FieldGroup className="flex flex-col gap-3">
@@ -1405,6 +1406,16 @@ function ProviderCard(props: { provider: Provider; onConfigured: (provider: Prov
       </div>
     </div>
   );
+}
+
+function isProviderConfigured(provider: Provider): boolean {
+  if (provider.name === "openai_compatible_api") {
+    return Boolean(provider.base_url);
+  }
+  if (provider.name === "microsoft_foundry") {
+    return Boolean(provider.base_url && provider.configuration.project_url && provider.has_api_key);
+  }
+  return provider.has_api_key;
 }
 
 function HelpDialog() {
