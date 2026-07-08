@@ -1,0 +1,50 @@
+# Trivy configuration for CONTAINER IMAGE license detection (Tier 2 engine).
+#
+# Trivy is NOT used for dependency licenses here: it does not read license
+# metadata from uv.lock (Python), and Node licenses come cleaner from
+# `pnpm licenses list`. Dependency gating lives in scripts/check_dep_licenses.py.
+# This config's job is to make `trivy image` reliably surface source-available /
+# copyleft licenses inside referenced images (e.g. Elastic-2.0 in the Phoenix
+# image), which scripts/check_bundled_images.py cross-checks against the manifest.
+#
+# Policy (see AGENTS.md / issue #92): the project ships under Apache-2.0.
+#   - forbidden  -> CRITICAL -> a real hit (gate with --severity CRITICAL)
+#   - restricted (incl. LGPL, base-OS GPL) -> HIGH -> noise here, filtered out
+#
+# trivy classifies GPL/AGPL as `restricted` (HIGH) by default, so they are listed
+# explicitly to be promoted to `forbidden` (CRITICAL). Source-available licenses
+# (Elastic-2.0, BUSL, SSPL) are `unknown` to trivy by default, so they must be
+# listed too — verified in Phase 0 against arizephoenix/phoenix:17.20.0, where
+# `Elastic-2.0` was captured but stayed UNKNOWN until listed here.
+
+scan:
+  scanners:
+    - license
+
+license:
+  # Scan license text inside packages, not just declared metadata.
+  full: true
+  # Promote to `forbidden` (CRITICAL). LGPL is intentionally omitted so it stays
+  # `restricted` (HIGH) — reported, not blocked.
+  forbidden:
+    - AGPL-1.0
+    - AGPL-3.0
+    - AGPL-3.0-only
+    - AGPL-3.0-or-later
+    - GPL-1.0
+    - GPL-1.0-only
+    - GPL-1.0-or-later
+    - GPL-2.0
+    - GPL-2.0-only
+    - GPL-2.0-or-later
+    - GPL-3.0
+    - GPL-3.0-only
+    - GPL-3.0-or-later
+    # Source-available (not OSI/Apache-compatible when redistributed):
+    - Elastic-2.0
+    - BUSL-1.1
+    - SSPL-1.0
+    # Non-commercial Creative Commons (incompatible with redistribution):
+    - CC-BY-NC-4.0
+    - CC-BY-NC-SA-4.0
+    - CC-BY-NC-ND-4.0
