@@ -8,6 +8,27 @@ referenced by this repository retain their own licenses. This file documents
 the third-party components that ParseHawk intentionally bundles, builds from, or
 installs through its package manifests and Dockerfiles.
 
+## What ParseHawk redistributes
+
+The only artifact this project publishes is the API/worker container image
+(`ghcr.io/parsehawk/parsehawk`, built from
+[`docker/Dockerfile.api`](docker/Dockerfile.api) by
+`.github/workflows/publish-image.yaml`). It contains ParseHawk's own Apache-2.0
+code, its Python dependencies, and the `python:3.12-slim` (Debian) base.
+Base-OS system packages retain their own licenses (including GPL/LGPL) and are
+redistributed as mere aggregation; they are not linked into ParseHawk's
+Apache-2.0 code. Dependency and image license compatibility is enforced in CI:
+[`licenses/bundled-images.toml`](licenses/bundled-images.toml) is the reviewed
+manifest of every referenced image and how it ships, enforced by
+[`scripts/check_bundled_images.py`](scripts/check_bundled_images.py), and
+packaged dependencies are gated by
+[`scripts/check_dep_licenses.py`](scripts/check_dep_licenses.py).
+
+Everything else is built or pulled by the operator at deploy or run time under
+its own license and is not redistributed by this project: the web UI image
+(built from [`docker/Dockerfile.web`](docker/Dockerfile.web)), the vLLM serving
+runtime, the Arize Phoenix tracing backend, and model weights.
+
 ## Bundled services and container images
 
 ### Arize Phoenix
@@ -39,6 +60,15 @@ ParseHawk Dockerfiles build from these upstream images:
 
 These images and the operating-system packages inside them retain their own
 upstream licenses and notices.
+
+## Model weights
+
+### NuExtract3
+
+The default extraction model, `numind/NuExtract3-W4A16`, is downloaded by the
+model runtime at run time and used under the model provider's license. The
+weights are not part of this repository and are not redistributed by the
+project.
 
 ## Python packages
 
