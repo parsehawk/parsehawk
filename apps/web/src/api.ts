@@ -6,6 +6,7 @@ import type {
   Provider,
   ProviderConfiguration,
   ProviderName,
+  ReasoningEffort,
   SchemaValidation,
   SchemaValidationRequest
 } from "./types";
@@ -84,7 +85,7 @@ export function createExtractor(payload: {
   name?: string;
   display_name: string;
   instructions: string;
-  enable_thinking: boolean;
+  reasoning_effort: ReasoningEffort | null;
   provider_name?: ProviderName;
   model?: string | null;
   schema: Record<string, unknown>;
@@ -102,7 +103,7 @@ export function updateExtractor(
   payload: {
     display_name: string;
     instructions: string;
-    enable_thinking: boolean;
+    reasoning_effort: ReasoningEffort | null;
     provider_name?: ProviderName;
     model?: string | null;
     schema?: Record<string, unknown>;

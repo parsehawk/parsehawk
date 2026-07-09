@@ -29,11 +29,6 @@ RESPONSE_FORMAT_JSON_SCHEMA = "json_schema"
 RESPONSE_FORMAT_JSON_OBJECT = "json_object"
 RESPONSE_FORMAT_NONE = "none"
 
-# How a request's enable_thinking flag maps onto a provider's reasoning control.
-REASONING_NONE = "none"
-REASONING_CHAT_TEMPLATE_KWARGS = "chat_template_kwargs"
-REASONING_EFFORT = "reasoning_effort"
-
 # NuExtract3's semantic-type reference, vendored verbatim from
 # https://huggingface.co/numind/NuExtract3/blob/main/TYPES.md
 NUEXTRACT_TYPES_REFERENCE = (
@@ -47,8 +42,6 @@ def build_generic_chat_payload(
     model: str,
     max_completion_tokens: int,
     response_format_mode: str = RESPONSE_FORMAT_JSON_SCHEMA,
-    reasoning_mode: str = REASONING_NONE,
-    reasoning_effort: str = "medium",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return ``(standard_kwargs, extra_body)`` for the OpenAI chat client.
 
@@ -83,11 +76,10 @@ def build_generic_chat_payload(
     elif response_format_mode == RESPONSE_FORMAT_JSON_OBJECT:
         payload["response_format"] = {"type": "json_object"}
 
-    if request.enable_thinking:
-        if reasoning_mode == REASONING_EFFORT:
-            payload["reasoning_effort"] = reasoning_effort
-        elif reasoning_mode == REASONING_CHAT_TEMPLATE_KWARGS:
-            extra_body["chat_template_kwargs"] = {"enable_thinking": True}
+    # None means "the model's own default": send no reasoning parameter at all.
+    # Whether an explicit value is valid for this model is the provider's call.
+    if request.reasoning_effort is not None:
+        payload["reasoning_effort"] = str(request.reasoning_effort)
 
     return payload, extra_body
 

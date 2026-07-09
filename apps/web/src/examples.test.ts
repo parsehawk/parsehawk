@@ -40,7 +40,7 @@ describe("examples", () => {
       name: "invoice",
       display_name: "Invoice",
       instructions: "extract",
-      enable_thinking: false,
+      reasoning_effort: null,
       provider_name: "openai_compatible_api",
       model: null,
       schema: { type: "object" },

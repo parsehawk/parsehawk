@@ -19,6 +19,7 @@ from parsehawk.core.domain.models import (
     JobStatus,
     Provider,
     ProviderName,
+    ReasoningEffort,
     ValidationIssue,
 )
 from parsehawk.server.adapters.persistence.sqlite import (
@@ -63,7 +64,6 @@ def test_init_db_creates_structured_tables_indexes_and_foreign_keys(
         "name",
         "display_name",
         "instructions",
-        "enable_thinking",
         "schema",
         "examples",
         "source",
@@ -73,6 +73,7 @@ def test_init_db_creates_structured_tables_indexes_and_foreign_keys(
         "updated_at",
         "provider_name",
         "model",
+        "reasoning_effort",
     ]
     assert columns(conn, "jobs") == [
         "id",
@@ -351,7 +352,7 @@ def sample_extractor(id: str = "extractor_1") -> Extractor:
         name=f"receipt_{suffix}",
         display_name="Receipt",
         instructions="Extract receipt fields.",
-        enable_thinking=True,
+        reasoning_effort=ReasoningEffort.MEDIUM,
         schema={
             "type": "object",
             "properties": {"receipt_id": {"type": "string"}},

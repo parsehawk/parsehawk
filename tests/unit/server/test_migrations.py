@@ -30,6 +30,7 @@ INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID = (
     "20260708130000_inherit_openai_compatible_default_model"
 )
 JOB_EXECUTION_MODEL_METADATA_ID = "20260708133000_job_execution_model_metadata"
+EXTRACTOR_REASONING_EFFORT_ID = "20260709090000_extractor_reasoning_effort"
 ALL_MIGRATION_IDS = [
     BASELINE_ID,
     ADD_PROVIDERS_ID,
@@ -38,6 +39,7 @@ ALL_MIGRATION_IDS = [
     REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
     INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
     JOB_EXECUTION_MODEL_METADATA_ID,
+    EXTRACTOR_REASONING_EFFORT_ID,
 ]
 
 # The full current schema after all migrations. ALTER-added columns
@@ -60,7 +62,6 @@ EXPECTED_COLUMNS = {
         "name",
         "display_name",
         "instructions",
-        "enable_thinking",
         "schema",
         "examples",
         "source",
@@ -70,6 +71,7 @@ EXPECTED_COLUMNS = {
         "updated_at",
         "provider_name",
         "model",
+        "reasoning_effort",
     ],
     "jobs": [
         "id",
@@ -387,6 +389,7 @@ def test_provider_configuration_migration_renames_foundry_without_data_loss(
         REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
         INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
         JOB_EXECUTION_MODEL_METADATA_ID,
+        EXTRACTOR_REASONING_EFFORT_ID,
     ]
 
     assert columns(conn, "providers") == EXPECTED_COLUMNS["providers"]
@@ -446,6 +449,7 @@ def test_remove_foundry_api_version_config_migration_strips_already_migrated_con
         REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
         INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
         JOB_EXECUTION_MODEL_METADATA_ID,
+        EXTRACTOR_REASONING_EFFORT_ID,
     ]
 
     provider = conn.execute(
@@ -512,6 +516,7 @@ def test_inherit_openai_compatible_default_model_migration_preserves_custom_mode
     assert apply_pending(conn) == [
         INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
         JOB_EXECUTION_MODEL_METADATA_ID,
+        EXTRACTOR_REASONING_EFFORT_ID,
     ]
 
     models = {
@@ -522,6 +527,83 @@ def test_inherit_openai_compatible_default_model_migration_preserves_custom_mode
         "extractor_custom_local": "custom/local-model",
         "extractor_default": None,
         "extractor_openai": "numind/NuExtract3-W4A16",
+    }
+
+
+def test_extractor_reasoning_effort_migration_backfills_per_adapter(
+    conn: sqlite3.Connection,
+) -> None:
+    _register_functions(conn)
+    applied_ids = [
+        BASELINE_ID,
+        ADD_PROVIDERS_ID,
+        EXTRACTOR_DISPLAY_NAMES_ID,
+        PROVIDER_CONFIGURATION_ID,
+        REMOVE_FOUNDRY_API_VERSION_CONFIG_ID,
+        INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
+        JOB_EXECUTION_MODEL_METADATA_ID,
+    ]
+    for migration_id in applied_ids:
+        migration = next(
+            migration for migration in discover_migrations() if migration.id == migration_id
+        )
+        conn.executescript(migration.path.read_text(encoding="utf-8"))
+    conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+        [(migration_id, "t") for migration_id in applied_ids],
+    )
+    rows = [
+        # (id, enable_thinking, model): thinking only had a request effect for
+        # NuExtract3 models (a NULL model inherits the bundled NuExtract runtime).
+        ("extractor_nuextract_on", 1, "numind/NuExtract3-W4A16"),
+        ("extractor_nuextract_off", 0, "numind/NuExtract3-W4A16"),
+        ("extractor_inherited_on", 1, None),
+        ("extractor_gpt4o_on", 1, "gpt-4o"),
+        ("extractor_gpt4o_off", 0, "gpt-4o"),
+    ]
+    for extractor_id, enable_thinking, model in rows:
+        conn.execute(
+            """
+            INSERT INTO extractors (
+                id, name, display_name, instructions, enable_thinking, schema, examples,
+                source, seed_key, seed_version, created_at, updated_at, provider_name, model
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                extractor_id,
+                extractor_id.removeprefix("extractor_").replace("_", "-"),
+                extractor_id,
+                "Extract.",
+                enable_thinking,
+                "{}",
+                "[]",
+                "user",
+                None,
+                None,
+                "t0",
+                "t1",
+                "openai_compatible_api" if model is None else "openai",
+                model,
+            ),
+        )
+    conn.commit()
+
+    assert apply_pending(conn) == [EXTRACTOR_REASONING_EFFORT_ID]
+
+    assert "enable_thinking" not in columns(conn, "extractors")
+    efforts = {
+        row["id"]: row["reasoning_effort"]
+        for row in conn.execute("SELECT id, reasoning_effort FROM extractors")
+    }
+    assert efforts == {
+        "extractor_nuextract_on": "medium",
+        "extractor_nuextract_off": None,
+        "extractor_inherited_on": "medium",
+        # enable_thinking never sent anything for generic models, so the
+        # backfill must not start sending reasoning_effort (gpt-4o rejects it).
+        "extractor_gpt4o_on": None,
+        "extractor_gpt4o_off": None,
     }
 
 

@@ -33,6 +33,7 @@ from parsehawk.core.domain.models import (
     JobStatus,
     Provider,
     ProviderName,
+    ReasoningEffort,
 )
 
 DEFAULT_MODEL = "numind/NuExtract3-W4A16"
@@ -391,12 +392,12 @@ def test_extractor_service_create_update_list_delete(services) -> None:
     extractor = extractor_service.create(
         name="receipt",
         instructions="classify",
-        enable_thinking=True,
+        reasoning_effort=ReasoningEffort.HIGH,
         schema=schema(),
         examples=[{"input": "x", "output": {"receipt_id": "2"}}],
     )
 
-    assert extractor.enable_thinking is True
+    assert extractor.reasoning_effort is ReasoningEffort.HIGH
     assert extractor.examples[0].output == {"receipt_id": "2"}
     assert extractor.examples[0].input.type == ExampleInputKind.TEXT
     assert extractor.examples[0].input.text == "x"
@@ -406,14 +407,14 @@ def test_extractor_service_create_update_list_delete(services) -> None:
         extractor.id,
         display_name="Receipt v2",
         instructions="classify better",
-        enable_thinking=False,
+        reasoning_effort=None,
         schema=schema(),
         examples=[],
     )
     assert updated.name == "receipt"
     assert updated.display_name == "Receipt v2"
     assert updated.instructions == "classify better"
-    assert updated.enable_thinking is False
+    assert updated.reasoning_effort is None
     assert updated.schema == derived_schema()
     assert updated.examples == []
     assert updated.updated_at >= extractor.updated_at
@@ -431,10 +432,18 @@ def test_extractor_service_partial_update_and_invalid_schema(services) -> None:
     assert updated.name == "a"
     assert updated.display_name == "a"
     assert updated.instructions == "new"
-    assert updated.enable_thinking is False
+    assert updated.reasoning_effort is None
 
-    updated = extractor_service.update(extractor.id, enable_thinking=True)
-    assert updated.enable_thinking is True
+    updated = extractor_service.update(extractor.id, reasoning_effort=ReasoningEffort.MEDIUM)
+    assert updated.reasoning_effort is ReasoningEffort.MEDIUM
+
+    # An update that omits the field leaves the explicit effort untouched …
+    updated = extractor_service.update(extractor.id, instructions="newer")
+    assert updated.reasoning_effort is ReasoningEffort.MEDIUM
+
+    # … while an explicit None resets to the model's own default.
+    updated = extractor_service.update(extractor.id, reasoning_effort=None)
+    assert updated.reasoning_effort is None
 
     with pytest.raises(ValidationFailure):
         extractor_service.create(name="bad", instructions="bad", schema={"type": 1})
@@ -637,7 +646,10 @@ def test_job_service_create_list_get_delete_and_success(services) -> None:
         file_name="a.md", content_type="", content=b"Subject: #1#"
     )
     extractor = services["extractor_service"].create(
-        name="receipt", instructions="classify", enable_thinking=True, schema=schema()
+        name="receipt",
+        instructions="classify",
+        reasoning_effort=ReasoningEffort.MEDIUM,
+        schema=schema(),
     )
 
     job_service: JobService = services["job_service"]
@@ -656,7 +668,7 @@ def test_job_service_create_list_get_delete_and_success(services) -> None:
     assert services["engine"].requests[0].source_text == "Subject: #1#"
     assert services["engine"].requests[0].source_storage_path == file.storage_path
     assert services["engine"].requests[0].source_content_type == file.content_type
-    assert services["engine"].requests[0].enable_thinking is True
+    assert services["engine"].requests[0].reasoning_effort is ReasoningEffort.MEDIUM
 
     assert job_service.delete(job.id) == DeleteJobResult.DELETED
     with pytest.raises(NotFoundError):

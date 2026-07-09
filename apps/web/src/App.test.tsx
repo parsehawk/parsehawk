@@ -134,7 +134,7 @@ describe("App run workflow", () => {
     expect(maxActiveUploads).toBeLessThanOrEqual(3);
   });
 
-  it("saves the extractor thinking setting", async () => {
+  it("saves the extractor reasoning effort setting", async () => {
     let createPayload: Record<string, unknown> | null = null;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
@@ -148,7 +148,7 @@ describe("App run workflow", () => {
           name: "invoice",
           display_name: "Invoice",
           instructions: "Extract invoice fields.",
-          enable_thinking: true,
+          reasoning_effort: "high",
           schema: createPayload?.schema,
           examples: [],
           created_at: "2026-06-21T00:00:00Z",
@@ -166,13 +166,52 @@ describe("App run workflow", () => {
     await userEvent.click(await screen.findByRole("button", { name: "New" }));
     await userEvent.type(screen.getByLabelText("Display name"), "Invoice");
     await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
-    await userEvent.click(screen.getByRole("checkbox", { name: "Enable thinking" }));
+    await userEvent.selectOptions(screen.getByLabelText("Reasoning effort"), "high");
     await userEvent.click(screen.getByRole("button", { name: "Create extractor" }));
 
     await waitFor(() => {
-      expect(createPayload?.enable_thinking).toBe(true);
+      expect(createPayload?.reasoning_effort).toBe("high");
     });
     expect(createPayload).not.toHaveProperty("name");
+  });
+
+  it("sends a null reasoning effort for the model default", async () => {
+    let createPayload: Record<string, unknown> | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([]);
+      }
+      if (url === "/v1/extractors" && init?.method === "POST") {
+        createPayload = JSON.parse(String(init.body));
+        return jsonResponse({
+          id: "extractor_123",
+          name: "invoice",
+          display_name: "Invoice",
+          instructions: "Extract invoice fields.",
+          reasoning_effort: null,
+          schema: createPayload?.schema,
+          examples: [],
+          created_at: "2026-06-21T00:00:00Z",
+          updated_at: "2026-06-21T00:00:00Z"
+        });
+      }
+      if (url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+    await userEvent.type(screen.getByLabelText("Display name"), "Invoice");
+    await userEvent.type(screen.getByLabelText("Instructions"), "Extract invoice fields.");
+    await userEvent.click(screen.getByRole("button", { name: "Create extractor" }));
+
+    await waitFor(() => {
+      expect(createPayload?.reasoning_effort).toBeNull();
+    });
   });
 
   it("sends a manually edited extractor name on create", async () => {
@@ -189,7 +228,7 @@ describe("App run workflow", () => {
           name: String(createPayload?.name),
           display_name: "Invoice",
           instructions: "Extract invoice fields.",
-          enable_thinking: false,
+          reasoning_effort: null,
           schema: createPayload?.schema,
           examples: [],
           created_at: "2026-06-21T00:00:00Z",
@@ -230,7 +269,7 @@ describe("App run workflow", () => {
           name: "very-long-generated-name",
           display_name: createPayload?.display_name,
           instructions: "Extract invoice fields.",
-          enable_thinking: false,
+          reasoning_effort: null,
           schema: createPayload?.schema,
           examples: [],
           created_at: "2026-06-21T00:00:00Z",
@@ -272,7 +311,7 @@ describe("App run workflow", () => {
           name: "invoice",
           display_name: "Invoice",
           instructions: "Extract invoice fields.",
-          enable_thinking: false,
+          reasoning_effort: null,
           schema: createPayload?.schema,
           examples: [],
           created_at: "2026-06-21T00:00:00Z",
@@ -633,7 +672,7 @@ describe("App run workflow", () => {
           name: "invoice",
           display_name: "Invoice",
           instructions: "Extract invoice fields.",
-          enable_thinking: false,
+          reasoning_effort: null,
           provider_name: createPayload?.provider_name,
           model: createPayload?.model,
           schema: createPayload?.schema,
@@ -680,7 +719,7 @@ describe("App run workflow", () => {
           name: "invoice",
           display_name: "Invoice",
           instructions: "Extract invoice fields.",
-          enable_thinking: false,
+          reasoning_effort: null,
           provider_name: "openai_compatible_api",
           model: null,
           schema: createPayload?.schema,
@@ -727,7 +766,7 @@ describe("App run workflow", () => {
           name: "invoice",
           display_name: "Invoice",
           instructions: "Extract invoice fields.",
-          enable_thinking: false,
+          reasoning_effort: null,
           provider_name: createPayload.provider_name,
           model: "server-model",
           schema: createPayload.schema,

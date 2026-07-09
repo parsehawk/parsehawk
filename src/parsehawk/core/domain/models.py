@@ -72,6 +72,24 @@ def normalize_provider_configuration(
     return {}
 
 
+class ReasoningEffort(StrEnum):
+    """Explicit reasoning effort for an extractor's model.
+
+    The values mirror OpenAI's ``reasoning_effort`` parameter. Extractors store
+    ``None`` by default, which means "send no reasoning parameter and use the
+    model's own default" — the only setting that is safe for every model.
+    Which explicit values a model accepts is the provider's call; incompatible
+    pairs surface the provider's error at extraction time.
+    """
+
+    NONE = "none"
+    MINIMAL = "minimal"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+
+
 # NuExtract3 is fine-tuned on its own chat template, so only these exact models
 # use the NuExtract payload adapter; every other model uses the generic adapter.
 # Hardcoded from https://huggingface.co/collections/numind/nuextract3 and
@@ -152,7 +170,7 @@ class Extractor(Entity):
     name: str
     display_name: str = ""
     instructions: str
-    enable_thinking: bool = False
+    reasoning_effort: ReasoningEffort | None = None
     provider_name: ProviderName | None = None
     model: str | None = None
     schema_: dict[str, Any] = Field(alias="schema")
