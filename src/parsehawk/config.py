@@ -18,9 +18,12 @@ DEFAULT_VLLM_PYTHON_VERSION = "3.12"
 DEFAULT_NUEXTRACT_KEEP_ALIVE_SECONDS = 300
 DEFAULT_PDF_MAX_PAGES = 25
 DEFAULT_PDF_RENDER_DPI = 170
-DEFAULT_VLLM_METAL_INSTALL_URL = (
-    "https://raw.githubusercontent.com/vllm-project/vllm-metal/main/install.sh"
-)
+# The vLLM Metal runtime is provisioned from two pinned artifacts: the vLLM
+# source release the plugin was built against, and the vllm-metal wheel from
+# the matching GitHub release tag. Bump both together — a vllm-metal release
+# pins its vLLM version in the upstream install.sh at the same tag.
+DEFAULT_VLLM_METAL_VERSION = "0.3.0.dev20260708043308"
+DEFAULT_VLLM_METAL_VLLM_VERSION = "0.24.0"
 
 
 def default_inference_engine() -> str | None:
@@ -69,7 +72,8 @@ class Settings(BaseSettings):
     vllm_metal_home: Path = Field(
         default_factory=lambda: Path.home() / ".parsehawk" / "runtimes" / "vllm-metal"
     )
-    vllm_metal_install_url: str = DEFAULT_VLLM_METAL_INSTALL_URL
+    vllm_metal_version: str = DEFAULT_VLLM_METAL_VERSION
+    vllm_metal_vllm_version: str = DEFAULT_VLLM_METAL_VLLM_VERSION
     nuextract_keep_alive_seconds: int = Field(default=DEFAULT_NUEXTRACT_KEEP_ALIVE_SECONDS, ge=0)
     pdf_max_pages: int = Field(default=DEFAULT_PDF_MAX_PAGES, ge=1)
     pdf_render_dpi: int = Field(default=DEFAULT_PDF_RENDER_DPI, ge=1)

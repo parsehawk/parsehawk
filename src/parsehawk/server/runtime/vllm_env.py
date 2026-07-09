@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -54,19 +55,40 @@ def vllm_launch_env(*, metal_memory_fraction: float | None = None) -> dict[str, 
     return env
 
 
+# The upstream vllm-metal releases ship a single cp312 wheel, so the Metal
+# venv's Python is fixed independently of the (configurable) Linux venv Python.
+VLLM_METAL_PYTHON_VERSION = "3.12"
+
+
+def vllm_metal_wheel_url(version: str) -> str:
+    return (
+        "https://github.com/vllm-project/vllm-metal/releases/download/"
+        f"v{version}/vllm_metal-{version}-cp312-cp312-macosx_11_0_arm64.whl"
+    )
+
+
 def ensure_vllm_metal_venv(
     runtime_home: Path,
     *,
-    install_url: str,
+    vllm_version: str,
+    vllm_metal_version: str,
     log: Callable[[str], None] = print,
 ) -> Path:
-    """Ensure a vLLM Metal environment exists for macOS Apple Silicon.
+    """Ensure a pinned vLLM Metal environment exists for macOS Apple Silicon.
 
-    The upstream installer currently owns the fast-moving vLLM Metal dependency
-    graph. ParseHawk keeps this setup contained by pointing ``HOME`` at a
-    ParseHawk runtime directory, which makes the installer create
-    ``<runtime_home>/.venv-vllm-metal``. If the user already has the upstream
-    default environment, reuse it to avoid a duplicate multi-GB install.
+    The upstream ``install.sh`` is a moving target: it installs whatever
+    vllm-metal wheel is the *latest* GitHub release, against whatever vLLM
+    version the script pins on ``main`` that day. ParseHawk instead replicates
+    the installer's steps with pinned versions so every install is
+    reproducible: build the pinned vLLM source release (with its CPU
+    requirements set), then install the vllm-metal wheel from the matching
+    release tag. The marker records the pin, so bumping either version
+    rebuilds the venv.
+
+    Escape hatches, both of which bypass the pin and leave the environment
+    user-managed: ``PARSEHAWK_VLLM_METAL_PYTHON`` points at an explicit
+    interpreter, and an existing upstream default environment
+    (``~/.venv-vllm-metal``) is reused to avoid a duplicate multi-GB install.
     """
     configured_python = os.getenv("PARSEHAWK_VLLM_METAL_PYTHON")
     if configured_python:
@@ -76,9 +98,15 @@ def ensure_vllm_metal_venv(
     if upstream_python.exists():
         return upstream_python
 
-    python_bin = runtime_home / ".venv-vllm-metal" / "bin" / "python"
+    venv_dir = runtime_home / ".venv-vllm-metal"
+    python_bin = venv_dir / "bin" / "python"
     marker = runtime_home / ".parsehawk-ready"
-    if python_bin.exists() and marker.exists():
+    spec = f"vllm=={vllm_version} vllm-metal=={vllm_metal_version}"
+    if (
+        python_bin.exists()
+        and marker.exists()
+        and marker.read_text(encoding="utf-8").strip() == spec
+    ):
         return python_bin
 
     uv = shutil.which("uv")
@@ -88,19 +116,63 @@ def ensure_vllm_metal_venv(
         )
     if shutil.which("curl") is None:
         raise SystemExit(
-            "`curl` is required to download the vLLM Metal installer but was not found on PATH."
+            "`curl` is required to download the vLLM source release but was not found on PATH."
         )
 
     runtime_home.mkdir(parents=True, exist_ok=True)
     log(
-        "Setting up the vLLM Metal runtime in "
-        f"{runtime_home / '.venv-vllm-metal'} (first run; this can take several minutes)..."
+        f"Setting up the vLLM Metal runtime in {venv_dir} "
+        f"({spec}; first run can take several minutes)..."
     )
-    env = {**os.environ, "HOME": str(runtime_home)}
-    subprocess.run(["bash", "-c", f"curl -fsSL {install_url} | bash"], env=env, check=True)
-    if not python_bin.exists():
-        raise SystemExit(f"vLLM Metal installer finished but {python_bin} was not created")
-    marker.write_text("vllm-metal\n", encoding="utf-8")
+    subprocess.run(
+        [uv, "venv", "--clear", "--python", VLLM_METAL_PYTHON_VERSION, "--seed", str(venv_dir)],
+        check=True,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tarball = f"vllm-{vllm_version}.tar.gz"
+        source_url = (
+            f"https://github.com/vllm-project/vllm/releases/download/v{vllm_version}/{tarball}"
+        )
+        subprocess.run(["curl", "-fsSL", source_url, "-o", tarball], cwd=tmp, check=True)
+        subprocess.run(["tar", "xf", tarball], cwd=tmp, check=True)
+        source_dir = Path(tmp) / f"vllm-{vllm_version}"
+        # unsafe-best-match lets uv resolve the CPU torch builds across the
+        # extra indexes listed in the requirements set, as upstream does.
+        subprocess.run(
+            [
+                uv,
+                "pip",
+                "install",
+                "--python",
+                str(python_bin),
+                "-r",
+                "requirements/cpu.txt",
+                "--index-strategy",
+                "unsafe-best-match",
+            ],
+            cwd=source_dir,
+            check=True,
+        )
+        subprocess.run(
+            [uv, "pip", "install", "--python", str(python_bin), "."],
+            cwd=source_dir,
+            env={**os.environ, "CXXFLAGS": "-Wno-parentheses"},
+            check=True,
+        )
+
+    subprocess.run(
+        [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            str(python_bin),
+            vllm_metal_wheel_url(vllm_metal_version),
+        ],
+        check=True,
+    )
+    marker.write_text(f"{spec}\n", encoding="utf-8")
     return python_bin
 
 

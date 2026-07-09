@@ -641,7 +641,8 @@ def dev(args: argparse.Namespace) -> None:
             runtime_cmd[0] = str(
                 ensure_vllm_metal_venv(
                     settings.vllm_metal_home,
-                    install_url=settings.vllm_metal_install_url,
+                    vllm_version=settings.vllm_metal_vllm_version,
+                    vllm_metal_version=settings.vllm_metal_version,
                 )
             )
         else:
@@ -857,7 +858,8 @@ def start_docker(args: argparse.Namespace) -> None:
                     python=str(
                         ensure_vllm_metal_venv(
                             settings.vllm_metal_home,
-                            install_url=settings.vllm_metal_install_url,
+                            vllm_version=settings.vllm_metal_vllm_version,
+                            vllm_metal_version=settings.vllm_metal_version,
                         )
                     ),
                 ),
