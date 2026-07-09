@@ -135,6 +135,64 @@ def test_update_extractor_model_can_be_omitted_or_cleared_for_local_default(
     assert inherited.json()["model"] is None
 
 
+def test_request_bodies_reject_unknown_fields(client: tuple[TestClient, Container]) -> None:
+    api, _container = client
+    cases = [
+        (
+            "POST",
+            "/v1/extractors",
+            {
+                "name": "strict_create",
+                "instructions": "i",
+                "schema": _OBJECT_SCHEMA,
+                "enable_thinking": True,
+            },
+            "enable_thinking",
+        ),
+        (
+            "PUT",
+            "/v1/extractors/strict_put",
+            {
+                "display_name": "Strict put",
+                "instructions": "i",
+                "schema": _OBJECT_SCHEMA,
+                "enable_thinking": True,
+            },
+            "enable_thinking",
+        ),
+        (
+            "PATCH",
+            "/v1/extractors/strict_patch",
+            {"enable_thinking": True},
+            "enable_thinking",
+        ),
+        (
+            "POST",
+            "/v1/jobs",
+            {"extractor_name": "receipt", "text": "Receipt #1", "unexpected": True},
+            "unexpected",
+        ),
+        (
+            "POST",
+            "/v1/schemas/validate",
+            {"schema": _OBJECT_SCHEMA, "unexpected": True},
+            "unexpected",
+        ),
+        (
+            "PATCH",
+            "/v1/providers/openai",
+            {"base_url": "https://proxy/v1", "unexpected": True},
+            "unexpected",
+        ),
+    ]
+
+    for method, path, payload, rejected_field in cases:
+        response = api.request(method, path, json=payload)
+
+        assert response.status_code == 422
+        assert rejected_field in response.text
+
+
 def test_list_openai_provider_models_uses_chat_filter(
     client: tuple[TestClient, Container], monkeypatch: pytest.MonkeyPatch
 ) -> None:
