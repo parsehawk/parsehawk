@@ -22,7 +22,7 @@ from parsehawk.core.domain.models import (
 
 
 class ApiModel(BaseModel):
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True, extra="forbid")
 
 
 class ExampleInputRequest(ApiModel):
@@ -54,8 +54,6 @@ class CreateExtractorRequest(ApiModel):
 
 
 class UpdateExtractorRequest(ApiModel):
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True, extra="forbid")
-
     display_name: str | None = None
     instructions: str | None = None
     # None is a meaningful value here ("use the model's default"); the endpoint
@@ -176,11 +174,21 @@ class ExtractorResponse(ApiModel):
 
     @classmethod
     def from_domain(cls, extractor: Extractor) -> ExtractorResponse:
-        payload = extractor.model_dump()
-        payload["schema"] = extractor.schema
-        payload["examples"] = [example.model_dump() for example in extractor.examples]
-        payload["is_prebuilt"] = extractor.is_prebuilt
-        return cls.model_validate(payload)
+        return cls(
+            id=extractor.id,
+            name=extractor.name,
+            display_name=extractor.display_name,
+            instructions=extractor.instructions,
+            reasoning_effort=extractor.reasoning_effort,
+            provider_name=extractor.provider_name,
+            model=extractor.model,
+            schema=extractor.schema,
+            examples=[example.model_dump() for example in extractor.examples],
+            source=extractor.source,
+            is_prebuilt=extractor.is_prebuilt,
+            created_at=extractor.created_at,
+            updated_at=extractor.updated_at,
+        )
 
 
 class ProviderResponse(ApiModel):
