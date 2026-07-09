@@ -22,13 +22,12 @@ from openai import APIConnectionError, APIStatusError, OpenAI
 from parsehawk import tracing
 from parsehawk.core.application.ports import ExtractionRequest, ExtractionResponse
 from parsehawk.core.domain.errors import ExtractionCancelled, ProviderRequestError
-from parsehawk.core.domain.models import NUEXTRACT3_MODELS
+from parsehawk.core.domain.models import NUEXTRACT3_MODELS, ReasoningEffort
 from parsehawk.server.runtime.inference._response import (
     message_content_with_source,
     redact_model_io,
 )
 from parsehawk.server.runtime.inference.generic import (
-    REASONING_NONE,
     RESPONSE_FORMAT_JSON_SCHEMA,
     build_generic_chat_payload,
 )
@@ -80,6 +79,15 @@ def select_adapter(model: str) -> str:
     return ADAPTER_NUEXTRACT if model in NUEXTRACT3_MODELS else ADAPTER_GENERIC
 
 
+def reasoning_requested(reasoning_effort: str | None) -> bool:
+    """Whether the request explicitly turns model reasoning on.
+
+    ``None`` leaves the model at its own default and ``"none"`` disables
+    reasoning; every explicit level enables it.
+    """
+    return reasoning_effort is not None and reasoning_effort != ReasoningEffort.NONE
+
+
 def _requires_legacy_max_tokens(exc: ProviderRequestError) -> bool:
     """Whether a 400 means the server rejects `max_completion_tokens` (legacy server)."""
     return exc.status_code == 400 and "max_completion_tokens" in str(exc)
@@ -95,8 +103,6 @@ class OpenAIEngineConfig:
     timeout_seconds: int = 600
     include_response_format: bool = True
     response_format_mode: str = RESPONSE_FORMAT_JSON_SCHEMA
-    reasoning_mode: str = REASONING_NONE
-    reasoning_effort: str = "medium"
     log_model_io: bool = False
 
 
@@ -136,7 +142,7 @@ class OpenAIExtractionEngine:
         raise_if_cancelled()
         self._debug_model_io("model runtime response: %s", raw)
         content = strip_generation_control_tokens(message_content_with_source(raw).text)
-        if request.enable_thinking:
+        if reasoning_requested(request.reasoning_effort):
             content = strip_hidden_thinking(content)
         return ExtractionResponse(data=extract_json_object(content))
 
@@ -200,12 +206,14 @@ class OpenAIExtractionEngine:
 
     def _build_payload(self, request: ExtractionRequest) -> tuple[dict[str, Any], dict[str, Any]]:
         if self._adapter == ADAPTER_NUEXTRACT:
+            # NuExtract's chat template only knows thinking on/off, so any
+            # explicit effort level maps to "on"; None/"none" map to "off".
             payload = build_chat_completion_payload(
                 request,
                 model=self._config.model,
                 max_tokens=self._config.max_tokens,
                 temperature=self._config.temperature,
-                enable_thinking=request.enable_thinking,
+                enable_thinking=reasoning_requested(request.reasoning_effort),
                 include_response_format=self._config.include_response_format,
                 include_enable_thinking_field=False,
             )
@@ -215,8 +223,6 @@ class OpenAIExtractionEngine:
             model=self._config.model,
             max_completion_tokens=self._config.max_tokens,
             response_format_mode=self._config.response_format_mode,
-            reasoning_mode=self._config.reasoning_mode,
-            reasoning_effort=self._config.reasoning_effort,
         )
 
     def _debug_model_io(self, message: str, payload: dict[str, Any]) -> None:

@@ -11,6 +11,10 @@ export type FileRecord = {
 
 export type ProviderName = "openai" | "microsoft_foundry" | "openai_compatible_api";
 
+// Mirrors OpenAI's reasoning_effort values; null means "use the model's own
+// default" (no reasoning parameter is sent at all).
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
 export type ProviderConfiguration = {
   project_url?: string | null;
 };
@@ -29,7 +33,7 @@ export type Extractor = {
   name: string;
   display_name: string;
   instructions: string;
-  enable_thinking: boolean;
+  reasoning_effort: ReasoningEffort | null;
   provider_name: ProviderName | null;
   model: string | null;
   schema: Record<string, unknown>;

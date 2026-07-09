@@ -27,7 +27,7 @@ from parsehawk.config import (
     Settings,
     default_inference_engine,
 )
-from parsehawk.core.domain.models import ProviderName
+from parsehawk.core.domain.models import ProviderName, ReasoningEffort
 from parsehawk.model_profiles import (
     RuntimePlatform,
     RuntimeProfileDefaults,
@@ -41,6 +41,12 @@ from parsehawk.server.runtime.vllm_env import (
 
 UNSUPPORTED_RUNTIME = "unsupported"
 _PROVIDER_NAMES = tuple(name.value for name in ProviderName)
+# "default" clears the effort back to null, i.e. the model's own default.
+_REASONING_EFFORT_CHOICES = ("default", *(effort.value for effort in ReasoningEffort))
+
+
+def _reasoning_effort_payload_value(argument: str) -> str | None:
+    return None if argument == "default" else argument
 
 
 def _default_runtime() -> str:
@@ -369,7 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
     extract_parser.add_argument("--schema")
     extract_parser.add_argument("--instructions")
     extract_parser.add_argument("--name")
-    extract_parser.add_argument("--enable-thinking", action="store_true")
+    extract_parser.add_argument("--reasoning-effort", choices=_REASONING_EFFORT_CHOICES)
     extract_input = extract_parser.add_mutually_exclusive_group()
     extract_input.add_argument("--file-id")
     extract_input.add_argument("--text")
@@ -416,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
     extractors_create_parser.add_argument("--instructions", required=True)
     extractors_create_parser.add_argument("--schema", required=True)
     extractors_create_parser.add_argument("--examples")
-    extractors_create_parser.add_argument("--enable-thinking", action="store_true")
+    extractors_create_parser.add_argument("--reasoning-effort", choices=_REASONING_EFFORT_CHOICES)
     extractors_create_parser.add_argument(
         "--provider", dest="provider_name", choices=_PROVIDER_NAMES
     )
@@ -429,7 +435,7 @@ def build_parser() -> argparse.ArgumentParser:
     extractors_put_parser.add_argument("--instructions", required=True)
     extractors_put_parser.add_argument("--schema", required=True)
     extractors_put_parser.add_argument("--examples")
-    extractors_put_parser.add_argument("--enable-thinking", action="store_true")
+    extractors_put_parser.add_argument("--reasoning-effort", choices=_REASONING_EFFORT_CHOICES)
     extractors_put_parser.add_argument("--provider", dest="provider_name", choices=_PROVIDER_NAMES)
     extractors_put_parser.add_argument("--model")
     _add_api_url(extractors_put_parser)
@@ -443,11 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider", dest="provider_name", choices=_PROVIDER_NAMES
     )
     extractors_update_parser.add_argument("--model")
-    extractors_update_parser.add_argument(
-        "--enable-thinking",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
+    extractors_update_parser.add_argument("--reasoning-effort", choices=_REASONING_EFFORT_CHOICES)
     _add_api_url(extractors_update_parser)
     extractors_delete_parser = extractors_subparsers.add_parser("delete")
     extractors_delete_parser.add_argument("extractor_ref")
@@ -1058,10 +1060,11 @@ def extractors(args: argparse.Namespace) -> None:
         payload = {
             "display_name": display_name,
             "instructions": read_text_argument(args.instructions),
-            "enable_thinking": args.enable_thinking,
             "schema": read_json_file(args.schema),
             "examples": read_json_file(args.examples) if args.examples else [],
         }
+        if args.reasoning_effort is not None:
+            payload["reasoning_effort"] = _reasoning_effort_payload_value(args.reasoning_effort)
         if args.name is not None:
             payload["name"] = args.name
         if args.provider_name is not None:
@@ -1073,10 +1076,11 @@ def extractors(args: argparse.Namespace) -> None:
         payload = {
             "display_name": args.display_name,
             "instructions": read_text_argument(args.instructions),
-            "enable_thinking": args.enable_thinking,
             "schema": read_json_file(args.schema),
             "examples": read_json_file(args.examples) if args.examples else [],
         }
+        if args.reasoning_effort is not None:
+            payload["reasoning_effort"] = _reasoning_effort_payload_value(args.reasoning_effort)
         if args.name is not None:
             payload["name"] = args.name
         if args.provider_name is not None:
@@ -1097,8 +1101,8 @@ def extractors(args: argparse.Namespace) -> None:
             payload["display_name"] = args.display_name
         if args.instructions is not None:
             payload["instructions"] = read_text_argument(args.instructions)
-        if args.enable_thinking is not None:
-            payload["enable_thinking"] = args.enable_thinking
+        if args.reasoning_effort is not None:
+            payload["reasoning_effort"] = _reasoning_effort_payload_value(args.reasoning_effort)
         if args.provider_name is not None:
             payload["provider_name"] = args.provider_name
         if args.model is not None:
@@ -1874,10 +1878,11 @@ def create_ad_hoc_extractor(args: argparse.Namespace) -> str:
     payload = {
         "display_name": args.name or default_extractor_name(args),
         "instructions": read_text_argument(args.instructions),
-        "enable_thinking": args.enable_thinking,
         "schema": read_json_file(args.schema),
         "examples": [],
     }
+    if args.reasoning_effort is not None:
+        payload["reasoning_effort"] = _reasoning_effort_payload_value(args.reasoning_effort)
     extractor = api_request(args.api_url, "POST", "/v1/extractors", payload=payload)
     return str(extractor["id"])
 

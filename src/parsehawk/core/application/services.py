@@ -33,6 +33,7 @@ from parsehawk.core.domain.models import (
     JobStatus,
     Provider,
     ProviderName,
+    ReasoningEffort,
     ValidationIssue,
     extractor_name_suffix,
     normalize_provider_configuration,
@@ -49,11 +50,14 @@ SUPPORTED_FILE_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".txt", ".md", ".mar
 DEFAULT_PROVIDER_NAME = ProviderName.OPENAI_COMPATIBLE
 
 
-class _ModelNotProvided:
+# Sentinel distinguishing "field absent from the update" from an explicit None,
+# which is a meaningful value for nullable extractor fields (model inherits the
+# runtime default; reasoning_effort uses the model's own default).
+class _NotProvided:
     pass
 
 
-MODEL_NOT_PROVIDED = _ModelNotProvided()
+NOT_PROVIDED = _NotProvided()
 
 
 class DeleteJobResult(StrEnum):
@@ -137,7 +141,7 @@ class ExtractorService:
         display_name: str | None = None,
         name: str | None = None,
         instructions: str,
-        enable_thinking: bool = False,
+        reasoning_effort: ReasoningEffort | None = None,
         provider_name: ProviderName | None = None,
         model: str | None = None,
         schema: dict[str, Any] | None = None,
@@ -163,7 +167,7 @@ class ExtractorService:
             name=stable_name,
             display_name=display_name,
             instructions=instructions,
-            enable_thinking=enable_thinking,
+            reasoning_effort=reasoning_effort,
             provider_name=resolved_provider_name,
             model=resolved_model,
             schema=schema,
@@ -196,9 +200,9 @@ class ExtractorService:
         *,
         display_name: str | None = None,
         instructions: str | None = None,
-        enable_thinking: bool | None = None,
+        reasoning_effort: ReasoningEffort | None | _NotProvided = NOT_PROVIDED,
         provider_name: ProviderName | None = None,
-        model: str | None | _ModelNotProvided = MODEL_NOT_PROVIDED,
+        model: str | None | _NotProvided = NOT_PROVIDED,
         schema: dict[str, Any] | None = None,
         examples: List[dict[str, Any]] | None = None,
     ) -> Extractor:
@@ -210,12 +214,12 @@ class ExtractorService:
             updates["display_name"] = display_name
         if instructions is not None:
             updates["instructions"] = instructions
-        if enable_thinking is not None:
-            updates["enable_thinking"] = enable_thinking
+        if not isinstance(reasoning_effort, _NotProvided):
+            updates["reasoning_effort"] = reasoning_effort
         resolved_provider_name = provider_name or current.provider_name or self._default_provider
         if provider_name is not None:
             updates["provider_name"] = provider_name
-        if not isinstance(model, _ModelNotProvided):
+        if not isinstance(model, _NotProvided):
             updates["model"] = self._normalize_model(resolved_provider_name, model)
         elif provider_name is not None:
             self._normalize_model(resolved_provider_name, current.model)
@@ -234,7 +238,7 @@ class ExtractorService:
         display_name: str,
         body_name: str | None = None,
         instructions: str,
-        enable_thinking: bool = False,
+        reasoning_effort: ReasoningEffort | None = None,
         provider_name: ProviderName | None = None,
         model: str | None = None,
         schema: dict[str, Any] | None = None,
@@ -249,7 +253,7 @@ class ExtractorService:
                 existing,
                 display_name=display_name,
                 instructions=instructions,
-                enable_thinking=enable_thinking,
+                reasoning_effort=reasoning_effort,
                 provider_name=provider_name,
                 model=model,
                 schema=schema,
@@ -262,7 +266,7 @@ class ExtractorService:
             name=extractor_ref,
             display_name=display_name,
             instructions=instructions,
-            enable_thinking=enable_thinking,
+            reasoning_effort=reasoning_effort,
             provider_name=provider_name,
             model=model,
             schema=schema,
@@ -280,7 +284,7 @@ class ExtractorService:
         *,
         display_name: str,
         instructions: str,
-        enable_thinking: bool,
+        reasoning_effort: ReasoningEffort | None,
         provider_name: ProviderName | None,
         model: str | None,
         schema: dict[str, Any] | None,
@@ -293,7 +297,7 @@ class ExtractorService:
             update={
                 "display_name": display_name,
                 "instructions": instructions,
-                "enable_thinking": enable_thinking,
+                "reasoning_effort": reasoning_effort,
                 "provider_name": resolved_provider_name,
                 "model": resolved_model,
                 "schema_": self._validate_schema(schema),
@@ -596,7 +600,7 @@ class JobService:
                     source_content_type=source.content_type,
                     source_images=source.images,
                     instructions=extractor.instructions,
-                    enable_thinking=extractor.enable_thinking,
+                    reasoning_effort=extractor.reasoning_effort,
                     schema=extractor.schema,
                     examples=self._resolve_examples(extractor),
                 ),

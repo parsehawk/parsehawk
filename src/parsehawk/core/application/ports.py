@@ -116,7 +116,7 @@ class ExtractionRequest:
         source_content_type: str | None = None,
         source_images: list[PreparedImage] | None = None,
         instructions: str,
-        enable_thinking: bool,
+        reasoning_effort: str | None = None,
         schema: dict,
         examples: list[dict],
     ) -> None:
@@ -125,7 +125,7 @@ class ExtractionRequest:
         self.source_content_type = source_content_type
         self.source_images = source_images or []
         self.instructions = instructions
-        self.enable_thinking = enable_thinking
+        self.reasoning_effort = reasoning_effort
         self.schema = schema
         self.examples = examples
 

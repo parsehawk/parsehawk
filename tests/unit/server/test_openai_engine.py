@@ -11,8 +11,6 @@ from parsehawk.core.application.ports import ExtractionRequest
 from parsehawk.core.domain.errors import ExtractionCancelled, ProviderRequestError
 from parsehawk.server.runtime.inference import openai_engine as openai_engine_module
 from parsehawk.server.runtime.inference.generic import (
-    REASONING_CHAT_TEMPLATE_KWARGS,
-    REASONING_EFFORT,
     RESPONSE_FORMAT_JSON_OBJECT,
     RESPONSE_FORMAT_NONE,
     build_generic_chat_payload,
@@ -26,11 +24,13 @@ from parsehawk.server.runtime.inference.openai_engine import (
 NUEXTRACT_MODEL = "numind/NuExtract3-W4A16"
 
 
-def make_request(*, enable_thinking: bool = False, examples: list[dict[str, Any]] | None = None):
+def make_request(
+    *, reasoning_effort: str | None = None, examples: list[dict[str, Any]] | None = None
+):
     return ExtractionRequest(
         source_text="Receipt #2",
         instructions="Extract the receipt id.",
-        enable_thinking=enable_thinking,
+        reasoning_effort=reasoning_effort,
         schema={
             "type": "object",
             "properties": {"receipt_id": {"type": "string"}},
@@ -166,7 +166,7 @@ def test_nuextract_thinking_uses_final_content_after_reasoning() -> None:
     request = ExtractionRequest(
         source_text="Alex packed a blue notebook.",
         instructions="Extract the person and object.",
-        enable_thinking=True,
+        reasoning_effort="medium",
         schema={
             "type": "object",
             "properties": {
@@ -270,25 +270,39 @@ def test_generic_payload_response_format_modes_and_examples() -> None:
     assert "response_format" not in none_payload
 
 
-def test_generic_payload_routes_reasoning() -> None:
-    thinking = make_request(enable_thinking=True)
+def test_generic_payload_maps_reasoning_effort() -> None:
+    # The default (None) sends no reasoning parameter at all — the model's own
+    # default is the only setting that is safe for every model.
+    default, extra_body = build_generic_chat_payload(
+        make_request(), model="gpt-5.1", max_completion_tokens=1
+    )
+    assert "reasoning_effort" not in default
+    assert extra_body == {}
 
     effort, _ = build_generic_chat_payload(
-        thinking,
-        model="o3",
-        max_completion_tokens=1,
-        reasoning_mode=REASONING_EFFORT,
-        reasoning_effort="high",
+        make_request(reasoning_effort="high"), model="o3", max_completion_tokens=1
     )
     assert effort["reasoning_effort"] == "high"
 
-    _, extra_body = build_generic_chat_payload(
-        thinking,
-        model="qwen",
-        max_completion_tokens=1,
-        reasoning_mode=REASONING_CHAT_TEMPLATE_KWARGS,
+    # An explicit "none" is forwarded verbatim; whether the model accepts it is
+    # the provider's call.
+    disabled, _ = build_generic_chat_payload(
+        make_request(reasoning_effort="none"), model="gpt-5.1", max_completion_tokens=1
     )
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+    assert disabled["reasoning_effort"] == "none"
+
+
+def test_nuextract_adapter_maps_reasoning_effort_to_thinking_flag() -> None:
+    for reasoning_effort, expected in ((None, False), ("none", False), ("low", True)):
+        client, completions = _client_returning('{"receipt_id": "2"}')
+        engine = OpenAIExtractionEngine(
+            OpenAIEngineConfig(model=NUEXTRACT_MODEL), client=cast(OpenAI, client)
+        )
+
+        engine.extract(make_request(reasoning_effort=reasoning_effort))
+
+        (call,) = completions.calls
+        assert call["extra_body"]["chat_template_kwargs"]["enable_thinking"] is expected
 
 
 def test_extract_reads_reasoning_content_fallback() -> None:

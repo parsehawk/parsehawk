@@ -20,6 +20,7 @@ from parsehawk.core.domain.models import (
     JobStatus,
     Provider,
     ProviderName,
+    ReasoningEffort,
     utc_now,
 )
 from parsehawk.server.adapters.persistence.migrations import apply_pending
@@ -124,7 +125,7 @@ class SQLiteExtractorRow:
     name: str
     display_name: str
     instructions: str
-    enable_thinking: int
+    reasoning_effort: str | None
     provider_name: str | None
     model: str | None
     schema: str
@@ -142,7 +143,9 @@ class SQLiteExtractorRow:
             name=extractor.name,
             display_name=extractor.display_name,
             instructions=extractor.instructions,
-            enable_thinking=1 if extractor.enable_thinking else 0,
+            reasoning_effort=extractor.reasoning_effort.value
+            if extractor.reasoning_effort
+            else None,
             provider_name=extractor.provider_name.value if extractor.provider_name else None,
             model=extractor.model,
             schema=_dump_json(extractor.schema),
@@ -170,7 +173,9 @@ class SQLiteExtractorRow:
             name=self.name,
             display_name=self.display_name,
             instructions=self.instructions,
-            enable_thinking=bool(self.enable_thinking),
+            reasoning_effort=ReasoningEffort(self.reasoning_effort)
+            if self.reasoning_effort
+            else None,
             provider_name=ProviderName(self.provider_name) if self.provider_name else None,
             model=self.model,
             schema=_load_json(self.schema),
@@ -304,7 +309,7 @@ class SQLiteExtractorRepository:
             self._conn.execute(
                 """
                 INSERT INTO extractors (
-                    id, name, display_name, instructions, enable_thinking, provider_name, model,
+                    id, name, display_name, instructions, reasoning_effort, provider_name, model,
                     schema, examples, source, seed_key, seed_version, created_at, updated_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -312,7 +317,7 @@ class SQLiteExtractorRepository:
                     name = excluded.name,
                     display_name = excluded.display_name,
                     instructions = excluded.instructions,
-                    enable_thinking = excluded.enable_thinking,
+                    reasoning_effort = excluded.reasoning_effort,
                     provider_name = excluded.provider_name,
                     model = excluded.model,
                     schema = excluded.schema,
@@ -328,7 +333,7 @@ class SQLiteExtractorRepository:
                     row.name,
                     row.display_name,
                     row.instructions,
-                    row.enable_thinking,
+                    row.reasoning_effort,
                     row.provider_name,
                     row.model,
                     row.schema,

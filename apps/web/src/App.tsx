@@ -106,6 +106,7 @@ import type {
   JobStatus,
   Provider,
   ProviderName,
+  ReasoningEffort,
   SchemaValidation,
   SchemaValidationRequest
 } from "./types";
@@ -126,6 +127,16 @@ const PROVIDERS: { name: ProviderName; label: string }[] = [
   { name: "microsoft_foundry", label: "Microsoft Foundry" }
 ];
 const DEFAULT_PROVIDER_NAME: ProviderName = "openai_compatible_api";
+// "" is the UI spelling for null: use the model's own default reasoning.
+const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort | ""; label: string }[] = [
+  { value: "", label: "Model default" },
+  { value: "none", label: "None" },
+  { value: "minimal", label: "Minimal" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "Extra high" }
+];
 const FOUNDRY_BASE_URL_PLACEHOLDER = "https://your-resource-name.services.ai.azure.com/openai/v1";
 const FOUNDRY_PROJECT_URL_PLACEHOLDER =
   "https://your-resource-name.services.ai.azure.com/api/projects/your-project-name";
@@ -172,7 +183,7 @@ export default function App() {
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [displayName, setDisplayName] = useState(emptyDisplayName);
   const [instructions, setInstructions] = useState(emptyInstructions);
-  const [enableThinking, setEnableThinking] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | "">("");
   const [providerName, setProviderName] = useState<ProviderName>(DEFAULT_PROVIDER_NAME);
   const [model, setModel] = useState("");
   const [providerModels, setProviderModels] = useState<string[]>([]);
@@ -183,7 +194,7 @@ export default function App() {
       name: emptyExtractorName,
       displayName: emptyDisplayName,
       instructions: emptyInstructions,
-      enableThinking: false,
+      reasoningEffort: "",
       providerName: DEFAULT_PROVIDER_NAME,
       model: "",
       schemaText: prettyJson(fieldSchemaFromFields([])),
@@ -232,7 +243,7 @@ export default function App() {
     name,
     displayName,
     instructions,
-    enableThinking,
+    reasoningEffort,
     providerName,
     model,
     schemaText: schemaDraftText,
@@ -564,7 +575,7 @@ export default function App() {
     const base = {
       display_name: displayName,
       instructions,
-      enable_thinking: enableThinking,
+      reasoning_effort: reasoningEffort || null,
       provider_name: providerName,
       model: trimmedModel || null,
       examples: examplesToPayload(examples)
@@ -620,7 +631,7 @@ export default function App() {
     setNameManuallyEdited(false);
     setDisplayName(extractorLabel(extractor));
     setInstructions(extractor.instructions);
-    setEnableThinking(extractor.enable_thinking ?? false);
+    setReasoningEffort(extractor.reasoning_effort ?? "");
     setProviderName(extractor.provider_name ?? DEFAULT_PROVIDER_NAME);
     setModel(extractor.model ?? "");
     applyExtractorArtifacts(extractor);
@@ -639,7 +650,7 @@ export default function App() {
     setNameManuallyEdited(false);
     setDisplayName(emptyDisplayName);
     setInstructions(emptyInstructions);
-    setEnableThinking(false);
+    setReasoningEffort("");
     setProviderName(DEFAULT_PROVIDER_NAME);
     setModel("");
     setExamples(nextExamples);
@@ -652,7 +663,7 @@ export default function App() {
         name: emptyExtractorName,
         displayName: emptyDisplayName,
         instructions: emptyInstructions,
-        enableThinking: false,
+        reasoningEffort: "",
         providerName: DEFAULT_PROVIDER_NAME,
         model: "",
         schemaText: prettyJson(fieldSchemaFromFields(nextSchemaFields)),
@@ -686,7 +697,7 @@ export default function App() {
         name: extractor.name,
         displayName: extractorLabel(extractor),
         instructions: extractor.instructions,
-        enableThinking: extractor.enable_thinking ?? false,
+        reasoningEffort: extractor.reasoning_effort ?? "",
         providerName: extractor.provider_name ?? DEFAULT_PROVIDER_NAME,
         model: extractor.model ?? "",
         schemaText: prettyJson(fieldSchemaFromFields(nextFields)),
@@ -965,13 +976,30 @@ export default function App() {
                         {providerModelDescription(providerName, providerModelsError)}
                       </FieldDescription>
                     </Field>
-                    <CheckboxField
-                      id="extractor-enable-thinking"
-                      label="Enable thinking"
-                      checked={enableThinking}
-                      disabled={draftExtractorIsPrebuilt}
-                      onChange={setEnableThinking}
-                    />
+                    <Field>
+                      <FieldLabel htmlFor="extractor-reasoning-effort">
+                        Reasoning effort
+                      </FieldLabel>
+                      <NativeSelect
+                        id="extractor-reasoning-effort"
+                        value={reasoningEffort}
+                        disabled={draftExtractorIsPrebuilt}
+                        onChange={(event) =>
+                          setReasoningEffort(event.target.value as ReasoningEffort | "")
+                        }
+                      >
+                        {REASONING_EFFORT_OPTIONS.map((option) => (
+                          <NativeSelectOption key={option.value} value={option.value}>
+                            {option.label}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                      <FieldDescription>
+                        How much the model reasons before answering. Model default sends no
+                        reasoning parameter; models that do not support the selected level fail
+                        at extraction time with the provider&apos;s error.
+                      </FieldDescription>
+                    </Field>
                   </FieldGroup>
 
                   <Separator />
@@ -2785,7 +2813,7 @@ function extractorDraftSnapshot(props: {
   name: string;
   displayName: string;
   instructions: string;
-  enableThinking: boolean;
+  reasoningEffort: ReasoningEffort | "";
   providerName: ProviderName;
   model: string;
   schemaText: string;
@@ -2795,7 +2823,7 @@ function extractorDraftSnapshot(props: {
     name: props.name,
     displayName: props.displayName,
     instructions: props.instructions,
-    enableThinking: props.enableThinking,
+    reasoningEffort: props.reasoningEffort,
     providerName: props.providerName,
     model: props.model,
     schemaText: props.schemaText,

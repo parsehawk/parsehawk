@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse as FastAPIFileResponse
 from fastapi.responses import JSONResponse
 
 from parsehawk import telemetry, tracing
-from parsehawk.core.application.services import MODEL_NOT_PROVIDED, DeleteJobResult
+from parsehawk.core.application.services import NOT_PROVIDED, DeleteJobResult
 from parsehawk.core.domain.errors import NotFoundError, ProviderRequestError, ValidationFailure
 from parsehawk.core.domain.models import ProviderName
 from parsehawk.core.domain.schemas import (
@@ -182,7 +182,7 @@ def create_extractor(request: CreateExtractorRequest, container: ContainerDep) -
         name=request.name,
         display_name=request.display_name,
         instructions=request.instructions,
-        enable_thinking=request.enable_thinking,
+        reasoning_effort=request.reasoning_effort,
         provider_name=request.provider_name,
         model=request.model,
         schema=request.schema_,
@@ -213,9 +213,11 @@ def update_extractor(
         extractor_ref,
         display_name=request.display_name,
         instructions=request.instructions,
-        enable_thinking=request.enable_thinking,
+        reasoning_effort=request.reasoning_effort
+        if "reasoning_effort" in request.model_fields_set
+        else NOT_PROVIDED,
         provider_name=request.provider_name,
-        model=request.model if "model" in request.model_fields_set else MODEL_NOT_PROVIDED,
+        model=request.model if "model" in request.model_fields_set else NOT_PROVIDED,
         schema=request.schema_,
         examples=[example.model_dump() for example in request.examples]
         if request.examples is not None
@@ -235,7 +237,7 @@ def upsert_extractor(
         body_name=request.name,
         display_name=request.display_name,
         instructions=request.instructions,
-        enable_thinking=request.enable_thinking,
+        reasoning_effort=request.reasoning_effort,
         provider_name=request.provider_name,
         model=request.model,
         schema=request.schema_,

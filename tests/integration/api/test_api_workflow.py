@@ -75,7 +75,7 @@ def test_receipt_api_workflow(monkeypatch, tmp_path, mock_inference) -> None:
                 "name": "receipt_test",
                 "display_name": "Receipt Test",
                 "instructions": "Extract the receipt fields.",
-                "enable_thinking": True,
+                "reasoning_effort": "medium",
                 "schema": schema,
                 "examples": [],
             },
@@ -87,7 +87,7 @@ def test_receipt_api_workflow(monkeypatch, tmp_path, mock_inference) -> None:
         assert "json_schema" not in extractor_payload
         assert extractor_payload["source"] == "user"
         assert extractor_payload["is_prebuilt"] is False
-        assert extractor_payload["enable_thinking"] is True
+        assert extractor_payload["reasoning_effort"] == "medium"
         assert extractor_payload["schema"] == canonical_schema
         extractor_id = extractor_payload["id"]
         assert file_id.startswith("file_")

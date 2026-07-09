@@ -131,7 +131,7 @@ def test_build_chat_completion_payload_uses_nuextract_message_structure() -> Non
     request = ExtractionRequest(
         source_text="John bought coffee.",
         instructions="Extract buyer and item.",
-        enable_thinking=False,
+        reasoning_effort=None,
         schema={
             "type": "object",
             "properties": {
@@ -201,7 +201,7 @@ def test_build_chat_completion_payload_vllm_flavor_keeps_response_format() -> No
             "properties": {"buyer": {"type": "string"}},
         },
         examples=[],
-        enable_thinking=True,
+        reasoning_effort="medium",
     )
 
     payload = build_chat_completion_payload(
@@ -234,7 +234,7 @@ def test_build_chat_completion_payload_derives_nuextract_template_from_schema() 
     request = ExtractionRequest(
         source_text="Jane bought tea.",
         instructions="Extract buyer and item.",
-        enable_thinking=False,
+        reasoning_effort=None,
         schema={
             "type": "object",
             "properties": {
@@ -273,7 +273,7 @@ def test_build_chat_completion_payload_includes_prepared_images_in_order(tmp_pat
             PreparedImage(storage_path=str(second), content_type="image/png", page_number=2),
         ],
         instructions="Extract invoice fields.",
-        enable_thinking=False,
+        reasoning_effort=None,
         schema={
             "type": "object",
             "properties": {"invoice_number": {"type": "string"}},

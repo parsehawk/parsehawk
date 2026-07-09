@@ -17,6 +17,7 @@ from parsehawk.core.domain.models import (
     JobStatus,
     Provider,
     ProviderName,
+    ReasoningEffort,
 )
 
 
@@ -39,7 +40,7 @@ class CreateExtractorRequest(ApiModel):
     name: str | None = None
     display_name: str | None = None
     instructions: str
-    enable_thinking: bool = False
+    reasoning_effort: ReasoningEffort | None = None
     provider_name: ProviderName | None = None
     model: str | None = None
     schema_: dict[str, Any] = Field(alias="schema")
@@ -57,7 +58,9 @@ class UpdateExtractorRequest(ApiModel):
 
     display_name: str | None = None
     instructions: str | None = None
-    enable_thinking: bool | None = None
+    # None is a meaningful value here ("use the model's default"); the endpoint
+    # checks model_fields_set to tell an explicit null from an absent field.
+    reasoning_effort: ReasoningEffort | None = None
     provider_name: ProviderName | None = None
     model: str | None = None
     schema_: dict[str, Any] | None = Field(default=None, alias="schema")
@@ -68,7 +71,7 @@ class UpsertExtractorRequest(ApiModel):
     name: str | None = None
     display_name: str
     instructions: str
-    enable_thinking: bool = False
+    reasoning_effort: ReasoningEffort | None = None
     provider_name: ProviderName | None = None
     model: str | None = None
     schema_: dict[str, Any] = Field(alias="schema")
@@ -161,7 +164,7 @@ class ExtractorResponse(ApiModel):
     name: str
     display_name: str
     instructions: str
-    enable_thinking: bool
+    reasoning_effort: ReasoningEffort | None
     provider_name: ProviderName | None
     model: str | None
     schema_: dict[str, Any] = Field(alias="schema")
