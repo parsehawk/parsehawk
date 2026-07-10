@@ -72,6 +72,12 @@ DEFAULT_MODEL_RUNTIME_PROFILE = ModelRuntimeProfile(
                 max_num_seqs=1,
             ),
             RuntimeTier(
+                min_memory_bytes=16 * GIB,
+                max_model_len=16384,
+                gpu_memory_utilization=0.70,
+                max_num_seqs=1,
+            ),
+            RuntimeTier(
                 min_memory_bytes=32 * GIB,
                 max_model_len=32768,
                 gpu_memory_utilization=0.50,
