@@ -638,6 +638,12 @@ def test_vllm_settings_default_to_macos_memory_tier(
 
     monkeypatch.setattr(cli, "_system_memory_bytes", lambda: 18_000_000_000)
     resolved = cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16")
+    assert resolved.vllm_max_model_len == 16384
+    assert resolved.vllm_gpu_memory_utilization == 0.7
+    assert resolved.vllm_max_num_seqs == 1
+
+    monkeypatch.setattr(cli, "_system_memory_bytes", lambda: 8_000_000_000)
+    resolved = cli._resolve_vllm_settings(settings, model="numind/NuExtract3-W4A16")
     assert resolved.vllm_max_model_len == 8192
     assert resolved.vllm_gpu_memory_utilization == 0.7
     assert resolved.vllm_max_num_seqs == 1
