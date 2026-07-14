@@ -12,7 +12,7 @@ info:
   license:
     name: Apache License 2.0
     identifier: Apache-2.0
-  version: 0.1.3
+  version: 0.2.0
 servers:
 - url: http://127.0.0.1:8000
   description: Default local ParseHawk API
