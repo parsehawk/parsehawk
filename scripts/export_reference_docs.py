@@ -14,6 +14,7 @@ from typing import Any, Iterator
 from pydantic_core import PydanticUndefined
 
 from parsehawk.cli.main import (
+    CLI_COMMAND_EXAMPLES,
     CLI_CONFIG_DESCRIPTIONS,
     CONFIG_ENV_OVERRIDES,
     DEFAULT_CLI_CONFIG,
@@ -124,9 +125,32 @@ def _usage(parser: argparse.ArgumentParser) -> str:
     return " ".join(usage.removeprefix("usage: ").split())
 
 
+def _command_anchor(command: str) -> str:
+    return command.lower().replace(" ", "-")
+
+
+def _related_commands(command: str, commands: set[str]) -> list[str]:
+    parts = command.split()
+    related: list[str] = []
+    if len(parts) > 1:
+        related.append(" ".join(parts[:-1]))
+    prefix = f"{command} "
+    related.extend(
+        candidate
+        for candidate in sorted(commands)
+        if candidate.startswith(prefix) and " " not in candidate.removeprefix(prefix)
+    )
+    return list(dict.fromkeys(related))
+
+
 def render_cli_reference() -> str:
     """Render every argparse command and option as stable Markdown."""
     commands = list(iter_commands(_build_deterministic_parser()))
+    command_names = {command.parser.prog for command in commands}
+    if command_names != CLI_COMMAND_EXAMPLES.keys():
+        missing = sorted(command_names - CLI_COMMAND_EXAMPLES.keys())
+        extra = sorted(CLI_COMMAND_EXAMPLES.keys() - command_names)
+        raise ValueError(f"CLI example metadata is stale (missing={missing}, extra={extra})")
     lines = [
         "---",
         "title: CLI reference",
@@ -145,12 +169,23 @@ def render_cli_reference() -> str:
         "`parsehawk` command. Change CLI help in code, run `just references-export`, and commit",
         "the updated page.",
         "",
+        "## Exit status",
+        "",
+        "| Code | Meaning |",
+        "| --- | --- |",
+        "| `0` | Command completed successfully. |",
+        "| `1` | Runtime, API, configuration, validation, or local-environment failure. |",
+        "| `2` | Command-line usage error reported by `argparse`. |",
+        "",
+        "Errors are written to standard error. API failures include the HTTP status and response",
+        "body; connection failures include the target API URL.",
+        "",
         "## Command index",
         "",
     ]
     for command in commands:
         label = command.parser.prog
-        anchor = label.lower().replace(" ", "-")
+        anchor = _command_anchor(label)
         lines.append(f"- [`{label}`](#{anchor})")
 
     for command in commands:
@@ -160,6 +195,26 @@ def render_cli_reference() -> str:
             aliases = ", ".join(f"`{alias}`" for alias in command.aliases)
             lines.extend([f"Aliases: {aliases}", ""])
         lines.extend(["```console", f"$ {_usage(parser)}", "```", ""])
+
+        lines.extend(
+            [
+                "### Example",
+                "",
+                "```console",
+                f"$ {CLI_COMMAND_EXAMPLES[parser.prog]}",
+                "```",
+                "",
+            ]
+        )
+
+        related = _related_commands(parser.prog, command_names)
+        if related:
+            lines.extend(["### Related commands", ""])
+            lines.extend(
+                f"- [`{related_command}`](#{_command_anchor(related_command)})"
+                for related_command in related
+            )
+            lines.append("")
 
         actions = [
             action

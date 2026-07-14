@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from parsehawk.cli.main import (
+    CLI_COMMAND_EXAMPLES,
     CLI_CONFIG_DESCRIPTIONS,
     CONFIG_ENV_OVERRIDES,
     DEFAULT_CLI_CONFIG,
@@ -33,6 +34,7 @@ def test_every_cli_command_and_argument_has_help() -> None:
     command_parsers = _iter_command_parsers(build_parser())
 
     assert command_parsers
+    assert CLI_COMMAND_EXAMPLES.keys() == {parser.prog for parser in command_parsers}
     for parser in command_parsers:
         assert parser.description
         for action in parser._actions:
