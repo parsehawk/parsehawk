@@ -98,3 +98,23 @@ def test_binary_download_and_common_errors_are_explicit() -> None:
     assert "404" in download["responses"]
     assert "400" in paths["/v1/providers/{name}/models"]["get"]["responses"]
     assert "422" in paths["/v1/schemas/validate"]["post"]["responses"]
+
+
+def test_main_flow_has_executable_curl_samples() -> None:
+    paths = app.openapi()["paths"]
+    operations = {
+        "upload": paths["/v1/files"]["post"],
+        "download": paths["/v1/files/{file_id}/content"]["get"],
+        "create_job": paths["/v1/jobs"]["post"],
+        "get_job": paths["/v1/jobs/{job_id}"]["get"],
+    }
+
+    for operation in operations.values():
+        samples = operation["x-codeSamples"]
+        assert len(samples) == 1
+        assert samples[0]["lang"] == "bash"
+        assert samples[0]["label"] == "curl"
+        assert "curl --fail --silent --show-error" in samples[0]["source"]
+
+    assert "upload=@document.pdf" in operations["upload"]["x-codeSamples"][0]["source"]
+    assert "--output document.pdf" in operations["download"]["x-codeSamples"][0]["source"]
