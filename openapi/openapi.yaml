@@ -111,6 +111,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+      x-codeSamples:
+      - lang: bash
+        label: curl
+        source: "API=\"${PARSEHAWK_API_URL:-http://127.0.0.1:8000}\"\ncurl --fail --silent --show-error\
+          \ \\\n  --request POST \"$API/v1/files\" \\\n  --form \"upload=@document.pdf;type=application/pdf\"\
+          \ | jq ."
   /v1/files/{file_id}:
     get:
       tags:
@@ -230,6 +236,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      x-codeSamples:
+      - lang: bash
+        label: curl
+        source: "API=\"${PARSEHAWK_API_URL:-http://127.0.0.1:8000}\"\ncurl --fail --silent --show-error\
+          \ \\\n  \"$API/v1/files/file_.../content\" \\\n  --output document.pdf"
   /v1/extractors:
     get:
       tags:
@@ -621,6 +632,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+      x-codeSamples:
+      - lang: bash
+        label: curl
+        source: "API=\"${PARSEHAWK_API_URL:-http://127.0.0.1:8000}\"\ncurl --fail --silent --show-error\
+          \ \\\n  --request POST \"$API/v1/jobs\" \\\n  --header \"Content-Type: application/json\" \\\
+          \n  --data '{\"extractor_name\":\"receipt\",\"file_id\":\"file_...\"}' | jq ."
     get:
       tags:
       - jobs
@@ -711,6 +728,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+      x-codeSamples:
+      - lang: bash
+        label: curl
+        source: 'API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
+
+          curl --fail --silent --show-error "$API/v1/jobs/job_..." | jq .'
     delete:
       tags:
       - jobs

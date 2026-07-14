@@ -264,6 +264,18 @@ def validate_schema(request: ValidateSchemaRequest) -> ValidateSchemaResponse:
     description="Store a document locally and return metadata for use in extraction jobs.",
     status_code=status.HTTP_201_CREATED,
     responses={422: VALIDATION_ERROR_RESPONSE},
+    openapi_extra={
+        "x-codeSamples": [
+            {
+                "lang": "bash",
+                "label": "curl",
+                "source": """API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
+curl --fail --silent --show-error \\
+  --request POST "$API/v1/files" \\
+  --form "upload=@document.pdf;type=application/pdf" | jq .""",
+            }
+        ]
+    },
 )
 async def upload_file(upload: UploadFileDep, container: ContainerDep) -> FileResponse:
     content = await upload.read()
@@ -313,6 +325,18 @@ def get_file(
             },
         },
         404: NOT_FOUND_RESPONSE,
+    },
+    openapi_extra={
+        "x-codeSamples": [
+            {
+                "lang": "bash",
+                "label": "curl",
+                "source": """API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
+curl --fail --silent --show-error \\
+  "$API/v1/files/file_.../content" \\
+  --output document.pdf""",
+            }
+        ]
     },
 )
 def get_file_content(
@@ -555,6 +579,19 @@ def list_provider_models(
     description="Enqueue extraction for one uploaded file or inline text input.",
     status_code=status.HTTP_201_CREATED,
     responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
+    openapi_extra={
+        "x-codeSamples": [
+            {
+                "lang": "bash",
+                "label": "curl",
+                "source": """API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
+curl --fail --silent --show-error \\
+  --request POST "$API/v1/jobs" \\
+  --header "Content-Type: application/json" \\
+  --data '{"extractor_name":"receipt","file_id":"file_..."}' | jq .""",
+            }
+        ]
+    },
 )
 def create_job(request: CreateJobRequest, container: ContainerDep) -> JobResponse:
     job = container.job_service.create(
@@ -602,6 +639,16 @@ def list_jobs(
     summary="Get a job",
     description="Retrieve the current state, result, or failure details for one extraction job.",
     responses={404: NOT_FOUND_RESPONSE},
+    openapi_extra={
+        "x-codeSamples": [
+            {
+                "lang": "bash",
+                "label": "curl",
+                "source": """API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
+curl --fail --silent --show-error "$API/v1/jobs/job_..." | jq .""",
+            }
+        ]
+    },
 )
 def get_job(
     job_id: Annotated[str, Path(description="Immutable job identifier.")],
