@@ -67,6 +67,33 @@ references-export:
 references-check:
     uv run python scripts/export_reference_docs.py --check
 
+docs-dev:
+    pnpm --dir apps/docs dev
+
+docs-format:
+    pnpm --dir apps/docs format
+
+docs-format-check:
+    pnpm --dir apps/docs format:check
+
+docs-typecheck:
+    pnpm --dir apps/docs typecheck
+
+docs-build:
+    pnpm --dir apps/docs build
+
+docs-artifacts-check: docs-build
+    cmp openapi/openapi.yaml apps/docs/dist/openapi.yaml
+    cmp docs/schemas/parsehawk-extraction-schema.schema.json apps/docs/dist/schemas/parsehawk-extraction-schema.schema.json
+    test -f apps/docs/dist/reference/api/index.html
+    test -f apps/docs/dist/reference/api/operations/uploadfile/index.html
+    test -f apps/docs/dist/reference/api/operations/downloadfilecontent/index.html
+    test -f apps/docs/dist/pagefind/pagefind.js
+    test -f apps/docs/dist/llms.txt
+    test -f apps/docs/dist/404.html
+
+docs-check: openapi-check-sync references-check docs-format-check docs-typecheck docs-artifacts-check
+
 web-dev:
     pnpm --dir apps/web dev
 
@@ -79,7 +106,7 @@ web-test:
 web-typecheck:
     CI=true pnpm --dir apps/web typecheck
 
-check: format-check lint typecheck test openapi-check references-check web-typecheck web-test web-build licenses
+check: format-check lint typecheck test openapi-check references-check docs-format-check docs-typecheck docs-artifacts-check web-typecheck web-test web-build licenses
 
 # Permissive SPDX ids osv-scanner treats as always-allowed, so it only surfaces the
 # licenses worth adjudicating. The real block/flag/allow decision is made by

@@ -68,6 +68,14 @@ repos:
         files: >-
           ^(apps/docs/src/content/docs/reference/(cli|configuration|extraction-schema)\.md|docs/schemas/parsehawk-extraction-schema\.schema\.json|scripts/export_reference_docs\.py|src/parsehawk/(cli/main|config)\.py)$
 
+      - id: docs-check
+        name: developer docs format, types, links, and artifacts
+        entry: just docs-check
+        language: system
+        pass_filenames: false
+        files: >-
+          ^(apps/docs/|openapi/openapi\.yaml|docs/schemas/parsehawk-extraction-schema\.schema\.json|pnpm-(lock|workspace)\.yaml|scripts/export_reference_docs\.py|src/parsehawk/(cli/main|config)\.py)$
+
       - id: web-typecheck
         name: web typecheck
         entry: just web-typecheck

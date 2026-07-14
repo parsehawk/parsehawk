@@ -25,6 +25,7 @@ jobs:
     outputs:
       lint: ${{ steps.filter.outputs.lint }}
       web: ${{ steps.filter.outputs.web }}
+      docs: ${{ steps.filter.outputs.docs }}
       licenses: ${{ steps.filter.outputs.licenses }}
     steps:
       - name: Detect changed areas
@@ -51,6 +52,23 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - '.github/workflows/ci-checks.yaml'
+            docs:
+              - 'apps/docs/**'
+              - 'openapi/**'
+              - 'docs/schemas/**'
+              - 'scripts/export_reference_docs.py'
+              - 'src/parsehawk/cli/main.py'
+              - 'src/parsehawk/config.py'
+              - 'src/parsehawk/server/api/**'
+              - 'src/parsehawk/core/domain/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.pre-commit-config.yaml'
+              - 'justfile'
+              - '.github/workflows/ci-checks.yaml'
+              - '.github/workflows/docs-pages.yaml'
             licenses:
               - 'uv.lock'
               - 'pyproject.toml'
@@ -91,7 +109,7 @@ jobs:
       # SKIP list in sync with the hooks in .pre-commit-config.yaml.
       - name: Run hygiene hooks
         env:
-          SKIP: ruff-format,ruff-check,ty-check,unit-tests,openapi-check-sync,openapi-validate,openapi-lint,references-check,web-typecheck,web-tests,licenses-manifest,licenses-deps
+          SKIP: ruff-format,ruff-check,ty-check,unit-tests,openapi-check-sync,openapi-validate,openapi-lint,references-check,docs-check,web-typecheck,web-tests,licenses-manifest,licenses-deps
         run: uvx pre-commit run --all-files --show-diff-on-failure
 
   lint:
@@ -121,8 +139,47 @@ jobs:
       # .pre-commit-config.yaml.
       - name: Run pre-commit (ruff + ty)
         env:
-          SKIP: check-toml,check-yaml,end-of-file-fixer,trailing-whitespace,unit-tests,web-typecheck,web-tests,licenses-manifest,licenses-deps
+          SKIP: check-toml,check-yaml,end-of-file-fixer,trailing-whitespace,unit-tests,docs-check,web-typecheck,web-tests,licenses-manifest,licenses-deps
         run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  docs:
+    name: docs contract + build
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.docs == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Sync Python dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check generated references and build docs
+        run: just docs-check
 
   web:
     name: web typecheck + tests
