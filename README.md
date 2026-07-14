@@ -17,7 +17,7 @@
   <a href="https://docs.parsehawk.com"><strong>Developer docs</strong></a> ·
   <a href="https://docs.parsehawk.com/tutorials/first-extraction/">Quickstart tutorial</a> ·
   <a href="https://docs.parsehawk.com/reference/api/">API reference</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="#community">Community</a>
 </p>
 
 <p align="center">
@@ -146,7 +146,13 @@ tests, or proposing a feature, thank you for helping make ParseHawk better.
 
 - [Open an issue](https://github.com/parsehawk/parsehawk/issues/new/choose)
 - [Read the contribution guide](CONTRIBUTING.md)
-- [See all contributors](https://github.com/parsehawk/parsehawk/graphs/contributors)
+
+Thank you to all ParseHawk contributors. Every issue, pull request, review,
+bug report, docs fix, and idea helps move the project forward.
+
+<a href="https://github.com/parsehawk/parsehawk/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=parsehawk/parsehawk" alt="ParseHawk contributors">
+</a>
 
 ## Credits
 
