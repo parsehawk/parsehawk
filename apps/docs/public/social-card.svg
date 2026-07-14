@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" fill="none" stroke="#292524" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="glow" cx="80%" cy="20%" r="70%">
+      <stop offset="0" stop-color="#ffbe13" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#ffbe13" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#0c0a09"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect x="72" y="72" width="72" height="72" rx="16" fill="#ffbe13"/>
+  <path d="M98 110h19l-7 7-5-5-7 7-2-10 2 1Zm20-13 16-16v9l-28 28-5-5 17-16Zm10 20v9l-13 13-12-12 7-7 6 6 12-12v3Z" fill="#0c0a09"/>
+  <text x="166" y="124" fill="#fafaf9" font-family="Arial, sans-serif" font-size="42" font-weight="700" letter-spacing="-1">ParseHawk</text>
+  <text x="72" y="334" fill="#fafaf9" font-family="Arial, sans-serif" font-size="82" font-weight="700" letter-spacing="-4">Developer docs</text>
+  <text x="76" y="402" fill="#a8a29e" font-family="Arial, sans-serif" font-size="30">Local-first document extraction.</text>
+  <rect x="72" y="500" width="390" height="2" fill="#ffbe13"/>
+  <text x="72" y="548" fill="#ffbe13" font-family="Menlo, monospace" font-size="22">docs.parsehawk.com</text>
+</svg>

@@ -9,9 +9,10 @@ overrides:
   esbuild: ">=0.28.1"
 
 # systeminformation is a transitive dep (shadcn -> @dotenvx/dotenvx) whose 5.31.8
-# release landed in our lockfile <24h after publish, tripping pnpm's
-# minimumReleaseAge supply-chain guard. Exempt only this package; the age guard
-# stays active for everything else. Safe to drop once dotenvx resolves to an aged
-# version (or remove the pin and let it re-resolve).
+# release landed in our lockfile <24h after publish. Astro 7.0.9 is the
+# deliberately selected direct docs dependency and was also published inside
+# the guard window. Exempt only these reviewed versions; the age guard stays
+# active for everything else. Remove each exemption after the release ages in.
 minimumReleaseAgeExclude:
   - systeminformation
+  - astro@7.0.9
