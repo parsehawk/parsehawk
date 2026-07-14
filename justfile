@@ -47,6 +47,20 @@ lint:
 typecheck:
     uv run ty check src tests
 
+openapi-export:
+    uv run python openapi/export_openapi.py
+
+openapi-check-sync:
+    uv run python openapi/export_openapi.py --check
+
+openapi-validate:
+    uv run python openapi/validate_openapi.py
+
+openapi-lint:
+    scripts/speakeasy_lint.sh
+
+openapi-check: openapi-check-sync openapi-validate openapi-lint
+
 web-dev:
     pnpm --dir apps/web dev
 
@@ -59,7 +73,7 @@ web-test:
 web-typecheck:
     CI=true pnpm --dir apps/web typecheck
 
-check: format-check lint typecheck test web-typecheck web-test web-build licenses
+check: format-check lint typecheck test openapi-check web-typecheck web-test web-build licenses
 
 # Permissive SPDX ids osv-scanner treats as always-allowed, so it only surfaces the
 # licenses worth adjudicating. The real block/flag/allow decision is made by
