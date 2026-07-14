@@ -1,0 +1,6 @@
+.astro/
+dist/
+node_modules/
+src/content/docs/reference/cli.md
+src/content/docs/reference/configuration.md
+src/content/docs/reference/extraction-schema.md
