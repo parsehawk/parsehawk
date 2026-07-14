@@ -88,7 +88,7 @@ docs-artifacts-check: docs-build
     test -f apps/docs/dist/reference/api/index.html
     test -f apps/docs/dist/reference/api/operations/uploadfile/index.html
     test -f apps/docs/dist/reference/api/operations/downloadfilecontent/index.html
-    rg --quiet '<table' apps/docs/dist/how-to/providers/index.html
+    grep -q '<table' apps/docs/dist/how-to/providers/index.html
     test -f apps/docs/dist/pagefind/pagefind.js
     test -f apps/docs/dist/llms.txt
     test -f apps/docs/dist/404.html
