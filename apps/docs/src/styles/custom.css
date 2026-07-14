@@ -163,8 +163,11 @@ header.header {
 }
 
 .sl-markdown-content table {
-  display: table;
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior-inline: contain;
   border-collapse: collapse;
   font-size: 0.9rem;
 }
