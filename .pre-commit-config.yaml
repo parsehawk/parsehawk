@@ -61,12 +61,12 @@ repos:
         files: ^(\.speakeasy/|openapi/|scripts/speakeasy_lint\.sh$)
 
       - id: references-check
-        name: generated CLI and configuration references
+        name: generated CLI, configuration, and schema references
         entry: just references-check
         language: system
         pass_filenames: false
         files: >-
-          ^(apps/docs/src/content/docs/reference/(cli|configuration)\.md|scripts/export_reference_docs\.py|src/parsehawk/(cli/main|config)\.py)$
+          ^(apps/docs/src/content/docs/reference/(cli|configuration|extraction-schema)\.md|docs/schemas/parsehawk-extraction-schema\.schema\.json|scripts/export_reference_docs\.py|src/parsehawk/(cli/main|config)\.py)$
 
       - id: web-typecheck
         name: web typecheck
