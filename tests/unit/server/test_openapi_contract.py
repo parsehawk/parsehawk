@@ -45,10 +45,10 @@ def _operations() -> list[dict[str, object]]:
 def test_openapi_metadata_is_public_and_versioned() -> None:
     document = app.openapi()
 
-    assert version("parsehawk") == "0.2.0"
+    assert version("parsehawk") == "0.2.1"
     assert document["openapi"] == "3.1.0"
     assert document["info"]["title"] == "ParseHawk API"
-    assert document["info"]["version"] == "0.2.0"
+    assert document["info"]["version"] == "0.2.1"
     assert document["info"]["license"]["identifier"] == "Apache-2.0"
     assert document["servers"] == [
         {
