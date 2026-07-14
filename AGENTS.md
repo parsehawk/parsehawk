@@ -36,6 +36,34 @@ Recommended conventions:
 
 For multi-line commit messages, preserve real newlines in the body. Do not use literal `\n` escape sequences.
 
+## Developer documentation
+
+Developer documentation is part of the product contract and the definition of
+done. Any change to public behavior must update the relevant documentation in
+the same pull request; do not defer documentation to a follow-up. This includes
+REST routes and schemas, errors, CLI commands and output, configuration and
+defaults, extraction schemas, providers and models, runtime behavior, supported
+platforms, installation and deployment, paths and ports, observability, and Web
+UI workflows.
+
+Keep reference material self-documenting and generated from the implementation:
+
+- Put API descriptions, examples, operation metadata, and schema details in the
+  FastAPI and Pydantic source, then run `just openapi-export`.
+- Put CLI help and configuration metadata in their typed source definitions,
+  then run `just references-export`.
+- Never hand-edit `openapi/openapi.yaml` or a file marked as generated. Change
+  its source and regenerate it instead.
+- Update the appropriate tutorial, how-to guide, explanation, or hand-written
+  reference under `apps/docs/src/content/docs/` when generated metadata alone
+  does not explain the user workflow or design.
+- Keep commands and examples executable against the current implementation,
+  and keep internal links valid.
+
+Run `just docs-check` for every documentation change and every change to a
+documented public contract. It verifies generated references, formatting,
+Astro types, links, and the final static artifacts.
+
 ## Verification
 
 For changes that affect runtime startup, model serving, extraction behavior,
