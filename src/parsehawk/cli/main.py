@@ -232,6 +232,14 @@ DEFAULT_CLI_CONFIG = {
     "data.dir": "",
     "log.level": "INFO",
 }
+CLI_CONFIG_DESCRIPTIONS = {
+    "server.url": "Base URL used by CLI health and lifecycle commands for the ParseHawk API.",
+    "web.url": "Base URL used by CLI health and lifecycle commands for the ParseHawk web UI.",
+    "runtime.url": "OpenAI-compatible base URL used by runtime inspection commands.",
+    "runtime.model": "Model identifier used by runtime inspection and test commands.",
+    "data.dir": "Directory containing ParseHawk data, logs, and managed process state.",
+    "log.level": "Log level applied to ParseHawk services started by the CLI.",
+}
 CONFIG_ENV_OVERRIDES = {
     "server.url": "PARSEHAWK_API_URL",
     "web.url": "PARSEHAWK_WEB_URL",
@@ -307,27 +315,66 @@ def main(argv: list[str] | None = None) -> None:
         migrate(args)
 
 
+class _ParseHawkHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+    """Show meaningful defaults without cluttering help with None or false."""
+
+    def _get_help_string(self, action: argparse.Action) -> str:
+        if action.default is None or action.default is False:
+            return action.help or ""
+        return super()._get_help_string(action) or ""
+
+
+def _command_parser(
+    subparsers: Any,
+    name: str,
+    summary: str,
+    **kwargs: Any,
+) -> argparse.ArgumentParser:
+    """Create a consistently documented CLI command parser."""
+    return subparsers.add_parser(
+        name,
+        help=summary,
+        description=summary,
+        formatter_class=_ParseHawkHelpFormatter,
+        **kwargs,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="parsehawk")
+    parser = argparse.ArgumentParser(
+        prog="parsehawk",
+        description="Run and operate the local-first ParseHawk document extraction platform.",
+        formatter_class=_ParseHawkHelpFormatter,
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    start_parser = subparsers.add_parser("start")
+    start_parser = _command_parser(subparsers, "start", "Start ParseHawk and its bundled services.")
     _add_start_options(start_parser)
 
-    dev_parser = subparsers.add_parser("dev", help="Run ParseHawk from local source")
+    dev_parser = _command_parser(subparsers, "dev", "Run ParseHawk from the local source checkout.")
     _add_start_options(dev_parser, include_docker_options=False)
 
-    restart_parser = subparsers.add_parser("restart")
+    restart_parser = _command_parser(
+        subparsers, "restart", "Restart ParseHawk and its bundled services."
+    )
     _add_start_options(restart_parser)
 
-    stop_parser = subparsers.add_parser("stop")
-    stop_parser.add_argument("--data-dir")
+    stop_parser = _command_parser(subparsers, "stop", "Stop managed ParseHawk services.")
+    stop_parser.add_argument(
+        "--data-dir", help="Data directory containing the managed process state."
+    )
 
-    status_parser = subparsers.add_parser("status")
-    status_parser.add_argument("--data-dir")
+    status_parser = _command_parser(
+        subparsers, "status", "Show the status and URLs of managed ParseHawk services."
+    )
+    status_parser.add_argument(
+        "--data-dir", help="Data directory containing the managed process state."
+    )
 
-    migrate_parser = subparsers.add_parser(
-        "migrate", help="Apply pending database migrations, or show their status"
+    migrate_parser = _command_parser(
+        subparsers,
+        "migrate",
+        "Apply pending database migrations or show their status.",
     )
     migrate_parser.add_argument(
         "migrate_command",
@@ -336,169 +383,314 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Use 'status' to show applied/pending migrations instead of applying them.",
     )
-    migrate_parser.add_argument("--data-dir")
-    migrate_parser.add_argument("--json", action="store_true")
+    migrate_parser.add_argument("--data-dir", help="Data directory containing the database.")
+    migrate_parser.add_argument(
+        "--json", action="store_true", help="Print machine-readable migration status."
+    )
 
-    doctor_parser = subparsers.add_parser("doctor", help="Check local ParseHawk setup")
-    doctor_parser.add_argument("--json", action="store_true")
-    doctor_parser.add_argument("--api-url")
-    doctor_parser.add_argument("--web-url")
-    doctor_parser.add_argument("--runtime-url")
-    doctor_parser.add_argument("--data-dir")
+    doctor_parser = _command_parser(
+        subparsers, "doctor", "Check the local ParseHawk installation and services."
+    )
+    doctor_parser.add_argument(
+        "--json", action="store_true", help="Print machine-readable check results."
+    )
+    doctor_parser.add_argument("--api-url", help="API URL to check.")
+    doctor_parser.add_argument("--web-url", help="Web UI URL to check.")
+    doctor_parser.add_argument("--runtime-url", help="Model runtime URL to check.")
+    doctor_parser.add_argument("--data-dir", help="Data directory to inspect.")
 
-    config_parser = subparsers.add_parser("config", help="Manage ParseHawk CLI config")
+    config_parser = _command_parser(
+        subparsers, "config", "Inspect or update persistent ParseHawk CLI configuration."
+    )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
-    config_list_parser = config_subparsers.add_parser("list")
-    config_list_parser.add_argument("--json", action="store_true")
-    config_set_parser = config_subparsers.add_parser("set")
-    config_set_parser.add_argument("key")
-    config_set_parser.add_argument("value")
+    config_list_parser = _command_parser(
+        config_subparsers, "list", "List effective CLI configuration values."
+    )
+    config_list_parser.add_argument(
+        "--json", action="store_true", help="Print configuration as JSON."
+    )
+    config_set_parser = _command_parser(
+        config_subparsers, "set", "Persist one CLI configuration value."
+    )
+    config_set_parser.add_argument("key", help="Configuration key to update.")
+    config_set_parser.add_argument("value", help="String value to persist.")
 
-    runtime_parser = subparsers.add_parser("runtime", help="Inspect the configured model runtime")
+    runtime_parser = _command_parser(
+        subparsers, "runtime", "Inspect and test the configured model runtime."
+    )
     runtime_subparsers = runtime_parser.add_subparsers(dest="runtime_command", required=True)
-    runtime_info_parser = runtime_subparsers.add_parser("info")
-    runtime_info_parser.add_argument("--runtime-url")
-    runtime_info_parser.add_argument("--model")
-    runtime_info_parser.add_argument("--json", action="store_true")
-    runtime_test_parser = runtime_subparsers.add_parser("test")
-    runtime_test_parser.add_argument("--runtime-url")
-    runtime_test_parser.add_argument("--model")
-    runtime_test_parser.add_argument("--json", action="store_true")
-    runtime_doctor_parser = runtime_subparsers.add_parser("doctor")
-    runtime_doctor_parser.add_argument("--runtime-url")
-    runtime_doctor_parser.add_argument("--model")
-    runtime_doctor_parser.add_argument("--json", action="store_true")
+    runtime_info_parser = _command_parser(
+        runtime_subparsers, "info", "Show the effective model runtime URL and model."
+    )
+    runtime_info_parser.add_argument("--runtime-url", help="Override the configured runtime URL.")
+    runtime_info_parser.add_argument("--model", help="Override the configured model identifier.")
+    runtime_info_parser.add_argument(
+        "--json", action="store_true", help="Print runtime information as JSON."
+    )
+    runtime_test_parser = _command_parser(
+        runtime_subparsers, "test", "Send a minimal chat completion to the model runtime."
+    )
+    runtime_test_parser.add_argument("--runtime-url", help="Override the configured runtime URL.")
+    runtime_test_parser.add_argument("--model", help="Override the configured model identifier.")
+    runtime_test_parser.add_argument(
+        "--json", action="store_true", help="Print the runtime response as JSON."
+    )
+    runtime_doctor_parser = _command_parser(
+        runtime_subparsers, "doctor", "Run model-runtime connectivity and model checks."
+    )
+    runtime_doctor_parser.add_argument("--runtime-url", help="Override the configured runtime URL.")
+    runtime_doctor_parser.add_argument("--model", help="Override the configured model identifier.")
+    runtime_doctor_parser.add_argument(
+        "--json", action="store_true", help="Print machine-readable check results."
+    )
 
-    extract_parser = subparsers.add_parser("extract", help="Run a one-shot extraction")
-    extract_parser.add_argument("source", nargs="?")
-    extract_parser.add_argument("--extractor")
-    extract_parser.add_argument("--schema")
-    extract_parser.add_argument("--instructions")
-    extract_parser.add_argument("--name")
-    extract_parser.add_argument("--reasoning-effort", choices=_REASONING_EFFORT_CHOICES)
+    extract_parser = _command_parser(
+        subparsers, "extract", "Run a one-shot extraction and optionally wait for its result."
+    )
+    extract_parser.add_argument(
+        "source", nargs="?", help="Local document path, @path, file ID, or inline text."
+    )
+    extract_parser.add_argument(
+        "--extractor", help="Extractor ID or stable name. Required unless --schema is used."
+    )
+    extract_parser.add_argument("--schema", help="JSON Schema path for an ad hoc extractor.")
+    extract_parser.add_argument(
+        "--instructions", help="Inline instructions or a path used with an ad hoc extractor."
+    )
+    extract_parser.add_argument("--name", help="Display name for the ad hoc extractor.")
+    extract_parser.add_argument(
+        "--reasoning-effort",
+        choices=_REASONING_EFFORT_CHOICES,
+        help="Reasoning effort for the ad hoc extractor; 'default' clears the override.",
+    )
     extract_input = extract_parser.add_mutually_exclusive_group()
-    extract_input.add_argument("--file-id")
-    extract_input.add_argument("--text")
-    extract_input.add_argument("--text-file")
-    extract_parser.add_argument("--wait", action="store_true")
-    extract_parser.add_argument("--poll-seconds", type=float, default=1.0)
-    extract_parser.add_argument("--timeout-seconds", type=float, default=600.0)
-    extract_parser.add_argument("--output")
+    extract_input.add_argument("--file-id", help="Use an already uploaded file ID.")
+    extract_input.add_argument("--text", help="Extract from this inline text.")
+    extract_input.add_argument("--text-file", help="Extract from the contents of this text file.")
+    extract_parser.add_argument(
+        "--wait", action="store_true", help="Wait for completion and print the extraction result."
+    )
+    extract_parser.add_argument(
+        "--poll-seconds", type=float, default=1.0, help="Polling interval while waiting."
+    )
+    extract_parser.add_argument(
+        "--timeout-seconds", type=float, default=600.0, help="Maximum wait time."
+    )
+    extract_parser.add_argument("--output", help="Write the result JSON to this path.")
     _add_api_url(extract_parser)
 
-    files_parser = subparsers.add_parser("files", help="Manage uploaded files")
+    files_parser = _command_parser(
+        subparsers, "files", "Upload, inspect, list, and delete source files."
+    )
     files_subparsers = files_parser.add_subparsers(dest="files_command", required=True)
-    files_list_parser = files_subparsers.add_parser("list")
+    files_list_parser = _command_parser(files_subparsers, "list", "List uploaded files.")
     _add_api_url(files_list_parser)
-    files_get_parser = files_subparsers.add_parser("get")
-    files_get_parser.add_argument("file_id")
+    files_get_parser = _command_parser(files_subparsers, "get", "Get file metadata by ID.")
+    files_get_parser.add_argument("file_id", help="File ID.")
     _add_api_url(files_get_parser)
-    files_upload_parser = files_subparsers.add_parser("upload", aliases=["create"])
-    files_upload_parser.add_argument("path", nargs="?")
-    files_upload_parser.add_argument("--file", dest="file_path")
+    files_upload_parser = _command_parser(
+        files_subparsers,
+        "upload",
+        "Upload a local source file.",
+        aliases=["create"],
+    )
+    files_upload_parser.add_argument(
+        "path", nargs="?", help="Local file path; an optional leading @ is ignored."
+    )
+    files_upload_parser.add_argument(
+        "--file", dest="file_path", help="Local file path, equivalent to the positional path."
+    )
     _add_api_url(files_upload_parser)
-    files_delete_parser = files_subparsers.add_parser("delete")
-    files_delete_parser.add_argument("file_id")
+    files_delete_parser = _command_parser(
+        files_subparsers, "delete", "Delete a file and its stored content."
+    )
+    files_delete_parser.add_argument("file_id", help="File ID.")
     _add_api_url(files_delete_parser)
 
-    schemas_parser = subparsers.add_parser("schemas", help="Validate schema drafts")
+    schemas_parser = _command_parser(
+        subparsers, "schemas", "Validate extraction JSON Schema drafts."
+    )
     schemas_subparsers = schemas_parser.add_subparsers(dest="schemas_command", required=True)
-    schemas_validate_parser = schemas_subparsers.add_parser("validate")
-    schemas_validate_parser.add_argument("schema_path")
+    schemas_validate_parser = _command_parser(
+        schemas_subparsers, "validate", "Validate an extraction schema before saving it."
+    )
+    schemas_validate_parser.add_argument("schema_path", help="Path to the JSON Schema file.")
     _add_api_url(schemas_validate_parser)
 
-    extractors_parser = subparsers.add_parser("extractors", help="Manage extractors")
+    extractors_parser = _command_parser(
+        subparsers, "extractors", "Create, inspect, update, and delete reusable extractors."
+    )
     extractors_subparsers = extractors_parser.add_subparsers(
         dest="extractors_command", required=True
     )
-    extractors_list_parser = extractors_subparsers.add_parser("list")
+    extractors_list_parser = _command_parser(
+        extractors_subparsers, "list", "List reusable extractors."
+    )
     _add_api_url(extractors_list_parser)
-    extractors_get_parser = extractors_subparsers.add_parser("get")
-    extractors_get_parser.add_argument("extractor_ref")
+    extractors_get_parser = _command_parser(
+        extractors_subparsers, "get", "Get an extractor by ID or stable name."
+    )
+    extractors_get_parser.add_argument("extractor_ref", help="Extractor ID or stable name.")
     _add_api_url(extractors_get_parser)
-    extractors_create_parser = extractors_subparsers.add_parser("create")
-    extractors_create_parser.add_argument("--name")
-    extractors_create_parser.add_argument("--display-name")
-    extractors_create_parser.add_argument("--instructions", required=True)
-    extractors_create_parser.add_argument("--schema", required=True)
-    extractors_create_parser.add_argument("--examples")
-    extractors_create_parser.add_argument("--reasoning-effort", choices=_REASONING_EFFORT_CHOICES)
+    extractors_create_parser = _command_parser(
+        extractors_subparsers, "create", "Create a reusable extractor."
+    )
+    extractors_create_parser.add_argument("--name", help="Optional stable extractor name.")
+    extractors_create_parser.add_argument("--display-name", help="Human-readable extractor name.")
     extractors_create_parser.add_argument(
-        "--provider", dest="provider_name", choices=_PROVIDER_NAMES
+        "--instructions", required=True, help="Inline instructions or a text-file path."
     )
-    extractors_create_parser.add_argument("--model")
+    extractors_create_parser.add_argument(
+        "--schema", required=True, help="Path to the extraction JSON Schema."
+    )
+    extractors_create_parser.add_argument(
+        "--examples", help="Path to a JSON array of input/output examples."
+    )
+    extractors_create_parser.add_argument(
+        "--reasoning-effort",
+        choices=_REASONING_EFFORT_CHOICES,
+        help="Reasoning effort override; 'default' clears the override.",
+    )
+    extractors_create_parser.add_argument(
+        "--provider",
+        dest="provider_name",
+        choices=_PROVIDER_NAMES,
+        help="Provider override for this extractor.",
+    )
+    extractors_create_parser.add_argument("--model", help="Provider model override.")
     _add_api_url(extractors_create_parser)
-    extractors_put_parser = extractors_subparsers.add_parser("put")
-    extractors_put_parser.add_argument("extractor_ref")
-    extractors_put_parser.add_argument("--name")
-    extractors_put_parser.add_argument("--display-name", required=True)
-    extractors_put_parser.add_argument("--instructions", required=True)
-    extractors_put_parser.add_argument("--schema", required=True)
-    extractors_put_parser.add_argument("--examples")
-    extractors_put_parser.add_argument("--reasoning-effort", choices=_REASONING_EFFORT_CHOICES)
-    extractors_put_parser.add_argument("--provider", dest="provider_name", choices=_PROVIDER_NAMES)
-    extractors_put_parser.add_argument("--model")
-    _add_api_url(extractors_put_parser)
-    extractors_update_parser = extractors_subparsers.add_parser("update")
-    extractors_update_parser.add_argument("extractor_ref")
-    extractors_update_parser.add_argument("--display-name")
-    extractors_update_parser.add_argument("--instructions")
-    extractors_update_parser.add_argument("--schema")
-    extractors_update_parser.add_argument("--examples")
-    extractors_update_parser.add_argument(
-        "--provider", dest="provider_name", choices=_PROVIDER_NAMES
+    extractors_put_parser = _command_parser(
+        extractors_subparsers, "put", "Create or fully replace an extractor by reference."
     )
-    extractors_update_parser.add_argument("--model")
-    extractors_update_parser.add_argument("--reasoning-effort", choices=_REASONING_EFFORT_CHOICES)
+    extractors_put_parser.add_argument("extractor_ref", help="Extractor ID or stable name.")
+    extractors_put_parser.add_argument("--name", help="Stable extractor name.")
+    extractors_put_parser.add_argument(
+        "--display-name", required=True, help="Human-readable extractor name."
+    )
+    extractors_put_parser.add_argument(
+        "--instructions", required=True, help="Inline instructions or a text-file path."
+    )
+    extractors_put_parser.add_argument(
+        "--schema", required=True, help="Path to the extraction JSON Schema."
+    )
+    extractors_put_parser.add_argument(
+        "--examples", help="Path to a JSON array of input/output examples."
+    )
+    extractors_put_parser.add_argument(
+        "--reasoning-effort",
+        choices=_REASONING_EFFORT_CHOICES,
+        help="Reasoning effort override; 'default' clears the override.",
+    )
+    extractors_put_parser.add_argument(
+        "--provider",
+        dest="provider_name",
+        choices=_PROVIDER_NAMES,
+        help="Provider override for this extractor.",
+    )
+    extractors_put_parser.add_argument("--model", help="Provider model override.")
+    _add_api_url(extractors_put_parser)
+    extractors_update_parser = _command_parser(
+        extractors_subparsers, "update", "Update selected fields on an extractor."
+    )
+    extractors_update_parser.add_argument("extractor_ref", help="Extractor ID or stable name.")
+    extractors_update_parser.add_argument("--display-name", help="Human-readable extractor name.")
+    extractors_update_parser.add_argument(
+        "--instructions", help="Inline instructions or a text-file path."
+    )
+    extractors_update_parser.add_argument("--schema", help="Path to the extraction JSON Schema.")
+    extractors_update_parser.add_argument(
+        "--examples", help="Path to a JSON array of input/output examples."
+    )
+    extractors_update_parser.add_argument(
+        "--provider",
+        dest="provider_name",
+        choices=_PROVIDER_NAMES,
+        help="Provider override for this extractor.",
+    )
+    extractors_update_parser.add_argument("--model", help="Provider model override.")
+    extractors_update_parser.add_argument(
+        "--reasoning-effort",
+        choices=_REASONING_EFFORT_CHOICES,
+        help="Reasoning effort override; 'default' clears the override.",
+    )
     _add_api_url(extractors_update_parser)
-    extractors_delete_parser = extractors_subparsers.add_parser("delete")
-    extractors_delete_parser.add_argument("extractor_ref")
+    extractors_delete_parser = _command_parser(
+        extractors_subparsers, "delete", "Delete an extractor by ID or stable name."
+    )
+    extractors_delete_parser.add_argument("extractor_ref", help="Extractor ID or stable name.")
     _add_api_url(extractors_delete_parser)
 
-    providers_parser = subparsers.add_parser("providers", help="Configure model providers")
+    providers_parser = _command_parser(
+        subparsers, "providers", "Inspect and configure model providers."
+    )
     providers_subparsers = providers_parser.add_subparsers(dest="providers_command", required=True)
-    providers_list_parser = providers_subparsers.add_parser("list")
+    providers_list_parser = _command_parser(
+        providers_subparsers, "list", "List configured model providers."
+    )
     _add_api_url(providers_list_parser)
-    providers_get_parser = providers_subparsers.add_parser("get")
-    providers_get_parser.add_argument("name", choices=_PROVIDER_NAMES)
+    providers_get_parser = _command_parser(
+        providers_subparsers, "get", "Get one provider configuration."
+    )
+    providers_get_parser.add_argument("name", choices=_PROVIDER_NAMES, help="Provider name.")
     _add_api_url(providers_get_parser)
-    providers_configure_parser = providers_subparsers.add_parser(
-        "configure", help="Set a provider's base URL, provider configuration, or API key"
+    providers_configure_parser = _command_parser(
+        providers_subparsers,
+        "configure",
+        "Set a provider base URL, provider configuration, or API key.",
     )
-    providers_configure_parser.add_argument("name", choices=_PROVIDER_NAMES)
-    providers_configure_parser.add_argument("--base-url")
+    providers_configure_parser.add_argument("name", choices=_PROVIDER_NAMES, help="Provider name.")
     providers_configure_parser.add_argument(
-        "--project-url", help="Microsoft Foundry project URL for deployment discovery"
+        "--base-url", help="Provider API base URL; use an empty value to clear it."
     )
-    providers_configure_parser.add_argument("--api-key")
     providers_configure_parser.add_argument(
-        "--api-key-env", help="Read the API key from this environment variable and store it"
+        "--project-url", help="Microsoft Foundry project URL for deployment discovery."
+    )
+    providers_configure_parser.add_argument(
+        "--api-key", help="API key to encrypt and store; use an empty value to clear it."
+    )
+    providers_configure_parser.add_argument(
+        "--api-key-env", help="Read the API key from this environment variable and store it."
     )
     _add_api_url(providers_configure_parser)
-    providers_models_parser = providers_subparsers.add_parser(
-        "models", help="List the models the provider currently offers"
+    providers_models_parser = _command_parser(
+        providers_subparsers, "models", "List models currently offered by a provider."
     )
-    providers_models_parser.add_argument("name", choices=_PROVIDER_NAMES)
+    providers_models_parser.add_argument("name", choices=_PROVIDER_NAMES, help="Provider name.")
     _add_api_url(providers_models_parser)
 
-    jobs_parser = subparsers.add_parser("jobs", help="Manage extraction jobs")
+    jobs_parser = _command_parser(
+        subparsers, "jobs", "Create, inspect, list, and delete extraction jobs."
+    )
     jobs_subparsers = jobs_parser.add_subparsers(dest="jobs_command", required=True)
-    jobs_create_parser = jobs_subparsers.add_parser("create")
-    jobs_create_parser.add_argument("extractor_id", nargs="?")
-    jobs_create_parser.add_argument("--extractor", dest="extractor_id_option")
+    jobs_create_parser = _command_parser(
+        jobs_subparsers, "create", "Create an asynchronous extraction job."
+    )
+    jobs_create_parser.add_argument("extractor_id", nargs="?", help="Extractor ID or stable name.")
+    jobs_create_parser.add_argument(
+        "--extractor", dest="extractor_id_option", help="Extractor ID or stable name."
+    )
     jobs_input = jobs_create_parser.add_mutually_exclusive_group(required=True)
-    jobs_input.add_argument("--file-id", "--file", dest="file_id")
-    jobs_input.add_argument("--text")
-    jobs_input.add_argument("--text-file")
+    jobs_input.add_argument(
+        "--file-id", "--file", dest="file_id", help="Previously uploaded file ID."
+    )
+    jobs_input.add_argument("--text", help="Inline source text.")
+    jobs_input.add_argument("--text-file", help="Path to a source text file.")
     _add_api_url(jobs_create_parser)
-    jobs_list_parser = jobs_subparsers.add_parser("list")
-    jobs_list_parser.add_argument("--extractor-id", "--extractor", dest="extractor_id")
+    jobs_list_parser = _command_parser(jobs_subparsers, "list", "List extraction jobs.")
+    jobs_list_parser.add_argument(
+        "--extractor-id",
+        "--extractor",
+        dest="extractor_id",
+        help="Filter by extractor ID or stable name.",
+    )
     _add_api_url(jobs_list_parser)
-    jobs_get_parser = jobs_subparsers.add_parser("get")
-    jobs_get_parser.add_argument("job_id")
+    jobs_get_parser = _command_parser(jobs_subparsers, "get", "Get an extraction job by ID.")
+    jobs_get_parser.add_argument("job_id", help="Job ID.")
     _add_api_url(jobs_get_parser)
-    jobs_delete_parser = jobs_subparsers.add_parser("delete")
-    jobs_delete_parser.add_argument("job_id")
+    jobs_delete_parser = _command_parser(
+        jobs_subparsers, "delete", "Cancel a pending job or delete a finished job."
+    )
+    jobs_delete_parser.add_argument("job_id", help="Job ID.")
     _add_api_url(jobs_delete_parser)
 
     return parser
@@ -2045,12 +2237,16 @@ def print_deleted(resource: str, resource_id: str) -> None:
 def _add_start_options(
     parser: argparse.ArgumentParser, *, include_docker_options: bool = True
 ) -> None:
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--data-dir")
-    parser.add_argument("--runtime-host", default="127.0.0.1")
-    parser.add_argument("--runtime-port", type=int, default=8080)
-    parser.add_argument("--model")
+    parser.add_argument("--host", default="127.0.0.1", help="API bind address.")
+    parser.add_argument("--port", type=int, default=8000, help="API port.")
+    parser.add_argument(
+        "--data-dir", help="Directory for the database, uploaded files, logs, and runtime state."
+    )
+    parser.add_argument(
+        "--runtime-host", default="127.0.0.1", help="Bundled model runtime bind address."
+    )
+    parser.add_argument("--runtime-port", type=int, default=8080, help="Model runtime port.")
+    parser.add_argument("--model", help="Model identifier for the bundled runtime.")
     parser.add_argument(
         "-x",
         "--exclude",
@@ -2077,16 +2273,19 @@ def _add_start_options(
         help="Unload the model runtime after this many idle seconds. Use 0 to keep it loaded.",
     )
     if not include_docker_options:
-        parser.add_argument("--reload", action="store_true")
-    parser.add_argument("--web-host", default="127.0.0.1")
-    parser.add_argument("--web-port", type=int, default=5173)
-    parser.add_argument("--no-web", action="store_true")
+        parser.add_argument(
+            "--reload", action="store_true", help="Reload the API when Python source changes."
+        )
+    parser.add_argument("--web-host", default="127.0.0.1", help="Web UI bind address.")
+    parser.add_argument("--web-port", type=int, default=5173, help="Web UI port.")
+    parser.add_argument("--no-web", action="store_true", help="Do not start the web UI.")
 
 
 def _add_api_url(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--api-url",
         default=os.getenv("PARSEHAWK_API_URL", "http://127.0.0.1:8000"),
+        help="ParseHawk API URL; defaults to PARSEHAWK_API_URL when set.",
     )
 
 
