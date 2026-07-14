@@ -36,16 +36,16 @@ e2e:
     uv run pytest --no-cov -m e2e tests/e2e
 
 format:
-    uv run ruff format src tests
+    uv run ruff format src tests openapi scripts
 
 format-check:
-    uv run ruff format --check src tests
+    uv run ruff format --check src tests openapi scripts
 
 lint:
-    uv run ruff check src tests
+    uv run ruff check src tests openapi scripts
 
 typecheck:
-    uv run ty check src tests
+    uv run ty check src tests openapi scripts
 
 openapi-export:
     uv run python openapi/export_openapi.py
@@ -61,6 +61,12 @@ openapi-lint:
 
 openapi-check: openapi-check-sync openapi-validate openapi-lint
 
+references-export:
+    uv run python scripts/export_reference_docs.py
+
+references-check:
+    uv run python scripts/export_reference_docs.py --check
+
 web-dev:
     pnpm --dir apps/web dev
 
@@ -73,7 +79,7 @@ web-test:
 web-typecheck:
     CI=true pnpm --dir apps/web typecheck
 
-check: format-check lint typecheck test openapi-check web-typecheck web-test web-build licenses
+check: format-check lint typecheck test openapi-check references-check web-typecheck web-test web-build licenses
 
 # Permissive SPDX ids osv-scanner treats as always-allowed, so it only surfaces the
 # licenses worth adjudicating. The real block/flag/allow decision is made by

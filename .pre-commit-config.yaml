@@ -60,6 +60,14 @@ repos:
         pass_filenames: false
         files: ^(\.speakeasy/|openapi/|scripts/speakeasy_lint\.sh$)
 
+      - id: references-check
+        name: generated CLI and configuration references
+        entry: just references-check
+        language: system
+        pass_filenames: false
+        files: >-
+          ^(apps/docs/src/content/docs/reference/(cli|configuration)\.md|scripts/export_reference_docs\.py|src/parsehawk/(cli/main|config)\.py)$
+
       - id: web-typecheck
         name: web typecheck
         entry: just web-typecheck
