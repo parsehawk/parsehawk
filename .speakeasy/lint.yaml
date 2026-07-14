@@ -1,0 +1,12 @@
+lintVersion: 2.0.0
+defaultRuleset: parsehawk
+rulesets:
+  parsehawk:
+    rulesets:
+      - speakeasy-recommended
+    rules:
+      # ParseHawk is a local API with an explicit empty top-level security array.
+      - id: owasp-security-hosts-https-oas3
+        disabled: true
+      - id: owasp-security-hosts-https-oas2
+        disabled: true

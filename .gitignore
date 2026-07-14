@@ -14,3 +14,4 @@ playwright-report/
 test-results/
 .env
 phoenix.env
+.cache/

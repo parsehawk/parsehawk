@@ -39,6 +39,27 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: openapi-check-sync
+        name: OpenAPI artifact sync
+        entry: just openapi-check-sync
+        language: system
+        pass_filenames: false
+        files: ^(openapi/|pyproject\.toml|src/parsehawk/server/api/|src/parsehawk/core/domain/)
+
+      - id: openapi-validate
+        name: OpenAPI structural validation
+        entry: just openapi-validate
+        language: system
+        pass_filenames: false
+        files: ^openapi/
+
+      - id: openapi-lint
+        name: OpenAPI SDK-readiness lint
+        entry: just openapi-lint
+        language: system
+        pass_filenames: false
+        files: ^(\.speakeasy/|openapi/|scripts/speakeasy_lint\.sh$)
+
       - id: web-typecheck
         name: web typecheck
         entry: just web-typecheck

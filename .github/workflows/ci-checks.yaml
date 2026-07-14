@@ -38,6 +38,9 @@ jobs:
               - 'pyproject.toml'
               - 'uv.lock'
               - '.pre-commit-config.yaml'
+              - '.speakeasy/**'
+              - 'openapi/**'
+              - 'scripts/speakeasy_lint.sh'
               - 'justfile'
               - '.github/workflows/ci-checks.yaml'
             web:
@@ -85,7 +88,7 @@ jobs:
       # SKIP list in sync with the hooks in .pre-commit-config.yaml.
       - name: Run hygiene hooks
         env:
-          SKIP: ruff-format,ruff-check,ty-check,unit-tests,web-typecheck,web-tests,licenses-manifest,licenses-deps
+          SKIP: ruff-format,ruff-check,ty-check,unit-tests,openapi-check-sync,openapi-validate,openapi-lint,web-typecheck,web-tests,licenses-manifest,licenses-deps
         run: uvx pre-commit run --all-files --show-diff-on-failure
 
   lint:
