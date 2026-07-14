@@ -249,6 +249,66 @@ CONFIG_ENV_OVERRIDES = {
     "log.level": "PARSEHAWK_LOG_LEVEL",
 }
 
+# Framework-neutral examples consumed by the generated CLI reference. Keep one
+# safe, copyable example for every parser node so a future argparse-to-Typer
+# migration can preserve the documentation contract independently of rendering.
+CLI_COMMAND_EXAMPLES = {
+    "parsehawk": "parsehawk --help",
+    "parsehawk start": "parsehawk start",
+    "parsehawk dev": "parsehawk dev --reload",
+    "parsehawk restart": "parsehawk restart",
+    "parsehawk stop": "parsehawk stop",
+    "parsehawk status": "parsehawk status",
+    "parsehawk migrate": "parsehawk migrate status",
+    "parsehawk doctor": "parsehawk doctor --json",
+    "parsehawk config": "parsehawk config --help",
+    "parsehawk config list": "parsehawk config list --json",
+    "parsehawk config set": "parsehawk config set log.level DEBUG",
+    "parsehawk runtime": "parsehawk runtime --help",
+    "parsehawk runtime info": "parsehawk runtime info --json",
+    "parsehawk runtime test": "parsehawk runtime test",
+    "parsehawk runtime doctor": "parsehawk runtime doctor --json",
+    "parsehawk extract": (
+        "parsehawk extract tests/fixtures/receipt/receipt.jpg --extractor receipt --wait"
+    ),
+    "parsehawk files": "parsehawk files --help",
+    "parsehawk files list": "parsehawk files list",
+    "parsehawk files get": "parsehawk files get file_...",
+    "parsehawk files upload": "parsehawk files upload document.pdf",
+    "parsehawk files delete": "parsehawk files delete file_...",
+    "parsehawk schemas": "parsehawk schemas --help",
+    "parsehawk schemas validate": "parsehawk schemas validate invoice.schema.json",
+    "parsehawk extractors": "parsehawk extractors --help",
+    "parsehawk extractors list": "parsehawk extractors list",
+    "parsehawk extractors get": "parsehawk extractors get invoice_v1",
+    "parsehawk extractors create": (
+        'parsehawk extractors create --name invoice_v1 --display-name "Invoice extractor" '
+        "--instructions instructions.txt --schema invoice.schema.json"
+    ),
+    "parsehawk extractors put": (
+        'parsehawk extractors put invoice_v1 --display-name "Invoice extractor" '
+        "--instructions instructions.txt --schema invoice.schema.json"
+    ),
+    "parsehawk extractors update": (
+        'parsehawk extractors update invoice_v1 --display-name "Invoices"'
+    ),
+    "parsehawk extractors delete": "parsehawk extractors delete invoice_v1",
+    "parsehawk providers": "parsehawk providers --help",
+    "parsehawk providers list": "parsehawk providers list",
+    "parsehawk providers get": "parsehawk providers get openai_compatible_api",
+    "parsehawk providers configure": (
+        "parsehawk providers configure openai --api-key-env OPENAI_API_KEY"
+    ),
+    "parsehawk providers models": "parsehawk providers models openai_compatible_api",
+    "parsehawk jobs": "parsehawk jobs --help",
+    "parsehawk jobs create": (
+        'parsehawk jobs create invoice_v1 --text "Invoice A-204 · Total EUR 128.40"'
+    ),
+    "parsehawk jobs list": "parsehawk jobs list --extractor invoice_v1",
+    "parsehawk jobs get": "parsehawk jobs get job_...",
+    "parsehawk jobs delete": "parsehawk jobs delete job_...",
+}
+
 
 @dataclass(frozen=True)
 class ManagedProcess:

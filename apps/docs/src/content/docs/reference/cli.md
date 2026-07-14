@@ -15,6 +15,17 @@ This page is generated from the same `argparse` definitions used by the installe
 `parsehawk` command. Change CLI help in code, run `just references-export`, and commit
 the updated page.
 
+## Exit status
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Command completed successfully. |
+| `1` | Runtime, API, configuration, validation, or local-environment failure. |
+| `2` | Command-line usage error reported by `argparse`. |
+
+Errors are written to standard error. API failures include the HTTP status and response
+body; connection failures include the target API URL.
+
 ## Command index
 
 - [`parsehawk`](#parsehawk)
@@ -66,6 +77,30 @@ Run and operate the local-first ParseHawk document extraction platform.
 $ parsehawk [-h] {start,dev,restart,stop,status,migrate,doctor,config,runtime,extract,files,schemas,extractors,providers,jobs} ...
 ```
 
+### Example
+
+```console
+$ parsehawk --help
+```
+
+### Related commands
+
+- [`parsehawk config`](#parsehawk-config)
+- [`parsehawk dev`](#parsehawk-dev)
+- [`parsehawk doctor`](#parsehawk-doctor)
+- [`parsehawk extract`](#parsehawk-extract)
+- [`parsehawk extractors`](#parsehawk-extractors)
+- [`parsehawk files`](#parsehawk-files)
+- [`parsehawk jobs`](#parsehawk-jobs)
+- [`parsehawk migrate`](#parsehawk-migrate)
+- [`parsehawk providers`](#parsehawk-providers)
+- [`parsehawk restart`](#parsehawk-restart)
+- [`parsehawk runtime`](#parsehawk-runtime)
+- [`parsehawk schemas`](#parsehawk-schemas)
+- [`parsehawk start`](#parsehawk-start)
+- [`parsehawk status`](#parsehawk-status)
+- [`parsehawk stop`](#parsehawk-stop)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -77,6 +112,16 @@ Start ParseHawk and its bundled services.
 ```console
 $ parsehawk start [-h] [--host HOST] [--port PORT] [--data-dir DATA_DIR] [--runtime-host RUNTIME_HOST] [--runtime-port RUNTIME_PORT] [--model MODEL] [-x COMPONENT] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--runtime-keep-alive-seconds RUNTIME_KEEP_ALIVE_SECONDS] [--web-host WEB_HOST] [--web-port WEB_PORT] [--no-web]
 ```
+
+### Example
+
+```console
+$ parsehawk start
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -101,6 +146,16 @@ Run ParseHawk from the local source checkout.
 ```console
 $ parsehawk dev [-h] [--host HOST] [--port PORT] [--data-dir DATA_DIR] [--runtime-host RUNTIME_HOST] [--runtime-port RUNTIME_PORT] [--model MODEL] [-x COMPONENT] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--runtime-keep-alive-seconds RUNTIME_KEEP_ALIVE_SECONDS] [--reload] [--web-host WEB_HOST] [--web-port WEB_PORT] [--no-web]
 ```
+
+### Example
+
+```console
+$ parsehawk dev --reload
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -127,6 +182,16 @@ Restart ParseHawk and its bundled services.
 $ parsehawk restart [-h] [--host HOST] [--port PORT] [--data-dir DATA_DIR] [--runtime-host RUNTIME_HOST] [--runtime-port RUNTIME_PORT] [--model MODEL] [-x COMPONENT] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--runtime-keep-alive-seconds RUNTIME_KEEP_ALIVE_SECONDS] [--web-host WEB_HOST] [--web-port WEB_PORT] [--no-web]
 ```
 
+### Example
+
+```console
+$ parsehawk restart
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -151,6 +216,16 @@ Stop managed ParseHawk services.
 $ parsehawk stop [-h] [--data-dir DATA_DIR]
 ```
 
+### Example
+
+```console
+$ parsehawk stop
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -164,6 +239,16 @@ Show the status and URLs of managed ParseHawk services.
 $ parsehawk status [-h] [--data-dir DATA_DIR]
 ```
 
+### Example
+
+```console
+$ parsehawk status
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -176,6 +261,16 @@ Apply pending database migrations or show their status.
 ```console
 $ parsehawk migrate [-h] [--data-dir DATA_DIR] [--json] [{status}]
 ```
+
+### Example
+
+```console
+$ parsehawk migrate status
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -191,6 +286,16 @@ Check the local ParseHawk installation and services.
 ```console
 $ parsehawk doctor [-h] [--json] [--api-url API_URL] [--web-url WEB_URL] [--runtime-url RUNTIME_URL] [--data-dir DATA_DIR]
 ```
+
+### Example
+
+```console
+$ parsehawk doctor --json
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -209,6 +314,18 @@ Inspect or update persistent ParseHawk CLI configuration.
 $ parsehawk config [-h] {list,set} ...
 ```
 
+### Example
+
+```console
+$ parsehawk config --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk config list`](#parsehawk-config-list)
+- [`parsehawk config set`](#parsehawk-config-set)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -220,6 +337,16 @@ List effective CLI configuration values.
 ```console
 $ parsehawk config list [-h] [--json]
 ```
+
+### Example
+
+```console
+$ parsehawk config list --json
+```
+
+### Related commands
+
+- [`parsehawk config`](#parsehawk-config)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -233,6 +360,16 @@ Persist one CLI configuration value.
 ```console
 $ parsehawk config set [-h] key value
 ```
+
+### Example
+
+```console
+$ parsehawk config set log.level DEBUG
+```
+
+### Related commands
+
+- [`parsehawk config`](#parsehawk-config)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -248,6 +385,19 @@ Inspect and test the configured model runtime.
 $ parsehawk runtime [-h] {info,test,doctor} ...
 ```
 
+### Example
+
+```console
+$ parsehawk runtime --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk runtime doctor`](#parsehawk-runtime-doctor)
+- [`parsehawk runtime info`](#parsehawk-runtime-info)
+- [`parsehawk runtime test`](#parsehawk-runtime-test)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -259,6 +409,16 @@ Show the effective model runtime URL and model.
 ```console
 $ parsehawk runtime info [-h] [--runtime-url RUNTIME_URL] [--model MODEL] [--json]
 ```
+
+### Example
+
+```console
+$ parsehawk runtime info --json
+```
+
+### Related commands
+
+- [`parsehawk runtime`](#parsehawk-runtime)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -275,6 +435,16 @@ Send a minimal chat completion to the model runtime.
 $ parsehawk runtime test [-h] [--runtime-url RUNTIME_URL] [--model MODEL] [--json]
 ```
 
+### Example
+
+```console
+$ parsehawk runtime test
+```
+
+### Related commands
+
+- [`parsehawk runtime`](#parsehawk-runtime)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -290,6 +460,16 @@ Run model-runtime connectivity and model checks.
 $ parsehawk runtime doctor [-h] [--runtime-url RUNTIME_URL] [--model MODEL] [--json]
 ```
 
+### Example
+
+```console
+$ parsehawk runtime doctor --json
+```
+
+### Related commands
+
+- [`parsehawk runtime`](#parsehawk-runtime)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -304,6 +484,16 @@ Run a one-shot extraction and optionally wait for its result.
 ```console
 $ parsehawk extract [-h] [--extractor EXTRACTOR] [--schema SCHEMA] [--instructions INSTRUCTIONS] [--name NAME] [--reasoning-effort {default,none,minimal,low,medium,high,xhigh}] [--file-id FILE_ID | --text TEXT | --text-file TEXT_FILE] [--wait] [--poll-seconds POLL_SECONDS] [--timeout-seconds TIMEOUT_SECONDS] [--output OUTPUT] [--api-url API_URL] [source]
 ```
+
+### Example
+
+```console
+$ parsehawk extract tests/fixtures/receipt/receipt.jpg --extractor receipt --wait
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -331,6 +521,20 @@ Upload, inspect, list, and delete source files.
 $ parsehawk files [-h] {list,get,upload,create,delete} ...
 ```
 
+### Example
+
+```console
+$ parsehawk files --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk files delete`](#parsehawk-files-delete)
+- [`parsehawk files get`](#parsehawk-files-get)
+- [`parsehawk files list`](#parsehawk-files-list)
+- [`parsehawk files upload`](#parsehawk-files-upload)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -342,6 +546,16 @@ List uploaded files.
 ```console
 $ parsehawk files list [-h] [--api-url API_URL]
 ```
+
+### Example
+
+```console
+$ parsehawk files list
+```
+
+### Related commands
+
+- [`parsehawk files`](#parsehawk-files)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -355,6 +569,16 @@ Get file metadata by ID.
 ```console
 $ parsehawk files get [-h] [--api-url API_URL] file_id
 ```
+
+### Example
+
+```console
+$ parsehawk files get file_...
+```
+
+### Related commands
+
+- [`parsehawk files`](#parsehawk-files)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -372,6 +596,16 @@ Aliases: `create`
 $ parsehawk files upload [-h] [--file FILE_PATH] [--api-url API_URL] [path]
 ```
 
+### Example
+
+```console
+$ parsehawk files upload document.pdf
+```
+
+### Related commands
+
+- [`parsehawk files`](#parsehawk-files)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -387,6 +621,16 @@ Delete a file and its stored content.
 $ parsehawk files delete [-h] [--api-url API_URL] file_id
 ```
 
+### Example
+
+```console
+$ parsehawk files delete file_...
+```
+
+### Related commands
+
+- [`parsehawk files`](#parsehawk-files)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -401,6 +645,17 @@ Validate extraction JSON Schema drafts.
 $ parsehawk schemas [-h] {validate} ...
 ```
 
+### Example
+
+```console
+$ parsehawk schemas --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk schemas validate`](#parsehawk-schemas-validate)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -412,6 +667,16 @@ Validate an extraction schema before saving it.
 ```console
 $ parsehawk schemas validate [-h] [--api-url API_URL] schema_path
 ```
+
+### Example
+
+```console
+$ parsehawk schemas validate invoice.schema.json
+```
+
+### Related commands
+
+- [`parsehawk schemas`](#parsehawk-schemas)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -427,6 +692,22 @@ Create, inspect, update, and delete reusable extractors.
 $ parsehawk extractors [-h] {list,get,create,put,update,delete} ...
 ```
 
+### Example
+
+```console
+$ parsehawk extractors --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk extractors create`](#parsehawk-extractors-create)
+- [`parsehawk extractors delete`](#parsehawk-extractors-delete)
+- [`parsehawk extractors get`](#parsehawk-extractors-get)
+- [`parsehawk extractors list`](#parsehawk-extractors-list)
+- [`parsehawk extractors put`](#parsehawk-extractors-put)
+- [`parsehawk extractors update`](#parsehawk-extractors-update)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -438,6 +719,16 @@ List reusable extractors.
 ```console
 $ parsehawk extractors list [-h] [--api-url API_URL]
 ```
+
+### Example
+
+```console
+$ parsehawk extractors list
+```
+
+### Related commands
+
+- [`parsehawk extractors`](#parsehawk-extractors)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -452,6 +743,16 @@ Get an extractor by ID or stable name.
 $ parsehawk extractors get [-h] [--api-url API_URL] extractor_ref
 ```
 
+### Example
+
+```console
+$ parsehawk extractors get invoice_v1
+```
+
+### Related commands
+
+- [`parsehawk extractors`](#parsehawk-extractors)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -465,6 +766,16 @@ Create a reusable extractor.
 ```console
 $ parsehawk extractors create [-h] [--name NAME] [--display-name DISPLAY_NAME] --instructions INSTRUCTIONS --schema SCHEMA [--examples EXAMPLES] [--reasoning-effort {default,none,minimal,low,medium,high,xhigh}] [--provider {openai,microsoft_foundry,openai_compatible_api}] [--model MODEL] [--api-url API_URL]
 ```
+
+### Example
+
+```console
+$ parsehawk extractors create --name invoice_v1 --display-name "Invoice extractor" --instructions instructions.txt --schema invoice.schema.json
+```
+
+### Related commands
+
+- [`parsehawk extractors`](#parsehawk-extractors)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -486,6 +797,16 @@ Create or fully replace an extractor by reference.
 ```console
 $ parsehawk extractors put [-h] [--name NAME] --display-name DISPLAY_NAME --instructions INSTRUCTIONS --schema SCHEMA [--examples EXAMPLES] [--reasoning-effort {default,none,minimal,low,medium,high,xhigh}] [--provider {openai,microsoft_foundry,openai_compatible_api}] [--model MODEL] [--api-url API_URL] extractor_ref
 ```
+
+### Example
+
+```console
+$ parsehawk extractors put invoice_v1 --display-name "Invoice extractor" --instructions instructions.txt --schema invoice.schema.json
+```
+
+### Related commands
+
+- [`parsehawk extractors`](#parsehawk-extractors)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -509,6 +830,16 @@ Update selected fields on an extractor.
 $ parsehawk extractors update [-h] [--display-name DISPLAY_NAME] [--instructions INSTRUCTIONS] [--schema SCHEMA] [--examples EXAMPLES] [--provider {openai,microsoft_foundry,openai_compatible_api}] [--model MODEL] [--reasoning-effort {default,none,minimal,low,medium,high,xhigh}] [--api-url API_URL] extractor_ref
 ```
 
+### Example
+
+```console
+$ parsehawk extractors update invoice_v1 --display-name "Invoices"
+```
+
+### Related commands
+
+- [`parsehawk extractors`](#parsehawk-extractors)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -530,6 +861,16 @@ Delete an extractor by ID or stable name.
 $ parsehawk extractors delete [-h] [--api-url API_URL] extractor_ref
 ```
 
+### Example
+
+```console
+$ parsehawk extractors delete invoice_v1
+```
+
+### Related commands
+
+- [`parsehawk extractors`](#parsehawk-extractors)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -544,6 +885,20 @@ Inspect and configure model providers.
 $ parsehawk providers [-h] {list,get,configure,models} ...
 ```
 
+### Example
+
+```console
+$ parsehawk providers --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk providers configure`](#parsehawk-providers-configure)
+- [`parsehawk providers get`](#parsehawk-providers-get)
+- [`parsehawk providers list`](#parsehawk-providers-list)
+- [`parsehawk providers models`](#parsehawk-providers-models)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -555,6 +910,16 @@ List configured model providers.
 ```console
 $ parsehawk providers list [-h] [--api-url API_URL]
 ```
+
+### Example
+
+```console
+$ parsehawk providers list
+```
+
+### Related commands
+
+- [`parsehawk providers`](#parsehawk-providers)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -569,6 +934,16 @@ Get one provider configuration.
 $ parsehawk providers get [-h] [--api-url API_URL] {openai,microsoft_foundry,openai_compatible_api}
 ```
 
+### Example
+
+```console
+$ parsehawk providers get openai_compatible_api
+```
+
+### Related commands
+
+- [`parsehawk providers`](#parsehawk-providers)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -582,6 +957,16 @@ Set a provider base URL, provider configuration, or API key.
 ```console
 $ parsehawk providers configure [-h] [--base-url BASE_URL] [--project-url PROJECT_URL] [--api-key API_KEY] [--api-key-env API_KEY_ENV] [--api-url API_URL] {openai,microsoft_foundry,openai_compatible_api}
 ```
+
+### Example
+
+```console
+$ parsehawk providers configure openai --api-key-env OPENAI_API_KEY
+```
+
+### Related commands
+
+- [`parsehawk providers`](#parsehawk-providers)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -601,6 +986,16 @@ List models currently offered by a provider.
 $ parsehawk providers models [-h] [--api-url API_URL] {openai,microsoft_foundry,openai_compatible_api}
 ```
 
+### Example
+
+```console
+$ parsehawk providers models openai_compatible_api
+```
+
+### Related commands
+
+- [`parsehawk providers`](#parsehawk-providers)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -615,6 +1010,20 @@ Create, inspect, list, and delete extraction jobs.
 $ parsehawk jobs [-h] {create,list,get,delete} ...
 ```
 
+### Example
+
+```console
+$ parsehawk jobs --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk jobs create`](#parsehawk-jobs-create)
+- [`parsehawk jobs delete`](#parsehawk-jobs-delete)
+- [`parsehawk jobs get`](#parsehawk-jobs-get)
+- [`parsehawk jobs list`](#parsehawk-jobs-list)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -626,6 +1035,16 @@ Create an asynchronous extraction job.
 ```console
 $ parsehawk jobs create [-h] [--extractor EXTRACTOR_ID_OPTION] (--file-id FILE_ID | --text TEXT | --text-file TEXT_FILE) [--api-url API_URL] [extractor_id]
 ```
+
+### Example
+
+```console
+$ parsehawk jobs create invoice_v1 --text "Invoice A-204 · Total EUR 128.40"
+```
+
+### Related commands
+
+- [`parsehawk jobs`](#parsehawk-jobs)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -645,6 +1064,16 @@ List extraction jobs.
 $ parsehawk jobs list [-h] [--extractor-id EXTRACTOR_ID] [--api-url API_URL]
 ```
 
+### Example
+
+```console
+$ parsehawk jobs list --extractor invoice_v1
+```
+
+### Related commands
+
+- [`parsehawk jobs`](#parsehawk-jobs)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -659,6 +1088,16 @@ Get an extraction job by ID.
 $ parsehawk jobs get [-h] [--api-url API_URL] job_id
 ```
 
+### Example
+
+```console
+$ parsehawk jobs get job_...
+```
+
+### Related commands
+
+- [`parsehawk jobs`](#parsehawk-jobs)
+
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
@@ -672,6 +1111,16 @@ Cancel a pending job or delete a finished job.
 ```console
 $ parsehawk jobs delete [-h] [--api-url API_URL] job_id
 ```
+
+### Example
+
+```console
+$ parsehawk jobs delete job_...
+```
+
+### Related commands
+
+- [`parsehawk jobs`](#parsehawk-jobs)
 
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
