@@ -10,6 +10,14 @@ No separate provider adapter is required: ParseHawk sends chat-completions
 requests with JSON Schema response constraints and OpenAI-compatible image
 inputs.
 
+:::note[Verified compatibility]
+This path was verified on Apple Silicon with Ollama 0.32.0 on 14 July 2026.
+`qwen3:0.6b` produced schema-valid text extraction, and
+`qwen3-vl:2b-instruct` matched every field in ParseHawk's receipt image ground
+truth. Treat these small models as compatibility checks, not production
+accuracy recommendations.
+:::
+
 ## 1. Start Ollama and pull a small model
 
 Install [Ollama](https://ollama.com/download), then start its local server. The
@@ -56,31 +64,41 @@ use `http://127.0.0.1:11434/v1` instead.
 
 ## 3. Test structured text extraction
 
-Assign the text model to a saved extractor:
+From a ParseHawk repository checkout, create a saved extractor with the bundled
+receipt schema and assign the text model:
 
 ```console
-parsehawk extractors update invoice_v1 \
+parsehawk extractors create \
+  --name ollama-receipt \
+  --display-name "Ollama receipt" \
+  --instructions "Extract receipt fields and preserve written values." \
+  --schema tests/fixtures/receipt/receipt_schema.json \
   --provider openai_compatible_api \
   --model qwen3:0.6b
 
-parsehawk jobs create invoice_v1 --text \
-  "Invoice A-204 · 14 July 2026 · Total EUR 128.40"
+parsehawk extract \
+  --text "Merchant: Sparrow Books. Receipt ID: A-204. Date: 2026-07-14. Total: EUR 128.40." \
+  --extractor ollama-receipt \
+  --wait
 ```
 
-Inspect the returned job with `parsehawk jobs get job_...`. A completed job has
-schema-valid JSON under `result.data`.
+The command should print schema-valid JSON. If you are not working from a
+repository checkout, replace the fixture path with your own schema; the
+[reusable extractor tutorial](/tutorials/reusable-extractor/) builds one from
+scratch.
 
 ## 4. Test a multimodal model
 
-Assign the vision-language model, then run an image:
+Switch the same user-created extractor to the vision-language model, then run
+the bundled image:
 
 ```console
-parsehawk extractors update receipt \
+parsehawk extractors update ollama-receipt \
   --provider openai_compatible_api \
   --model qwen3-vl:2b-instruct
 
 parsehawk extract tests/fixtures/receipt/receipt.jpg \
-  --extractor receipt \
+  --extractor ollama-receipt \
   --wait
 ```
 
