@@ -1,16 +1,24 @@
 .git
-.venv
-.ruff_cache
-.pytest_cache
-.coverage
-.DS_Store
-__pycache__
-*.pyc
+**/.venv
+**/.ruff_cache
+**/.pytest_cache
+**/.coverage
+**/.DS_Store
+**/__pycache__
+**/*.pyc
 
 data
-examples/Testdaten
-node_modules
-apps/web/dist
-apps/web/tsconfig.tsbuildinfo
+examples
+example-applications
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+**/.cache
+**/playwright-report
+**/test-results
 
-*.log
+**/.env
+**/.env.*
+**/*.env
+**/*.log
