@@ -57,7 +57,7 @@ OpenAI, Microsoft Foundry, or another OpenAI-compatible model server.
 | Platform | Required | Recommended minimum |
 | --- | --- | --- |
 | macOS Apple Silicon | `uv`, Docker Desktop, Xcode Command Line Tools | 16 GB unified memory |
-| Linux x86_64 with NVIDIA | `uv`, Docker Engine + Compose, NVIDIA driver and Container Toolkit | 16 GB VRAM |
+| Linux x86_64 or ARM64 with NVIDIA | `uv`, Docker Engine + Compose, NVIDIA driver and Container Toolkit | 16 GB VRAM |
 
 Windows and Intel Macs are not currently supported for the bundled runtime. You
 can still connect a separately operated provider on a host without a supported

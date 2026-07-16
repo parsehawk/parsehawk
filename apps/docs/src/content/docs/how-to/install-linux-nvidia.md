@@ -5,12 +5,12 @@ sidebar:
   order: 2
 ---
 
-On Linux x86_64, ParseHawk runs the complete stack in Docker Compose, including
+On Linux x86_64 and ARM64, ParseHawk runs the complete stack in Docker Compose, including
 the vLLM model server.
 
 ## Requirements
 
-- Linux on x86_64
+- Linux on x86_64 or ARM64
 - An NVIDIA GPU with 16 GB VRAM minimum; 24 GB or more for larger contexts
 - NVIDIA driver and NVIDIA Container Toolkit
 - Docker Engine with the Compose plugin

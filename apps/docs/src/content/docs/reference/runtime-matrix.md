@@ -10,10 +10,10 @@ sidebar:
 | Host                 | Architecture            | Accelerator            | Runtime location                 | Status             |
 | -------------------- | ----------------------- | ---------------------- | -------------------------------- | ------------------ |
 | macOS                | Apple Silicon (`arm64`) | Metal / unified memory | Host-native vLLM Metal           | Supported          |
-| Linux                | x86_64                  | NVIDIA CUDA            | Docker Compose `runtime` service | Supported          |
+| Linux                | x86_64 or ARM64         | NVIDIA CUDA            | Docker Compose `runtime` service | Supported          |
 | Windows              | —                       | —                      | —                                | Not supported      |
 | macOS Intel          | `x86_64`                | —                      | —                                | Not supported      |
-| Linux without NVIDIA | x86_64                  | CPU or other GPU       | External provider only           | No bundled runtime |
+| Linux without NVIDIA | x86_64 or ARM64         | CPU or other GPU       | External provider only           | No bundled runtime |
 
 The API stack can still use a separately operated provider when the bundled
 runtime is unavailable. Start with `parsehawk start -x runtime`.

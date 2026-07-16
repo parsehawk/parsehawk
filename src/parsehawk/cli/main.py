@@ -122,7 +122,7 @@ def _nvidia_gpu_memory_bytes() -> int | None:
 def _runtime_profile_context() -> tuple[RuntimePlatform, int | None] | None:
     if _is_macos_apple_silicon():
         return RuntimePlatform.MACOS_APPLE_SILICON, _system_memory_bytes()
-    if _is_linux_x86_64():
+    if _is_linux_supported_architecture():
         return RuntimePlatform.LINUX_NVIDIA, _nvidia_gpu_memory_bytes()
     return None
 
@@ -176,8 +176,12 @@ def _is_macos_apple_silicon() -> bool:
     return sys.platform == "darwin" and os.uname().machine == "arm64"
 
 
-def _is_linux_x86_64() -> bool:
-    return sys.platform.startswith("linux") and os.uname().machine == "x86_64"
+def _is_linux_supported_architecture() -> bool:
+    return sys.platform.startswith("linux") and os.uname().machine in {
+        "x86_64",
+        "aarch64",
+        "arm64",
+    }
 
 
 def _vllm_runtime_command(
@@ -808,8 +812,8 @@ def dev(args: argparse.Namespace) -> None:
     if args.runtime == UNSUPPORTED_RUNTIME:
         raise SystemExit(
             "No bundled model runtime is available for this platform. ParseHawk's local "
-            "runtime requires macOS Apple Silicon (vLLM Metal) or Linux x86_64 with an NVIDIA "
-            "GPU (vLLM). Pass --runtime none to start the API without a model runtime."
+            "runtime requires macOS Apple Silicon (vLLM Metal) or Linux x86_64/ARM64 with an "
+            "NVIDIA GPU (vLLM). Pass -x runtime to start the API without a model runtime."
         )
     settings = Settings.from_env()
     config = load_cli_config(apply_env=True)
@@ -902,7 +906,7 @@ def dev(args: argparse.Namespace) -> None:
                 raise SystemExit(
                     "--runtime vllm needs an NVIDIA CUDA GPU, but none was detected "
                     "(nvidia-smi is missing or reported no devices). Run ParseHawk on a "
-                    "Linux x86_64 host with an NVIDIA GPU, or use --runtime none to start "
+                    "Linux x86_64/ARM64 host with an NVIDIA GPU, or use -x runtime to start "
                     "without a model runtime."
                 )
             runtime_cmd[0] = str(
@@ -1020,8 +1024,8 @@ def start_docker(args: argparse.Namespace) -> None:
     if args.runtime == UNSUPPORTED_RUNTIME:
         raise SystemExit(
             "No bundled model runtime is available for this platform. ParseHawk's Docker "
-            "start mode currently supports macOS Apple Silicon and Linux x86_64 with "
-            "an NVIDIA GPU. Pass --runtime none to start without a model runtime."
+            "start mode currently supports macOS Apple Silicon and Linux x86_64/ARM64 with "
+            "an NVIDIA GPU. Pass -x runtime to start without a model runtime."
         )
 
     settings = Settings.from_env()
@@ -1072,7 +1076,7 @@ def start_docker(args: argparse.Namespace) -> None:
     if args.runtime == "vllm":
         if _is_macos_apple_silicon():
             seed_runtime_url = f"http://host.docker.internal:{args.runtime_port}/v1"
-        elif _is_linux_x86_64():
+        elif _is_linux_supported_architecture():
             seed_runtime_url = "http://runtime:8080/v1"
 
     seed_prebuilt_data(
@@ -1125,7 +1129,7 @@ def start_docker(args: argparse.Namespace) -> None:
             )
             processes.append(runtime_process)
             container_runtime_url = f"http://host.docker.internal:{args.runtime_port}/v1"
-        elif _is_linux_x86_64():
+        elif _is_linux_supported_architecture():
             _progress(f"Using Linux vLLM runtime service: {model}")
             container_runtime_url = "http://runtime:8080/v1"
         else:
@@ -1150,7 +1154,7 @@ def start_docker(args: argparse.Namespace) -> None:
     web_enabled = not args.no_web and (web_dir / "package.json").exists()
     if web_enabled:
         services.append("web")
-    if args.runtime == "vllm" and _is_linux_x86_64():
+    if args.runtime == "vllm" and _is_linux_supported_architecture():
         services.insert(0, "runtime")
     compose_profiles: list[str] = []
     if phoenix_enabled:
@@ -1713,7 +1717,7 @@ def _ensure_platform_dependencies(runtime: str) -> None:
     if _is_macos_apple_silicon():
         _ensure_xcode_command_line_tools()
         return
-    if _is_linux_x86_64():
+    if _is_linux_supported_architecture():
         if not _has_nvidia_gpu():
             raise SystemExit(
                 "Linux model runtime requires an NVIDIA GPU and driver, but `nvidia-smi` "
@@ -1725,7 +1729,9 @@ def _ensure_platform_dependencies(runtime: str) -> None:
                 "Container Toolkit and verify `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`."
             )
         return
-    raise SystemExit("ParseHawk's bundled model runtime supports macOS arm64 or Linux x86_64.")
+    raise SystemExit(
+        "ParseHawk's bundled model runtime supports macOS arm64 or Linux x86_64/ARM64."
+    )
 
 
 def _ensure_xcode_command_line_tools() -> None:
@@ -1780,7 +1786,7 @@ def _compose_project_name(data_dir: Path) -> str:
 def _compose_files(*, runtime: str) -> list[Path]:
     docker_dir = _repo_root() / "docker"
     files = [docker_dir / "docker-compose.yml"]
-    if runtime == "vllm" and _is_linux_x86_64():
+    if runtime == "vllm" and _is_linux_supported_architecture():
         files.append(docker_dir / "docker-compose.linux.yml")
     return files
 
