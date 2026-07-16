@@ -18,7 +18,7 @@ parsehawk start
 ParseHawk chooses the platform implementation automatically:
 
 - macOS Apple Silicon runs vLLM Metal natively on the host.
-- Linux x86_64 with NVIDIA runs vLLM in Docker Compose.
+- Linux x86_64 or ARM64 with NVIDIA runs vLLM in Docker Compose.
 
 ## Inspect and test the runtime
 

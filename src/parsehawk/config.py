@@ -31,13 +31,13 @@ def default_inference_engine() -> str | None:
 
     Single source of truth shared by the CLI runtime default and the dependency
     markers. Both macOS Apple Silicon and
-    Linux x86_64 use the OpenAI-compatible vLLM runtime contract; macOS reaches
-    that contract through vLLM Metal on the host.
+    Linux x86_64 and ARM64 use the OpenAI-compatible vLLM runtime contract;
+    macOS reaches that contract through vLLM Metal on the host.
     """
     machine = platform.machine()
     if sys.platform == "darwin" and machine == "arm64":
         return "vllm"
-    if sys.platform.startswith("linux") and machine == "x86_64":
+    if sys.platform.startswith("linux") and machine in {"x86_64", "aarch64", "arm64"}:
         return "vllm"
     return None
 

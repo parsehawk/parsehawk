@@ -11,7 +11,7 @@ CLI, and REST API.
 | Host                     | Bundled model runtime  | Recommended hardware                                            | Setup guide                                       |
 | ------------------------ | ---------------------- | --------------------------------------------------------------- | ------------------------------------------------- |
 | macOS on Apple Silicon   | vLLM Metal on the host | 16 GB unified memory minimum; 32 GB or more for larger contexts | [Install on macOS](/how-to/install-macos/)        |
-| Linux x86_64 with NVIDIA | vLLM in Docker Compose | 16 GB VRAM minimum; 24 GB or more for larger contexts           | [Install on Linux](/how-to/install-linux-nvidia/) |
+| Linux x86_64 or ARM64 with NVIDIA | vLLM in Docker Compose | 16 GB VRAM minimum; 24 GB or more for larger contexts           | [Install on Linux](/how-to/install-linux-nvidia/) |
 
 Windows and Intel Macs are not currently supported for the bundled runtime.
 
