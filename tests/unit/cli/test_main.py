@@ -757,16 +757,61 @@ def test_platform_dependencies_linux_checks_gpu_and_docker_runtime(
     cli._ensure_platform_dependencies("vllm")
 
 
-def test_platform_dependencies_linux_requires_nvidia_docker_runtime(
+def test_platform_dependencies_linux_requires_nvidia_container_toolkit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: False)
     monkeypatch.setattr(cli, "_is_linux_supported_architecture", lambda: True)
     monkeypatch.setattr(cli, "_has_nvidia_gpu", lambda: True)
     monkeypatch.setattr(cli, "_docker_supports_nvidia_runtime", lambda: False)
+    monkeypatch.setattr(cli.shutil, "which", lambda command: None)
 
-    with pytest.raises(SystemExit, match="NVIDIA Container Toolkit"):
+    with pytest.raises(SystemExit, match="nvidia-ctk.*not found"):
         cli._ensure_platform_dependencies("vllm")
+
+
+def test_platform_dependencies_linux_configures_installed_nvidia_toolkit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "_is_macos_apple_silicon", lambda: False)
+    monkeypatch.setattr(cli, "_is_linux_supported_architecture", lambda: True)
+    monkeypatch.setattr(cli, "_has_nvidia_gpu", lambda: True)
+    monkeypatch.setattr(cli, "_docker_supports_nvidia_runtime", lambda: False)
+    monkeypatch.setattr(
+        cli.shutil,
+        "which",
+        lambda command: "/usr/bin/nvidia-ctk" if command == "nvidia-ctk" else None,
+    )
+
+    with pytest.raises(SystemExit, match="Toolkit is installed") as error:
+        cli._ensure_platform_dependencies("vllm")
+
+    assert "sudo nvidia-ctk runtime configure --runtime=docker" in str(error.value)
+    assert "sudo systemctl restart docker" in str(error.value)
+    assert "docker info --format '{{json .Runtimes}}'" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("docker_info", "expected"),
+    [
+        ('{"io.containerd.runc.v2": {}, "nvidia": {}, "runc": {}}', True),
+        ('{"io.containerd.runc.v2": {}, "runc": {}}', False),
+        ("not-json", False),
+    ],
+)
+def test_docker_supports_nvidia_runtime_parses_registered_runtimes(
+    monkeypatch: pytest.MonkeyPatch, docker_info: str, expected: bool
+) -> None:
+    monkeypatch.setattr(cli.shutil, "which", lambda command: "/usr/bin/docker")
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *args, **kwargs: cli.subprocess.CompletedProcess(
+            args[0], returncode=0, stdout=docker_info
+        ),
+    )
+
+    assert cli._docker_supports_nvidia_runtime() is expected
 
 
 def test_dev_vllm_without_gpu_exits_with_clear_error(
