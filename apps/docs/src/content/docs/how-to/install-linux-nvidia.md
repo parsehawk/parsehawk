@@ -32,6 +32,24 @@ uv --version
 Also verify that Docker can expose the GPU to a container using the NVIDIA
 Container Toolkit instructions for your distribution.
 
+ParseHawk also requires the toolkit runtime to be registered with the active
+Docker daemon. Confirm that `nvidia` appears in:
+
+```console
+docker info --format '{{json .Runtimes}}'
+```
+
+If the toolkit is installed but the runtime is missing, configure and verify it:
+
+```console
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+docker info --format '{{json .Runtimes}}'
+```
+
+For rootless Docker, follow NVIDIA's rootless-mode configuration instead of
+modifying the system Docker daemon.
+
 ## Install the CLI
 
 ```console

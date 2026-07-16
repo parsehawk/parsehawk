@@ -1724,9 +1724,20 @@ def _ensure_platform_dependencies(runtime: str) -> None:
                 "did not report a usable GPU."
             )
         if not _docker_supports_nvidia_runtime():
+            if shutil.which("nvidia-ctk") is not None:
+                raise SystemExit(
+                    "The NVIDIA Container Toolkit is installed, but Docker does not list the "
+                    "NVIDIA runtime. Configure it for the active Docker daemon, restart Docker, "
+                    "and verify the runtime:\n\n"
+                    "sudo nvidia-ctk runtime configure --runtime=docker\n"
+                    "sudo systemctl restart docker\n"
+                    "docker info --format '{{json .Runtimes}}'"
+                )
             raise SystemExit(
-                "Docker does not appear to expose the NVIDIA runtime. Install the NVIDIA "
-                "Container Toolkit and verify `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi`."
+                "Docker does not list the NVIDIA runtime and `nvidia-ctk` was not found. "
+                "Install the NVIDIA Container Toolkit, configure it with "
+                "`sudo nvidia-ctk runtime configure --runtime=docker`, restart Docker, and "
+                "retry."
             )
         return
     raise SystemExit(
@@ -1775,7 +1786,11 @@ def _docker_supports_nvidia_runtime() -> bool:
         )
     except (OSError, subprocess.SubprocessError):
         return False
-    return "nvidia" in result.stdout
+    try:
+        runtimes = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return isinstance(runtimes, dict) and "nvidia" in runtimes
 
 
 def _compose_project_name(data_dir: Path) -> str:
