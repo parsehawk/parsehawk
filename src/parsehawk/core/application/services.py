@@ -136,9 +136,11 @@ class FileService:
                 raise ValidationFailure(
                     "file is referenced by jobs; delete those jobs before deleting the file"
                 )
+            # Local deletion is idempotent. Keep the write transaction open so a
+            # storage failure leaves the metadata and parent check retryable.
+            self._storage.delete_file(file)
             uow.files.delete(file_id)
             uow.commit()
-        self._storage.delete_file(file)
 
     @staticmethod
     def _get(uow: UnitOfWork, file_id: str) -> File:

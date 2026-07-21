@@ -502,6 +502,29 @@ def test_file_service_rejects_deleting_example_files(services) -> None:
     assert file_service.get(file.id) == file
 
 
+def test_file_service_keeps_metadata_when_storage_deletion_fails(
+    services, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    file_service: FileService = services["file_service"]
+    storage: MemoryStorage = services["storage"]
+    file = file_service.upload(
+        file_name="retryable.md",
+        content_type="text/markdown",
+        content=b"hello",
+    )
+
+    def fail_delete(_: File) -> None:
+        raise PermissionError("storage is read-only")
+
+    monkeypatch.setattr(storage, "delete_file", fail_delete)
+
+    with pytest.raises(PermissionError, match="storage is read-only"):
+        file_service.delete(file.id)
+
+    assert file_service.get(file.id) == file
+    assert storage.contents[file.storage_path] == b"hello"
+
+
 def test_parent_resources_cannot_delete_jobs_implicitly(services) -> None:
     file = services["file_service"].upload(
         file_name="a.md", content_type="text/markdown", content=b"Receipt #2"
