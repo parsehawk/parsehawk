@@ -54,3 +54,16 @@ The default architecture uses SQLite and a shared local file directory. It is a
 good fit for a single host and local team workflows, not an implicit
 multi-machine control plane. API and worker need consistent access to the same
 database, files, and encryption-key source.
+
+The supported SQLite topology is one API process and one extraction worker
+process on the same host. Concurrent API requests use separate transactions;
+WAL mode lets reads continue during writes, while SQLite still serializes the
+short write phases. If lock contention outlasts the configured internal wait,
+the API returns `503` with code `persistence_busy`, and clients may retry that
+request with backoff.
+
+Multiple Uvicorn worker processes and multiple extraction worker processes are
+not currently a supported deployment topology. They require separate load and
+recovery validation even though the database locking primitives are
+process-safe. Use PostgreSQL rather than a shared SQLite file before scaling the
+control plane across machines.

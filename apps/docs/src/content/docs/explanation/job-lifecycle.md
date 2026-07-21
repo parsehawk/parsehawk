@@ -52,6 +52,8 @@ canceling job records `deleting`, asks the worker to stop, and removes the recor
 after the worker observes the request.
 
 Clients polling a deleting job should treat a later 404 as successful removal.
+Files and extractors referenced by a job remain protected from deletion until
+the job itself has been removed.
 
 ## Client design
 

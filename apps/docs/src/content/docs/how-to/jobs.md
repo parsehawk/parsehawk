@@ -50,6 +50,10 @@ parsehawk jobs delete job_...
 A queued or terminal job can be removed immediately. A running job first enters
 `deleting` while the worker observes the cancellation request.
 
+A file or extractor referenced by any job cannot be deleted. Delete the job
+explicitly first, then delete its parent resources. This preserves every job ID
+that the API has returned until the client deliberately removes that job.
+
 ## Retry deliberately
 
 Job creation does not currently accept an idempotency key. To avoid duplicates:

@@ -7,16 +7,19 @@ sidebar:
 
 ## API error envelope
 
-Domain and server errors use a `detail` field:
+Domain and server errors use a `detail` field. Actionable or retryable errors
+also include a stable `code`:
 
 ```json
 {
-  "detail": "Human-readable error text"
+  "code": "persistence_busy",
+  "detail": "Persistence is temporarily busy; retry the request"
 }
 ```
 
-FastAPI request-shape validation can return structured validation details in the
-same field. Clients should not assume `detail` is always a string.
+The `code` field is omitted when an error has no machine-readable code. FastAPI
+request-shape validation can return structured validation details in `detail`.
+Clients should not assume `detail` is always a string.
 
 ## Common HTTP statuses
 
@@ -30,6 +33,7 @@ same field. Clients should not assume `detail` is always a string.
 | `404 Not Found`             | Referenced resource does not exist, or asynchronous deletion finished      |
 | `409 Conflict`              | Resource identity conflicts with existing state                            |
 | `422 Unprocessable Content` | Request, schema, or domain input failed validation                         |
+| `503 Service Unavailable`   | SQLite write contention exceeded its wait; retry with backoff              |
 | `500 Internal Server Error` | Unexpected server failure                                                  |
 
 Use the [generated API operation](/reference/api/) for the exact statuses a
