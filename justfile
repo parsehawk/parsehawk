@@ -32,6 +32,9 @@ test:
 test-unit:
     uv run pytest tests/unit
 
+test-concurrency:
+    uv run pytest --no-cov -m concurrency
+
 e2e:
     uv run pytest --no-cov -m e2e tests/e2e
 

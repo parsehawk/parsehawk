@@ -19,6 +19,7 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "pypdfium2>=5.10.1",
     "python-multipart>=0.0.20",
+    "sqlalchemy>=2.0.0",
     "uvicorn[standard]>=0.32.0",
 ]
 
@@ -64,6 +65,7 @@ select = ["E4", "E7", "E9", "F", "I"]
 addopts = "--cov=parsehawk.core.domain --cov=parsehawk.core.application --cov-report=term-missing --cov-fail-under=100 -m 'not e2e'"
 testpaths = ["tests"]
 markers = [
+    "concurrency: persistence isolation and parallel API regression tests",
     "e2e: local-only API tests; spawn an API+worker on a temp data dir and reuse the running model runtime (run with `just e2e`)",
 ]
 filterwarnings = [

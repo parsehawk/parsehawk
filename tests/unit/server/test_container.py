@@ -57,9 +57,13 @@ def test_factory_builds_engine_from_provider_config_and_key() -> None:
         [Provider(name=ProviderName.OPENAI, base_url="https://api.openai.com/v1")]
     )
     secrets = _Secrets({ProviderName.OPENAI: "sk-x"})
-    factory = EngineFactory(providers, secrets, Settings())
+    factory = EngineFactory(Settings())
 
-    engine = factory.for_extractor(_extractor(ProviderName.OPENAI, "gpt-4o-mini"))
+    engine = factory.for_extractor(
+        _extractor(ProviderName.OPENAI, "gpt-4o-mini"),
+        provider=providers.get(ProviderName.OPENAI),
+        api_key=secrets.get(ProviderName.OPENAI),
+    )
 
     assert isinstance(engine, OpenAIExtractionEngine)
     assert engine._config.base_url == "https://api.openai.com/v1"
@@ -73,10 +77,13 @@ def test_factory_defaults_provider_and_uses_empty_key_for_local_runtime() -> Non
         [Provider(name=ProviderName.OPENAI_COMPATIBLE, base_url="http://127.0.0.1:8080/v1")]
     )
     settings = Settings()
-    factory = EngineFactory(providers, _Secrets(), settings)
+    factory = EngineFactory(settings)
 
     resolved = factory.resolve_extractor_config(_extractor())
-    engine = factory.for_extractor(_extractor())  # no provider/model -> defaults
+    engine = factory.for_extractor(
+        _extractor(),
+        provider=providers.get(ProviderName.OPENAI_COMPATIBLE),
+    )  # no provider/model -> defaults
 
     assert resolved.provider_name == ProviderName.OPENAI_COMPATIBLE
     assert resolved.model == settings.vllm_model
@@ -91,14 +98,27 @@ def test_factory_caches_by_config_and_refreshes_on_key_change() -> None:
         [Provider(name=ProviderName.OPENAI, base_url="https://api.openai.com/v1")]
     )
     secrets = _Secrets({ProviderName.OPENAI: "sk-1"})
-    factory = EngineFactory(providers, secrets, Settings())
+    factory = EngineFactory(Settings())
     extractor = _extractor(ProviderName.OPENAI, "gpt-4o-mini")
+    provider = providers.get(ProviderName.OPENAI)
 
-    first = factory.for_extractor(extractor)
-    assert factory.for_extractor(extractor) is first
+    first = factory.for_extractor(
+        extractor, provider=provider, api_key=secrets.get(ProviderName.OPENAI)
+    )
+    assert (
+        factory.for_extractor(
+            extractor, provider=provider, api_key=secrets.get(ProviderName.OPENAI)
+        )
+        is first
+    )
 
     secrets.put(ProviderName.OPENAI, "sk-2")
-    assert factory.for_extractor(extractor) is not first
+    assert (
+        factory.for_extractor(
+            extractor, provider=provider, api_key=secrets.get(ProviderName.OPENAI)
+        )
+        is not first
+    )
 
 
 def test_container_wires_services_and_leaves_local_model_inherited(tmp_path: Path) -> None:

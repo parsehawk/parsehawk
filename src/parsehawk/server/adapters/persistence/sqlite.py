@@ -2,12 +2,25 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import threading
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, List
+from typing import Any, Iterable, List, cast
 
+from sqlalchemy import Connection, Engine, create_engine, delete, event, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import URL, RowMapping
+from sqlalchemy.exc import DBAPIError
+
+from parsehawk.core.application.ports import (
+    ExtractorRepository,
+    FileRepository,
+    JobRepository,
+    ProviderRepository,
+    SecretStore,
+    UnitOfWork,
+)
+from parsehawk.core.domain.errors import PersistenceBusyError
 from parsehawk.core.domain.models import (
     Example,
     Extractor,
@@ -24,34 +37,86 @@ from parsehawk.core.domain.models import (
     utc_now,
 )
 from parsehawk.server.adapters.persistence.migrations import apply_pending
+from parsehawk.server.adapters.persistence.tables import (
+    extractors as extractors_table,
+)
+from parsehawk.server.adapters.persistence.tables import files as files_table
+from parsehawk.server.adapters.persistence.tables import jobs as jobs_table
+from parsehawk.server.adapters.persistence.tables import (
+    provider_secrets as provider_secrets_table,
+)
+from parsehawk.server.adapters.persistence.tables import providers as providers_table
 from parsehawk.server.adapters.security import SecretCipher
 
-# A single sqlite3.Connection is shared across FastAPI's request threadpool, so
-# multi-statement write transactions (e.g. claim_next_queued's BEGIN IMMEDIATE)
-# can interleave across threads. This process-wide lock serializes writes so each
-# transaction is atomic; busy_timeout/WAL below handle the separate worker process.
-_write_lock = threading.RLock()
+DEFAULT_BUSY_TIMEOUT_MS = 5_000
+_BUSY_MESSAGES = (
+    "database is busy",
+    "database is locked",
+    "database schema is locked",
+    "database table is locked",
+)
 
 
-def connect(database_path: Path) -> sqlite3.Connection:
+def connect(
+    database_path: Path, *, busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS
+) -> sqlite3.Connection:
+    """Open a configured raw connection for migrations and maintenance commands."""
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(database_path, check_same_thread=False)
+    conn = sqlite3.connect(
+        database_path,
+        check_same_thread=False,
+        timeout=busy_timeout_ms / 1_000,
+    )
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    # Wait (rather than fail immediately with "database is locked") when another
-    # connection holds the write lock, and use WAL so readers don't block writers.
-    conn.execute("PRAGMA busy_timeout = 5000")
+    _configure_dbapi_connection(conn, busy_timeout_ms=busy_timeout_ms)
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
-def init_db(conn: sqlite3.Connection) -> None:
-    """Bring the database schema up to date by applying pending migrations.
+def create_sqlite_engine(
+    database_path: Path, *, busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS
+) -> Engine:
+    """Create the process-lifetime engine used by short-lived Units of Work."""
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(
+        URL.create("sqlite+pysqlite", database=str(database_path)),
+        connect_args={
+            "check_same_thread": False,
+            "timeout": busy_timeout_ms / 1_000,
+        },
+    )
 
-    The schema is no longer defined inline here: ordered, tracked migrations under
-    ``migrations/`` own the DDL, and the runner is safe to call repeatedly.
-    """
+    @event.listens_for(engine, "connect")
+    def configure_connection(dbapi_connection: sqlite3.Connection, _: object) -> None:
+        _configure_dbapi_connection(dbapi_connection, busy_timeout_ms=busy_timeout_ms)
+
+    raw_connection = engine.raw_connection()
+    try:
+        dbapi_connection = cast(sqlite3.Connection, raw_connection.driver_connection)
+        dbapi_connection.execute("PRAGMA journal_mode = WAL")
+    finally:
+        raw_connection.close()
+    return engine
+
+
+def _configure_dbapi_connection(conn: sqlite3.Connection, *, busy_timeout_ms: int) -> None:
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
+
+
+def init_db(conn: sqlite3.Connection) -> None:
+    """Bring a raw SQLite connection up to the current migrated schema."""
     apply_pending(conn)
+
+
+def init_engine(engine: Engine) -> None:
+    """Apply migrations through one engine-owned DBAPI connection."""
+    raw_connection = engine.raw_connection()
+    try:
+        dbapi_connection = cast(sqlite3.Connection, raw_connection.driver_connection)
+        apply_pending(dbapi_connection)
+    finally:
+        raw_connection.close()
 
 
 def _dump_json(value: Any) -> str:
@@ -68,6 +133,20 @@ def _datetime_to_text(value: datetime | None) -> str | None:
 
 def _datetime_from_text(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value is not None else None
+
+
+def _is_busy_error(exc: BaseException) -> bool:
+    candidate: BaseException = exc
+    if isinstance(exc, DBAPIError) and isinstance(exc.orig, BaseException):
+        candidate = exc.orig
+    return isinstance(candidate, sqlite3.OperationalError) and any(
+        message in str(candidate).lower() for message in _BUSY_MESSAGES
+    )
+
+
+def _raise_if_busy(exc: BaseException) -> None:
+    if _is_busy_error(exc):
+        raise PersistenceBusyError() from exc
 
 
 @dataclass(frozen=True)
@@ -99,7 +178,7 @@ class SQLiteFileRow:
         )
 
     @classmethod
-    def from_sqlite(cls, row: sqlite3.Row) -> SQLiteFileRow:
+    def from_mapping(cls, row: RowMapping) -> SQLiteFileRow:
         return cls(**dict(row))
 
     def to_domain(self) -> File:
@@ -160,7 +239,7 @@ class SQLiteExtractorRow:
         )
 
     @classmethod
-    def from_sqlite(cls, row: sqlite3.Row) -> SQLiteExtractorRow:
+    def from_mapping(cls, row: RowMapping) -> SQLiteExtractorRow:
         return cls(**dict(row))
 
     def to_domain(self) -> Extractor:
@@ -194,14 +273,14 @@ class SQLiteJobRow:
     extractor_id: str
     file_id: str | None
     source_text: str | None
-    provider_name_used: str | None
-    model_used: str | None
     status: str
     result: str | None
     error: str | None
     created_at: str
     started_at: str | None
     completed_at: str | None
+    provider_name_used: str | None
+    model_used: str | None
 
     @classmethod
     def from_domain(cls, job: Job) -> SQLiteJobRow:
@@ -210,18 +289,18 @@ class SQLiteJobRow:
             extractor_id=job.extractor_id,
             file_id=job.file_id,
             source_text=job.source_text,
-            provider_name_used=job.provider_name_used.value if job.provider_name_used else None,
-            model_used=job.model_used,
             status=job.status.value,
             result=_dump_json(job.result.model_dump(mode="json")) if job.result else None,
             error=_dump_json(job.error.model_dump(mode="json")) if job.error else None,
             created_at=job.created_at.isoformat(),
             started_at=_datetime_to_text(job.started_at),
             completed_at=_datetime_to_text(job.completed_at),
+            provider_name_used=job.provider_name_used.value if job.provider_name_used else None,
+            model_used=job.model_used,
         )
 
     @classmethod
-    def from_sqlite(cls, row: sqlite3.Row) -> SQLiteJobRow:
+    def from_mapping(cls, row: RowMapping) -> SQLiteJobRow:
         return cls(**dict(row))
 
     def to_domain(self) -> Job:
@@ -245,304 +324,26 @@ class SQLiteJobRow:
         )
 
 
-class SQLiteFileRepository:
-    def __init__(self, conn: sqlite3.Connection) -> None:
-        self._conn = conn
-
-    def save(self, file: File) -> None:
-        row = SQLiteFileRow.from_domain(file)
-        with _write_lock:
-            self._conn.execute(
-                """
-                INSERT INTO files (
-                    id, file_name, content_type, size_bytes, sha256, storage_path,
-                    source, seed_key, seed_version, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    file_name = excluded.file_name,
-                    content_type = excluded.content_type,
-                    size_bytes = excluded.size_bytes,
-                    sha256 = excluded.sha256,
-                    storage_path = excluded.storage_path,
-                    source = excluded.source,
-                    seed_key = excluded.seed_key,
-                    seed_version = excluded.seed_version,
-                    created_at = excluded.created_at
-                """,
-                (
-                    row.id,
-                    row.file_name,
-                    row.content_type,
-                    row.size_bytes,
-                    row.sha256,
-                    row.storage_path,
-                    row.source,
-                    row.seed_key,
-                    row.seed_version,
-                    row.created_at,
-                ),
-            )
-            self._conn.commit()
-
-    def list(self) -> List[File]:
-        rows = self._conn.execute("SELECT * FROM files ORDER BY id").fetchall()
-        return [SQLiteFileRow.from_sqlite(row).to_domain() for row in rows]
-
-    def get(self, file_id: str) -> File | None:
-        row = self._conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
-        return SQLiteFileRow.from_sqlite(row).to_domain() if row else None
-
-    def delete(self, file_id: str) -> None:
-        with _write_lock:
-            self._conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
-            self._conn.commit()
-
-
-class SQLiteExtractorRepository:
-    def __init__(self, conn: sqlite3.Connection) -> None:
-        self._conn = conn
-
-    def save(self, extractor: Extractor) -> None:
-        row = SQLiteExtractorRow.from_domain(extractor)
-        with _write_lock:
-            self._conn.execute(
-                """
-                INSERT INTO extractors (
-                    id, name, display_name, instructions, reasoning_effort, provider_name, model,
-                    schema, examples, source, seed_key, seed_version, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    name = excluded.name,
-                    display_name = excluded.display_name,
-                    instructions = excluded.instructions,
-                    reasoning_effort = excluded.reasoning_effort,
-                    provider_name = excluded.provider_name,
-                    model = excluded.model,
-                    schema = excluded.schema,
-                    examples = excluded.examples,
-                    source = excluded.source,
-                    seed_key = excluded.seed_key,
-                    seed_version = excluded.seed_version,
-                    created_at = excluded.created_at,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    row.id,
-                    row.name,
-                    row.display_name,
-                    row.instructions,
-                    row.reasoning_effort,
-                    row.provider_name,
-                    row.model,
-                    row.schema,
-                    row.examples,
-                    row.source,
-                    row.seed_key,
-                    row.seed_version,
-                    row.created_at,
-                    row.updated_at,
-                ),
-            )
-            self._conn.commit()
-
-    def list(self) -> List[Extractor]:
-        rows = self._conn.execute("SELECT * FROM extractors ORDER BY id").fetchall()
-        return [SQLiteExtractorRow.from_sqlite(row).to_domain() for row in rows]
-
-    def get(self, extractor_id: str) -> Extractor | None:
-        row = self._conn.execute(
-            "SELECT * FROM extractors WHERE id = ?", (extractor_id,)
-        ).fetchone()
-        return SQLiteExtractorRow.from_sqlite(row).to_domain() if row else None
-
-    def get_by_name(self, name: str) -> Extractor | None:
-        row = self._conn.execute("SELECT * FROM extractors WHERE name = ?", (name,)).fetchone()
-        return SQLiteExtractorRow.from_sqlite(row).to_domain() if row else None
-
-    def delete(self, extractor_id: str) -> None:
-        with _write_lock:
-            self._conn.execute("DELETE FROM extractors WHERE id = ?", (extractor_id,))
-            self._conn.commit()
-
-
-class SQLiteJobRepository:
-    def __init__(self, conn: sqlite3.Connection) -> None:
-        self._conn = conn
-
-    def save(self, job: Job) -> None:
-        row = SQLiteJobRow.from_domain(job)
-        with _write_lock:
-            self._conn.execute(
-                """
-                INSERT INTO jobs (
-                    id, extractor_id, file_id, source_text, status, result, error,
-                    created_at, started_at, completed_at, provider_name_used, model_used
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    extractor_id = excluded.extractor_id,
-                    file_id = excluded.file_id,
-                    source_text = excluded.source_text,
-                    status = excluded.status,
-                    result = excluded.result,
-                    error = excluded.error,
-                    created_at = excluded.created_at,
-                    started_at = excluded.started_at,
-                    completed_at = excluded.completed_at,
-                    provider_name_used = excluded.provider_name_used,
-                    model_used = excluded.model_used
-                """,
-                (
-                    row.id,
-                    row.extractor_id,
-                    row.file_id,
-                    row.source_text,
-                    row.status,
-                    row.result,
-                    row.error,
-                    row.created_at,
-                    row.started_at,
-                    row.completed_at,
-                    row.provider_name_used,
-                    row.model_used,
-                ),
-            )
-            self._conn.commit()
-
-    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
-        statuses = tuple(status.value for status in expected)
-        if not statuses:
-            return False
-        row = SQLiteJobRow.from_domain(job)
-        placeholders = ",".join("?" for _ in statuses)
-        with _write_lock:
-            cursor = self._conn.execute(
-                f"""
-                UPDATE jobs
-                SET extractor_id = ?,
-                    file_id = ?,
-                    source_text = ?,
-                    status = ?,
-                    result = ?,
-                    error = ?,
-                    created_at = ?,
-                    started_at = ?,
-                    completed_at = ?,
-                    provider_name_used = ?,
-                    model_used = ?
-                WHERE id = ? AND status IN ({placeholders})
-                """,
-                (
-                    row.extractor_id,
-                    row.file_id,
-                    row.source_text,
-                    row.status,
-                    row.result,
-                    row.error,
-                    row.created_at,
-                    row.started_at,
-                    row.completed_at,
-                    row.provider_name_used,
-                    row.model_used,
-                    row.id,
-                    *statuses,
-                ),
-            )
-            self._conn.commit()
-            return cursor.rowcount == 1
-
-    def list(self, extractor_id: str | None = None) -> List[Job]:
-        if extractor_id is None:
-            rows = self._conn.execute("SELECT * FROM jobs ORDER BY created_at").fetchall()
-        else:
-            rows = self._conn.execute(
-                "SELECT * FROM jobs WHERE extractor_id = ? ORDER BY created_at",
-                (extractor_id,),
-            ).fetchall()
-        return [SQLiteJobRow.from_sqlite(row).to_domain() for row in rows]
-
-    def get(self, job_id: str) -> Job | None:
-        row = self._conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-        return SQLiteJobRow.from_sqlite(row).to_domain() if row else None
-
-    def delete(self, job_id: str) -> None:
-        with _write_lock:
-            self._conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-            self._conn.commit()
-
-    def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool:
-        statuses = tuple(status.value for status in expected)
-        if not statuses:
-            return False
-        placeholders = ",".join("?" for _ in statuses)
-        with _write_lock:
-            cursor = self._conn.execute(
-                f"DELETE FROM jobs WHERE id = ? AND status IN ({placeholders})",
-                (job_id, *statuses),
-            )
-            self._conn.commit()
-            return cursor.rowcount == 1
-
-    def claim_next_queued(self) -> Job | None:
-        with _write_lock:
-            try:
-                self._conn.execute("BEGIN IMMEDIATE")
-                row = self._conn.execute(
-                    """
-                    SELECT * FROM jobs
-                    WHERE status = ?
-                    ORDER BY created_at
-                    LIMIT 1
-                    """,
-                    (JobStatus.QUEUED.value,),
-                ).fetchone()
-                if row is None:
-                    self._conn.commit()
-                    return None
-                job = SQLiteJobRow.from_sqlite(row).to_domain().mark_running()
-                updated = SQLiteJobRow.from_domain(job)
-                self._conn.execute(
-                    """
-                    UPDATE jobs
-                    SET status = ?, started_at = ?
-                    WHERE id = ? AND status = ?
-                    """,
-                    (
-                        updated.status,
-                        updated.started_at,
-                        updated.id,
-                        JobStatus.QUEUED.value,
-                    ),
-                )
-                self._conn.commit()
-                return job
-            except Exception:
-                self._conn.rollback()
-                raise
-
-
 @dataclass(frozen=True)
 class SQLiteProviderRow:
     name: str
     base_url: str | None
-    configuration: str
     created_at: str
     updated_at: str
+    configuration: str
 
     @classmethod
     def from_domain(cls, provider: Provider) -> SQLiteProviderRow:
         return cls(
             name=provider.name.value,
             base_url=provider.base_url,
-            configuration=_dump_json(provider.configuration),
             created_at=provider.created_at.isoformat(),
             updated_at=provider.updated_at.isoformat(),
+            configuration=_dump_json(provider.configuration),
         )
 
     @classmethod
-    def from_sqlite(cls, row: sqlite3.Row) -> SQLiteProviderRow:
+    def from_mapping(cls, row: RowMapping) -> SQLiteProviderRow:
         return cls(**dict(row))
 
     def to_domain(self) -> Provider:
@@ -559,77 +360,366 @@ class SQLiteProviderRow:
         )
 
 
+class SQLiteFileRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def save(self, file: File) -> None:
+        values = asdict(SQLiteFileRow.from_domain(file))
+        statement = sqlite_insert(files_table).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[files_table.c.id],
+            set_={
+                column.name: statement.excluded[column.name]
+                for column in files_table.c
+                if column.name != "id"
+            },
+        )
+        self._connection.execute(statement)
+
+    def list(self) -> List[File]:
+        rows = self._connection.execute(select(files_table).order_by(files_table.c.id)).mappings()
+        return [SQLiteFileRow.from_mapping(row).to_domain() for row in rows]
+
+    def get(self, file_id: str) -> File | None:
+        row = (
+            self._connection.execute(select(files_table).where(files_table.c.id == file_id))
+            .mappings()
+            .first()
+        )
+        return SQLiteFileRow.from_mapping(row).to_domain() if row else None
+
+    def delete(self, file_id: str) -> None:
+        self._connection.execute(delete(files_table).where(files_table.c.id == file_id))
+
+
+class SQLiteExtractorRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def save(self, extractor: Extractor) -> None:
+        values = asdict(SQLiteExtractorRow.from_domain(extractor))
+        statement = sqlite_insert(extractors_table).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[extractors_table.c.id],
+            set_={
+                column.name: statement.excluded[column.name]
+                for column in extractors_table.c
+                if column.name != "id"
+            },
+        )
+        self._connection.execute(statement)
+
+    def list(self) -> List[Extractor]:
+        rows = self._connection.execute(
+            select(extractors_table).order_by(extractors_table.c.id)
+        ).mappings()
+        return [SQLiteExtractorRow.from_mapping(row).to_domain() for row in rows]
+
+    def get(self, extractor_id: str) -> Extractor | None:
+        row = (
+            self._connection.execute(
+                select(extractors_table).where(extractors_table.c.id == extractor_id)
+            )
+            .mappings()
+            .first()
+        )
+        return SQLiteExtractorRow.from_mapping(row).to_domain() if row else None
+
+    def get_by_name(self, name: str) -> Extractor | None:
+        row = (
+            self._connection.execute(
+                select(extractors_table).where(extractors_table.c.name == name)
+            )
+            .mappings()
+            .first()
+        )
+        return SQLiteExtractorRow.from_mapping(row).to_domain() if row else None
+
+    def delete(self, extractor_id: str) -> None:
+        self._connection.execute(
+            delete(extractors_table).where(extractors_table.c.id == extractor_id)
+        )
+
+
+class SQLiteJobRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def save(self, job: Job) -> None:
+        values = asdict(SQLiteJobRow.from_domain(job))
+        statement = sqlite_insert(jobs_table).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[jobs_table.c.id],
+            set_={
+                column.name: statement.excluded[column.name]
+                for column in jobs_table.c
+                if column.name != "id"
+            },
+        )
+        self._connection.execute(statement)
+
+    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
+        statuses = tuple(status.value for status in expected)
+        if not statuses:
+            return False
+        values = asdict(SQLiteJobRow.from_domain(job))
+        job_id = values.pop("id")
+        result = self._connection.execute(
+            update(jobs_table)
+            .where(jobs_table.c.id == job_id)
+            .where(jobs_table.c.status.in_(statuses))
+            .values(**values)
+        )
+        return result.rowcount == 1
+
+    def list(self, extractor_id: str | None = None) -> List[Job]:
+        statement = select(jobs_table)
+        if extractor_id is not None:
+            statement = statement.where(jobs_table.c.extractor_id == extractor_id)
+        rows = self._connection.execute(statement.order_by(jobs_table.c.created_at)).mappings()
+        return [SQLiteJobRow.from_mapping(row).to_domain() for row in rows]
+
+    def get(self, job_id: str) -> Job | None:
+        row = (
+            self._connection.execute(select(jobs_table).where(jobs_table.c.id == job_id))
+            .mappings()
+            .first()
+        )
+        return SQLiteJobRow.from_mapping(row).to_domain() if row else None
+
+    def delete(self, job_id: str) -> None:
+        self._connection.execute(delete(jobs_table).where(jobs_table.c.id == job_id))
+
+    def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool:
+        statuses = tuple(status.value for status in expected)
+        if not statuses:
+            return False
+        result = self._connection.execute(
+            delete(jobs_table)
+            .where(jobs_table.c.id == job_id)
+            .where(jobs_table.c.status.in_(statuses))
+        )
+        return result.rowcount == 1
+
+    def claim_next_queued(self) -> Job | None:
+        row = (
+            self._connection.execute(
+                select(jobs_table)
+                .where(jobs_table.c.status == JobStatus.QUEUED.value)
+                .order_by(jobs_table.c.created_at)
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            return None
+        claimed = SQLiteJobRow.from_mapping(row).to_domain().mark_running()
+        updated = SQLiteJobRow.from_domain(claimed)
+        result = self._connection.execute(
+            update(jobs_table)
+            .where(jobs_table.c.id == updated.id)
+            .where(jobs_table.c.status == JobStatus.QUEUED.value)
+            .values(status=updated.status, started_at=updated.started_at)
+        )
+        return claimed if result.rowcount == 1 else None
+
+    def has_for_file(self, file_id: str) -> bool:
+        return (
+            self._connection.execute(
+                select(jobs_table.c.id).where(jobs_table.c.file_id == file_id).limit(1)
+            ).first()
+            is not None
+        )
+
+    def has_for_extractor(self, extractor_id: str) -> bool:
+        return (
+            self._connection.execute(
+                select(jobs_table.c.id).where(jobs_table.c.extractor_id == extractor_id).limit(1)
+            ).first()
+            is not None
+        )
+
+
 class SQLiteProviderRepository:
-    def __init__(self, conn: sqlite3.Connection) -> None:
-        self._conn = conn
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
 
     def save(self, provider: Provider) -> None:
-        row = SQLiteProviderRow.from_domain(provider)
-        with _write_lock:
-            self._conn.execute(
-                """
-                INSERT INTO providers (name, base_url, configuration, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(name) DO UPDATE SET
-                    base_url = excluded.base_url,
-                    configuration = excluded.configuration,
-                    updated_at = excluded.updated_at
-                """,
-                (row.name, row.base_url, row.configuration, row.created_at, row.updated_at),
-            )
-            self._conn.commit()
+        values = asdict(SQLiteProviderRow.from_domain(provider))
+        statement = sqlite_insert(providers_table).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[providers_table.c.name],
+            set_={
+                "base_url": statement.excluded.base_url,
+                "configuration": statement.excluded.configuration,
+                "updated_at": statement.excluded.updated_at,
+            },
+        )
+        self._connection.execute(statement)
 
     def list(self) -> List[Provider]:
-        rows = self._conn.execute("SELECT * FROM providers ORDER BY name").fetchall()
-        return [SQLiteProviderRow.from_sqlite(row).to_domain() for row in rows]
+        rows = self._connection.execute(
+            select(providers_table).order_by(providers_table.c.name)
+        ).mappings()
+        return [SQLiteProviderRow.from_mapping(row).to_domain() for row in rows]
 
     def get(self, name: ProviderName) -> Provider | None:
-        row = self._conn.execute("SELECT * FROM providers WHERE name = ?", (name.value,)).fetchone()
-        return SQLiteProviderRow.from_sqlite(row).to_domain() if row else None
+        row = (
+            self._connection.execute(
+                select(providers_table).where(providers_table.c.name == name.value)
+            )
+            .mappings()
+            .first()
+        )
+        return SQLiteProviderRow.from_mapping(row).to_domain() if row else None
 
 
 class SQLiteSecretStore:
-    """Stores provider API keys encrypted at rest, keyed by provider name."""
+    """Store provider API keys encrypted at rest, keyed by provider name."""
 
-    def __init__(self, conn: sqlite3.Connection, cipher: SecretCipher) -> None:
-        self._conn = conn
+    def __init__(self, connection: Connection, cipher: SecretCipher) -> None:
+        self._connection = connection
         self._cipher = cipher
 
     def put(self, provider_name: ProviderName, api_key: str) -> None:
-        ciphertext = self._cipher.encrypt(api_key)
         now = utc_now().isoformat()
-        with _write_lock:
-            self._conn.execute(
-                """
-                INSERT INTO provider_secrets (provider_name, ciphertext, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(provider_name) DO UPDATE SET
-                    ciphertext = excluded.ciphertext,
-                    updated_at = excluded.updated_at
-                """,
-                (provider_name.value, ciphertext, now, now),
-            )
-            self._conn.commit()
+        statement = sqlite_insert(provider_secrets_table).values(
+            provider_name=provider_name.value,
+            ciphertext=self._cipher.encrypt(api_key),
+            created_at=now,
+            updated_at=now,
+        )
+        statement = statement.on_conflict_do_update(
+            index_elements=[provider_secrets_table.c.provider_name],
+            set_={
+                "ciphertext": statement.excluded.ciphertext,
+                "updated_at": statement.excluded.updated_at,
+            },
+        )
+        self._connection.execute(statement)
 
     def get(self, provider_name: ProviderName) -> str | None:
-        row = self._conn.execute(
-            "SELECT ciphertext FROM provider_secrets WHERE provider_name = ?",
-            (provider_name.value,),
-        ).fetchone()
+        row = (
+            self._connection.execute(
+                select(provider_secrets_table.c.ciphertext).where(
+                    provider_secrets_table.c.provider_name == provider_name.value
+                )
+            )
+            .mappings()
+            .first()
+        )
         return self._cipher.decrypt(row["ciphertext"]) if row else None
 
     def delete(self, provider_name: ProviderName) -> None:
-        with _write_lock:
-            self._conn.execute(
-                "DELETE FROM provider_secrets WHERE provider_name = ?", (provider_name.value,)
+        self._connection.execute(
+            delete(provider_secrets_table).where(
+                provider_secrets_table.c.provider_name == provider_name.value
             )
-            self._conn.commit()
+        )
 
     def has(self, provider_name: ProviderName) -> bool:
-        row = self._conn.execute(
-            "SELECT 1 FROM provider_secrets WHERE provider_name = ?", (provider_name.value,)
-        ).fetchone()
-        return row is not None
+        return (
+            self._connection.execute(
+                select(provider_secrets_table.c.provider_name)
+                .where(provider_secrets_table.c.provider_name == provider_name.value)
+                .limit(1)
+            ).first()
+            is not None
+        )
+
+
+class SQLiteUnitOfWork:
+    """One SQLAlchemy Core connection and transaction for one application use case."""
+
+    files: FileRepository
+    extractors: ExtractorRepository
+    jobs: JobRepository
+    providers: ProviderRepository
+    secrets: SecretStore
+
+    def __init__(self, engine: Engine, cipher: SecretCipher, *, write: bool) -> None:
+        self._engine = engine
+        self._cipher = cipher
+        self._write = write
+        self._connection: Connection | None = None
+
+    def __enter__(self) -> SQLiteUnitOfWork:
+        self._connection = self._engine.connect()
+        try:
+            if self._write:
+                self._connection.exec_driver_sql("BEGIN IMMEDIATE")
+            else:
+                self._connection.begin()
+        except BaseException as exc:
+            self._connection.close()
+            self._connection = None
+            _raise_if_busy(exc)
+            raise
+        self.files = SQLiteFileRepository(self._connection)
+        self.extractors = SQLiteExtractorRepository(self._connection)
+        self.jobs = SQLiteJobRepository(self._connection)
+        self.providers = SQLiteProviderRepository(self._connection)
+        self.secrets = SQLiteSecretStore(self._connection, self._cipher)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object,
+    ) -> None:
+        connection = self._require_connection()
+        cleanup_error: BaseException | None = None
+        try:
+            if connection.in_transaction():
+                connection.rollback()
+        except BaseException as rollback_error:
+            cleanup_error = rollback_error
+        finally:
+            connection.close()
+            self._connection = None
+        if exc is not None:
+            _raise_if_busy(exc)
+        if cleanup_error is not None:
+            _raise_if_busy(cleanup_error)
+            raise cleanup_error
+
+    def commit(self) -> None:
+        connection = self._require_connection()
+        try:
+            connection.commit()
+        except BaseException as exc:
+            if connection.in_transaction():
+                connection.rollback()
+            _raise_if_busy(exc)
+            raise
+
+    def rollback(self) -> None:
+        connection = self._require_connection()
+        try:
+            connection.rollback()
+        except BaseException as exc:
+            _raise_if_busy(exc)
+            raise
+
+    def _require_connection(self) -> Connection:
+        if self._connection is None:
+            raise RuntimeError("Unit of Work is not active")
+        return self._connection
+
+
+class SQLiteUnitOfWorkFactory:
+    def __init__(self, engine: Engine, cipher: SecretCipher) -> None:
+        self.engine = engine
+        self._cipher = cipher
+
+    def __call__(self, *, write: bool = False) -> UnitOfWork:
+        return SQLiteUnitOfWork(self.engine, self._cipher, write=write)
+
+    def close(self) -> None:
+        self.engine.dispose()
 
 
 def dump_debug_json(value: Any) -> str:

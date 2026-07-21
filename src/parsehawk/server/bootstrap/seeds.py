@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from parsehawk.config import Settings
-from parsehawk.core.domain.models import ExtractorSource, Provider, ProviderName, utc_now
+from parsehawk.core.domain.models import ExtractorSource, Provider, ProviderName
 from parsehawk.server.container import Container, build_container
 
 RECEIPT_EXTRACTOR_SEED_KEY = "prebuilt:receipt:v1"
@@ -72,18 +72,15 @@ def seed_providers_in_container(container: Container) -> None:
         ProviderName.MICROSOFT_FOUNDRY: None,
     }
     for name, base_url in default_base_urls.items():
-        provider = container.providers.get(name)
-        if provider is None:
-            container.providers.save(Provider(name=name, base_url=base_url))
-        elif (
-            name == ProviderName.OPENAI_COMPATIBLE
-            and base_url
-            and provider.base_url != base_url
-            and (provider.base_url is None or provider.base_url in KNOWN_BUNDLED_RUNTIME_BASE_URLS)
-        ):
-            container.providers.save(
-                provider.model_copy(update={"base_url": base_url, "updated_at": utc_now()})
-            )
+        replaceable = (
+            frozenset({None, *KNOWN_BUNDLED_RUNTIME_BASE_URLS})
+            if name == ProviderName.OPENAI_COMPATIBLE and base_url
+            else frozenset()
+        )
+        container.provider_service.ensure(
+            Provider(name=name, base_url=base_url),
+            replace_base_url_if=replaceable,
+        )
 
 
 def seed_prebuilt_data_in_container(container: Container) -> None:
