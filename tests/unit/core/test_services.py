@@ -342,6 +342,18 @@ class RacingDeleteJobRepository(MemoryJobRepository):
         return super().delete_if_status(job_id, expected)
 
 
+class BusyOnceCompletingJobRepository(MemoryJobRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.busy_attempts = 0
+
+    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
+        if job.status == JobStatus.COMPLETED and self.busy_attempts == 0:
+            self.busy_attempts += 1
+            raise PersistenceBusyError()
+        return super().save_if_status(job, expected)
+
+
 @dataclass
 class StubEngine:
     response: ExtractionResponse | None = None
@@ -1742,19 +1754,27 @@ def test_job_service_engine_exception_fails_job(services) -> None:
     assert "model unavailable" in completed.error.message
 
 
-def test_job_service_does_not_convert_persistence_contention_into_job_failure(
-    services,
+def test_job_service_retries_final_persistence_without_rerunning_inference(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    services["engine"].error = PersistenceBusyError()
-    file = services["file_service"].upload(file_name="a.md", content_type="", content=b"x")
-    extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
-    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+    monkeypatch.setattr(service_module.time, "sleep", lambda _: None)
+    files = MemoryFileRepository()
+    extractors = MemoryExtractorRepository()
+    jobs = BusyOnceCompletingJobRepository()
+    storage = MemoryStorage()
+    engine = StubEngine(response=ExtractionResponse(data={"receipt_id": "2"}))
+    uow = build_memory_uow(files, extractors, jobs)
+    extractor_service = ExtractorService(uow, default_model=DEFAULT_MODEL)
+    job_service = JobService(uow, storage, StubEngineFactory(engine))
+    extractor = extractor_service.create(name="e", instructions="i", schema=schema())
+    job_service.create(extractor_id=extractor.id, text="receipt 2")
 
-    with pytest.raises(PersistenceBusyError):
-        services["job_service"].run_claimed(job)
+    completed = job_service.run_next_queued()
 
-    persisted = services["job_service"].get(job.id)
-    assert persisted.status == JobStatus.RUNNING
+    assert completed is not None
+    assert completed.status == JobStatus.COMPLETED
+    assert jobs.busy_attempts == 1
+    assert len(engine.requests) == 1
 
 
 def test_job_service_missing_resources_during_run_fail_job(services) -> None:

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
+import time
+from collections.abc import Callable
 from dataclasses import asdict
 from enum import StrEnum
-from typing import Any, Iterable, List
+from typing import Any, Iterable, List, TypeVar
 
 from jsonschema import Draft202012Validator
 
@@ -46,6 +49,10 @@ from parsehawk.core.domain.models import (
 from parsehawk.core.domain.schemas import MODE_JSON_SCHEMA, validate_extraction_schema
 
 SUPPORTED_FILE_SUFFIXES = {".pdf", ".jpg", ".jpeg", ".png", ".txt", ".md", ".markdown"}
+WORKER_PERSISTENCE_RETRY_DELAY_SECONDS = 0.1
+
+logger = logging.getLogger(__name__)
+ResultT = TypeVar("ResultT")
 
 # The provider new extractors default to when none is specified: the bundled
 # OpenAI-compatible runtime that serves NuExtract3.
@@ -752,8 +759,6 @@ class JobService:
                 return canceled
             return self._get_optional(running.id) or completed
 
-        except PersistenceBusyError:
-            raise
         except ExtractionCancelled as exc:
             canceled = self._cancel_if_requested(running.id)
             if canceled is not None:
@@ -765,28 +770,31 @@ class JobService:
     def _load_execution_state(
         self, job: Job
     ) -> tuple[Extractor, File | None, dict[str, File], Provider | None, str | None]:
-        with self._uow_factory() as uow:
-            extractor = uow.extractors.get(job.extractor_id)
-            if extractor is None:
-                raise NotFoundError("extractor", job.extractor_id)
-            source_file = None
-            if job.file_id is not None:
-                source_file = uow.files.get(job.file_id)
-                if source_file is None:
-                    raise NotFoundError("file", job.file_id)
-            example_files: dict[str, File] = {}
-            for example in extractor.examples:
-                if example.input.type != ExampleInputKind.FILE:
-                    continue
-                assert example.input.file_id is not None
-                example_file = uow.files.get(example.input.file_id)
-                if example_file is None:
-                    raise NotFoundError("file", example.input.file_id)
-                example_files[example_file.id] = example_file
-            resolved_config = self._engine_factory.resolve_extractor_config(extractor)
-            provider = uow.providers.get(resolved_config.provider_name)
-            api_key = uow.secrets.get(resolved_config.provider_name)
-            return extractor, source_file, example_files, provider, api_key
+        def load() -> tuple[Extractor, File | None, dict[str, File], Provider | None, str | None]:
+            with self._uow_factory() as uow:
+                extractor = uow.extractors.get(job.extractor_id)
+                if extractor is None:
+                    raise NotFoundError("extractor", job.extractor_id)
+                source_file = None
+                if job.file_id is not None:
+                    source_file = uow.files.get(job.file_id)
+                    if source_file is None:
+                        raise NotFoundError("file", job.file_id)
+                example_files: dict[str, File] = {}
+                for example in extractor.examples:
+                    if example.input.type != ExampleInputKind.FILE:
+                        continue
+                    assert example.input.file_id is not None
+                    example_file = uow.files.get(example.input.file_id)
+                    if example_file is None:
+                        raise NotFoundError("file", example.input.file_id)
+                    example_files[example_file.id] = example_file
+                resolved_config = self._engine_factory.resolve_extractor_config(extractor)
+                provider = uow.providers.get(resolved_config.provider_name)
+                api_key = uow.secrets.get(resolved_config.provider_name)
+                return extractor, source_file, example_files, provider, api_key
+
+        return self._retry_persistence(load, job_id=job.id, phase="loading execution state")
 
     def _record_failure(self, running: Job, message: str, *, check_cancellation: bool) -> Job:
         failed = running.mark_failed(message)
@@ -799,33 +807,56 @@ class JobService:
         return self._get_optional(running.id) or failed
 
     def _cancel_if_requested(self, job_id: str) -> Job | None:
-        with self._uow_factory(write=True) as uow:
-            latest = uow.jobs.get(job_id)
-            if latest is None:
-                return None
-            if latest.status == JobStatus.CANCELED:
-                return latest
-            if latest.status == JobStatus.DELETING:
-                uow.jobs.delete(latest.id)
-                uow.commit()
-                return latest
-            if latest.status != JobStatus.CANCELING:
-                return None
-            canceled = latest.mark_canceled()
-            if uow.jobs.save_if_status(canceled, [JobStatus.CANCELING]):
-                uow.commit()
-                return canceled
-        return self._get_optional(job_id) or canceled
+        def cancel() -> Job | None:
+            with self._uow_factory(write=True) as uow:
+                latest = uow.jobs.get(job_id)
+                if latest is None:
+                    return None
+                if latest.status == JobStatus.CANCELED:
+                    return latest
+                if latest.status == JobStatus.DELETING:
+                    uow.jobs.delete(latest.id)
+                    uow.commit()
+                    return latest
+                if latest.status != JobStatus.CANCELING:
+                    return None
+                canceled = latest.mark_canceled()
+                if uow.jobs.save_if_status(canceled, [JobStatus.CANCELING]):
+                    uow.commit()
+                    return canceled
+            return self._get_optional(job_id) or canceled
+
+        return self._retry_persistence(cancel, job_id=job_id, phase="applying cancellation")
 
     def _save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
-        with self._uow_factory(write=True) as uow:
-            saved = uow.jobs.save_if_status(job, expected)
-            uow.commit()
-            return saved
+        def save() -> bool:
+            with self._uow_factory(write=True) as uow:
+                saved = uow.jobs.save_if_status(job, expected)
+                uow.commit()
+                return saved
+
+        return self._retry_persistence(save, job_id=job.id, phase="saving state")
 
     def _get_optional(self, job_id: str) -> Job | None:
-        with self._uow_factory() as uow:
-            return uow.jobs.get(job_id)
+        def get() -> Job | None:
+            with self._uow_factory() as uow:
+                return uow.jobs.get(job_id)
+
+        return self._retry_persistence(get, job_id=job_id, phase="reading state")
+
+    @staticmethod
+    def _retry_persistence(operation: Callable[[], ResultT], *, job_id: str, phase: str) -> ResultT:
+        while True:
+            try:
+                return operation()
+            except PersistenceBusyError:
+                logger.warning(
+                    "Persistence busy while %s for job %s; retrying in %.2f seconds",
+                    phase,
+                    job_id,
+                    WORKER_PERSISTENCE_RETRY_DELAY_SECONDS,
+                )
+                time.sleep(WORKER_PERSISTENCE_RETRY_DELAY_SECONDS)
 
     @staticmethod
     def _get(uow: UnitOfWork, job_id: str) -> Job:
