@@ -381,7 +381,10 @@ def get_file_content(
         "until those jobs are deleted."
     ),
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={404: NOT_FOUND_RESPONSE},
+    responses={
+        404: NOT_FOUND_RESPONSE,
+        422: VALIDATION_ERROR_RESPONSE,
+    },
 )
 def delete_file(
     file_id: Annotated[str, Path(description="Immutable file identifier.")],

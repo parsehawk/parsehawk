@@ -99,6 +99,9 @@ def test_binary_download_and_common_errors_are_explicit() -> None:
     assert "404" in download["responses"]
     assert "400" in paths["/v1/providers/{name}/models"]["get"]["responses"]
     assert "422" in paths["/v1/schemas/validate"]["post"]["responses"]
+    assert paths["/v1/files/{file_id}"]["delete"]["responses"]["422"]["content"][
+        "application/json"
+    ]["schema"] == {"$ref": "#/components/schemas/ApiErrorResponse"}
 
 
 def test_main_flow_has_executable_curl_samples() -> None:
