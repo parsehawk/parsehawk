@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from typing import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 
 from parsehawk.config import Settings
+from parsehawk.core.application.ports import (
+    ExtractionRequest,
+    ExtractionResponse,
+    ResolvedExecutionConfig,
+)
+from parsehawk.core.application.services import JobService
+from parsehawk.core.domain.models import Extractor, JobStatus, ProviderName
 from parsehawk.server.api.fastapi.app import create_app, get_container
 from parsehawk.server.container import Container
 
@@ -16,6 +25,34 @@ _SCHEMA = {
     "required": ["value"],
     "additionalProperties": False,
 }
+
+
+class BlockingEngine:
+    def __init__(self) -> None:
+        self.started = Event()
+        self.release = Event()
+        self.calls = 0
+
+    def extract(self, request: ExtractionRequest, cancellation_check=None) -> ExtractionResponse:
+        self.calls += 1
+        self.started.set()
+        assert self.release.wait(timeout=5)
+        return ExtractionResponse(data={"value": request.source_text})
+
+
+class BlockingEngineFactory:
+    def __init__(self, engine: BlockingEngine, default_model: str) -> None:
+        self._engine = engine
+        self._default_model = default_model
+
+    def resolve_extractor_config(self, extractor: Extractor) -> ResolvedExecutionConfig:
+        return ResolvedExecutionConfig(
+            provider_name=extractor.provider_name or ProviderName.OPENAI_COMPATIBLE,
+            model=extractor.model or self._default_model,
+        )
+
+    def for_extractor(self, extractor: Extractor, *, provider=None, api_key=None) -> BlockingEngine:
+        return self._engine
 
 
 @pytest.fixture
@@ -129,4 +166,42 @@ def test_exhausted_write_contention_returns_retryable_503(
         assert response.headers["retry-after"] == "1"
     finally:
         client.close()
+        container.close()
+
+
+@pytest.mark.concurrency
+def test_claimed_job_retries_temporary_finalization_contention_without_rerunning_model(
+    tmp_path,
+) -> None:
+    settings = Settings(data_dir=tmp_path, database_path=tmp_path / "parsehawk.db")
+    container = Container(settings, sqlite_busy_timeout_ms=25)
+    engine = BlockingEngine()
+    job_service = JobService(
+        container.uow_factory,
+        container.storage,
+        BlockingEngineFactory(engine, settings.vllm_model),
+    )
+    try:
+        extractor = container.extractor_service.create(
+            name="finalization_contention",
+            instructions="Extract value.",
+            schema=_SCHEMA,
+        )
+        created = job_service.create(extractor_id=extractor.id, text="value")
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(job_service.run_next_queued)
+            assert engine.started.wait(timeout=5)
+            with container.uow_factory(write=True):
+                engine.release.set()
+                time.sleep(0.075)
+            completed = future.result(timeout=5)
+
+        assert completed is not None
+        assert completed.id == created.id
+        assert completed.status == JobStatus.COMPLETED
+        assert engine.calls == 1
+        assert job_service.get(created.id).status == JobStatus.COMPLETED
+    finally:
+        engine.release.set()
         container.close()
