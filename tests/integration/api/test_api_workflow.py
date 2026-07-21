@@ -189,14 +189,17 @@ def test_delete_running_job_returns_accepted_and_marks_deleting(monkeypatch, tmp
         assert job_response.status_code == 201
         job_id = job_response.json()["id"]
 
-        job = client.app.state.container.jobs.get(job_id)
-        assert job is not None
-        client.app.state.container.jobs.save(job.mark_running())
+        container = client.app.state.container
+        with container.uow_factory(write=True) as uow:
+            job = uow.jobs.get(job_id)
+            assert job is not None
+            uow.jobs.save(job.mark_running())
+            uow.commit()
 
         response = client.delete(f"/v1/jobs/{job_id}")
 
         assert response.status_code == 202
-        persisted = client.app.state.container.jobs.get(job_id)
+        persisted = container.job_service.get(job_id)
         assert persisted is not None
         assert persisted.status == JobStatus.DELETING
 

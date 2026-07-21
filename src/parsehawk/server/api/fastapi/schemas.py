@@ -30,6 +30,10 @@ class ApiModel(BaseModel):
 class ApiErrorResponse(ApiModel):
     """Error returned by request validation or a ParseHawk domain service."""
 
+    code: str | None = Field(
+        default=None,
+        description="Stable machine-readable error code when the failure is retryable or actionable.",
+    )
     detail: str | list[dict[str, Any]] = Field(
         description=(
             "Human-readable error text, or FastAPI validation details when the request "

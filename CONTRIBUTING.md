@@ -114,6 +114,7 @@ just lint           # Ruff linting
 just typecheck      # ty type checking
 just test           # Python tests with coverage gate
 just test-unit      # Python unit tests only
+just test-concurrency # SQLite isolation and parallel API regression tests
 just web-typecheck  # TypeScript checks
 just web-test       # Web UI tests
 just web-build      # production Web UI build

@@ -23,7 +23,12 @@ from fastapi.responses import JSONResponse
 
 from parsehawk import telemetry, tracing
 from parsehawk.core.application.services import NOT_PROVIDED, DeleteJobResult
-from parsehawk.core.domain.errors import NotFoundError, ProviderRequestError, ValidationFailure
+from parsehawk.core.domain.errors import (
+    NotFoundError,
+    PersistenceBusyError,
+    ProviderRequestError,
+    ValidationFailure,
+)
 from parsehawk.core.domain.models import ProviderName
 from parsehawk.core.domain.schemas import (
     MODE_JSON_SCHEMA,
@@ -116,6 +121,10 @@ SERVER_ERROR_RESPONSE = {
     "model": ApiErrorResponse,
     "description": "Unexpected server error.",
 }
+PERSISTENCE_BUSY_RESPONSE = {
+    "model": ApiErrorResponse,
+    "description": "Persistence is temporarily busy and the request can be retried.",
+}
 
 files_router = APIRouter(prefix="/files", tags=["files"])
 extractors_router = APIRouter(prefix="/extractors", tags=["extractors"])
@@ -160,7 +169,7 @@ def create_app() -> FastAPI:
             }
         ],
         openapi_tags=OPENAPI_TAGS,
-        responses={500: SERVER_ERROR_RESPONSE},
+        responses={500: SERVER_ERROR_RESPONSE, 503: PERSISTENCE_BUSY_RESPONSE},
         lifespan=lifespan,
     )
 
@@ -175,6 +184,14 @@ def create_app() -> FastAPI:
     @app.exception_handler(ProviderRequestError)
     async def provider_request_handler(_: Request, exc: ProviderRequestError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(PersistenceBusyError)
+    async def persistence_busy_handler(_: Request, exc: PersistenceBusyError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"code": exc.code, "detail": str(exc)},
+            headers={"Retry-After": "1"},
+        )
 
     @app.exception_handler(Exception)
     async def unexpected_error_handler(_: Request, exc: Exception) -> JSONResponse:
@@ -359,7 +376,10 @@ def get_file_content(
     "/{file_id}",
     operation_id="deleteFile",
     summary="Delete a file",
-    description="Delete one stored file and its local content.",
+    description=(
+        "Delete one stored file and its local content. Files referenced by jobs must remain "
+        "until those jobs are deleted."
+    ),
     status_code=status.HTTP_204_NO_CONTENT,
     responses={404: NOT_FOUND_RESPONSE},
 )
@@ -477,7 +497,10 @@ def upsert_extractor(
     "/{extractor_ref}",
     operation_id="deleteExtractor",
     summary="Delete an extractor",
-    description="Delete a custom extractor. Built-in extractors cannot be deleted.",
+    description=(
+        "Delete a custom extractor. Built-in extractors and extractors referenced by jobs "
+        "cannot be deleted."
+    ),
     status_code=status.HTTP_204_NO_CONTENT,
     responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
 )
@@ -552,8 +575,8 @@ def list_provider_models(
     name: Annotated[ProviderName, Path(description="Stable provider name.")],
     container: ContainerDep,
 ) -> ProviderModelsResponse:
-    provider = container.provider_service.get(name)
-    api_key = container.secrets.get(name) or "EMPTY"
+    provider, stored_api_key = container.provider_service.get_with_api_key(name)
+    api_key = stored_api_key or "EMPTY"
     if provider.name == ProviderName.MICROSOFT_FOUNDRY:
         models = list_foundry_chat_deployments(
             project_url=provider.project_url,

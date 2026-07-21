@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Iterable, List, Protocol
+from typing import Callable, Iterable, List, Protocol, Self
 
 from parsehawk.core.domain.models import Extractor, File, Job, JobStatus, Provider, ProviderName
 
@@ -64,6 +64,10 @@ class JobRepository(Protocol):  # pragma: no cover
 
     def claim_next_queued(self) -> Job | None: ...
 
+    def has_for_file(self, file_id: str) -> bool: ...
+
+    def has_for_extractor(self, extractor_id: str) -> bool: ...
+
 
 class ProviderRepository(Protocol):  # pragma: no cover
     def save(self, provider: Provider) -> None: ...
@@ -81,6 +85,33 @@ class SecretStore(Protocol):  # pragma: no cover
     def delete(self, provider_name: ProviderName) -> None: ...
 
     def has(self, provider_name: ProviderName) -> bool: ...
+
+
+class UnitOfWork(Protocol):  # pragma: no cover
+    """Application transaction boundary independent of a database toolkit."""
+
+    files: FileRepository
+    extractors: ExtractorRepository
+    jobs: JobRepository
+    providers: ProviderRepository
+    secrets: SecretStore
+
+    def __enter__(self) -> Self: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object,
+    ) -> None: ...
+
+    def commit(self) -> None: ...
+
+    def rollback(self) -> None: ...
+
+
+class UnitOfWorkFactory(Protocol):  # pragma: no cover
+    def __call__(self, *, write: bool = False) -> UnitOfWork: ...
 
 
 class FileStorage(Protocol):  # pragma: no cover
@@ -104,7 +135,13 @@ class ExtractionEngine(Protocol):  # pragma: no cover
 class EngineFactory(Protocol):  # pragma: no cover
     def resolve_extractor_config(self, extractor: Extractor) -> ResolvedExecutionConfig: ...
 
-    def for_extractor(self, extractor: Extractor) -> ExtractionEngine: ...
+    def for_extractor(
+        self,
+        extractor: Extractor,
+        *,
+        provider: Provider | None = None,
+        api_key: str | None = None,
+    ) -> ExtractionEngine: ...
 
 
 class ExtractionRequest:

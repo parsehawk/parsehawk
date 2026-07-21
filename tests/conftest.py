@@ -87,7 +87,13 @@ class _StubEngineFactory:
             model=extractor.model or DEFAULT_VLLM_MODEL,
         )
 
-    def for_extractor(self, extractor: Extractor) -> MockInference:
+    def for_extractor(
+        self,
+        extractor: Extractor,
+        *,
+        provider=None,
+        api_key: str | None = None,
+    ) -> MockInference:
         return self._engine
 
 

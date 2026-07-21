@@ -31,6 +31,7 @@ INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID = (
 )
 JOB_EXECUTION_MODEL_METADATA_ID = "20260708133000_job_execution_model_metadata"
 EXTRACTOR_REASONING_EFFORT_ID = "20260709090000_extractor_reasoning_effort"
+RESTRICT_JOB_PARENT_DELETION_ID = "20260721120000_restrict_job_parent_deletion"
 ALL_MIGRATION_IDS = [
     BASELINE_ID,
     ADD_PROVIDERS_ID,
@@ -40,6 +41,7 @@ ALL_MIGRATION_IDS = [
     INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
     JOB_EXECUTION_MODEL_METADATA_ID,
     EXTRACTOR_REASONING_EFFORT_ID,
+    RESTRICT_JOB_PARENT_DELETION_ID,
 ]
 
 # The full current schema after all migrations. ALTER-added columns
@@ -132,8 +134,8 @@ def test_baseline_applied_to_fresh_db_matches_current_schema(conn: sqlite3.Conne
     }
     assert "idx_extractors_name" in indexes(conn, "extractors")
     assert foreign_keys(conn, "jobs") == {
-        ("file_id", "files", "id", "CASCADE"),
-        ("extractor_id", "extractors", "id", "CASCADE"),
+        ("file_id", "files", "id", "RESTRICT"),
+        ("extractor_id", "extractors", "id", "RESTRICT"),
     }
 
 
@@ -145,6 +147,61 @@ def test_apply_pending_is_idempotent(conn: sqlite3.Connection) -> None:
     status = migration_status(conn)
     assert status.applied == ALL_MIGRATION_IDS
     assert status.pending == []
+
+
+def test_restrict_parent_deletion_migration_preserves_existing_jobs(
+    conn: sqlite3.Connection,
+) -> None:
+    _register_functions(conn)
+    earlier_ids = ALL_MIGRATION_IDS[:-1]
+    for migration_id in earlier_ids:
+        migration = next(
+            migration for migration in discover_migrations() if migration.id == migration_id
+        )
+        conn.executescript(migration.path.read_text(encoding="utf-8"))
+    conn.execute("CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)")
+    conn.executemany(
+        "INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)",
+        [(migration_id, "t") for migration_id in earlier_ids],
+    )
+    conn.execute(
+        """
+        INSERT INTO files (
+            id, file_name, content_type, size_bytes, sha256, storage_path,
+            source, seed_key, seed_version, created_at
+        ) VALUES ('file_1', 'a.md', 'text/markdown', 1, 'x', 'files/a.md',
+                  'user', NULL, NULL, 't')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO extractors (
+            id, name, display_name, instructions, schema, examples, source,
+            seed_key, seed_version, created_at, updated_at, provider_name,
+            model, reasoning_effort
+        ) VALUES ('extractor_1', 'example', 'Example', 'Extract.', '{}', '[]',
+                  'user', NULL, NULL, 't', 't', NULL, NULL, NULL)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO jobs (
+            id, extractor_id, file_id, source_text, status, result, error,
+            created_at, started_at, completed_at, provider_name_used, model_used
+        ) VALUES ('job_1', 'extractor_1', 'file_1', NULL, 'queued', NULL, NULL,
+                  't', NULL, NULL, NULL, NULL)
+        """
+    )
+    conn.commit()
+
+    assert apply_pending(conn) == [RESTRICT_JOB_PARENT_DELETION_ID]
+    assert conn.execute("SELECT id FROM jobs").fetchone()["id"] == "job_1"
+
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("DELETE FROM files WHERE id = 'file_1'")
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("DELETE FROM extractors WHERE id = 'extractor_1'")
+    assert conn.execute("SELECT id FROM jobs").fetchone()["id"] == "job_1"
 
 
 def test_migration_status_reports_pending_before_apply(conn: sqlite3.Connection) -> None:
@@ -390,6 +447,7 @@ def test_provider_configuration_migration_renames_foundry_without_data_loss(
         INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
         JOB_EXECUTION_MODEL_METADATA_ID,
         EXTRACTOR_REASONING_EFFORT_ID,
+        RESTRICT_JOB_PARENT_DELETION_ID,
     ]
 
     assert columns(conn, "providers") == EXPECTED_COLUMNS["providers"]
@@ -450,6 +508,7 @@ def test_remove_foundry_api_version_config_migration_strips_already_migrated_con
         INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
         JOB_EXECUTION_MODEL_METADATA_ID,
         EXTRACTOR_REASONING_EFFORT_ID,
+        RESTRICT_JOB_PARENT_DELETION_ID,
     ]
 
     provider = conn.execute(
@@ -517,6 +576,7 @@ def test_inherit_openai_compatible_default_model_migration_preserves_custom_mode
         INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID,
         JOB_EXECUTION_MODEL_METADATA_ID,
         EXTRACTOR_REASONING_EFFORT_ID,
+        RESTRICT_JOB_PARENT_DELETION_ID,
     ]
 
     models = {
@@ -589,7 +649,10 @@ def test_extractor_reasoning_effort_migration_backfills_per_adapter(
         )
     conn.commit()
 
-    assert apply_pending(conn) == [EXTRACTOR_REASONING_EFFORT_ID]
+    assert apply_pending(conn) == [
+        EXTRACTOR_REASONING_EFFORT_ID,
+        RESTRICT_JOB_PARENT_DELETION_ID,
+    ]
 
     assert "enable_thinking" not in columns(conn, "extractors")
     efforts = {

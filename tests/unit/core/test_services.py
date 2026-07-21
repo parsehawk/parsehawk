@@ -10,9 +10,15 @@ from parsehawk.core.application import services as service_module
 from parsehawk.core.application.ports import (
     ExtractionRequest,
     ExtractionResponse,
+    ExtractorRepository,
+    FileRepository,
+    JobRepository,
     PreparedDocument,
     PreparedImage,
+    ProviderRepository,
     ResolvedExecutionConfig,
+    SecretStore,
+    UnitOfWork,
 )
 from parsehawk.core.application.services import (
     DeleteJobResult,
@@ -21,7 +27,12 @@ from parsehawk.core.application.services import (
     JobService,
     ProviderService,
 )
-from parsehawk.core.domain.errors import ExtractionCancelled, NotFoundError, ValidationFailure
+from parsehawk.core.domain.errors import (
+    ExtractionCancelled,
+    NotFoundError,
+    PersistenceBusyError,
+    ValidationFailure,
+)
 from parsehawk.core.domain.models import (
     ExampleInputKind,
     Extractor,
@@ -117,6 +128,12 @@ class MemoryJobRepository:
                 return claimed
         return None
 
+    def has_for_file(self, file_id: str) -> bool:
+        return any(job.file_id == file_id for job in self.items.values())
+
+    def has_for_extractor(self, extractor_id: str) -> bool:
+        return any(job.extractor_id == extractor_id for job in self.items.values())
+
 
 class MemoryProviderRepository:
     def __init__(self) -> None:
@@ -147,6 +164,66 @@ class MemorySecretStore:
 
     def has(self, provider_name: ProviderName) -> bool:
         return provider_name in self.items
+
+
+class MemoryUnitOfWork:
+    files: FileRepository
+    extractors: ExtractorRepository
+    jobs: JobRepository
+    providers: ProviderRepository
+    secrets: SecretStore
+
+    def __init__(
+        self,
+        files: MemoryFileRepository,
+        extractors: MemoryExtractorRepository,
+        jobs: MemoryJobRepository,
+        providers: MemoryProviderRepository,
+        secrets: MemorySecretStore,
+    ) -> None:
+        self.files = files
+        self.extractors = extractors
+        self.jobs = jobs
+        self.providers = providers
+        self.secrets = secrets
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
+
+
+class MemoryUnitOfWorkFactory:
+    def __init__(
+        self,
+        *,
+        files: MemoryFileRepository | None = None,
+        extractors: MemoryExtractorRepository | None = None,
+        jobs: MemoryJobRepository | None = None,
+        providers: MemoryProviderRepository | None = None,
+        secrets: MemorySecretStore | None = None,
+    ) -> None:
+        self.files = files or MemoryFileRepository()
+        self.extractors = extractors or MemoryExtractorRepository()
+        self.jobs = jobs or MemoryJobRepository()
+        self.providers = providers or MemoryProviderRepository()
+        self.secrets = secrets or MemorySecretStore()
+
+    def __call__(self, *, write: bool = False) -> UnitOfWork:
+        return MemoryUnitOfWork(
+            self.files,
+            self.extractors,
+            self.jobs,
+            self.providers,
+            self.secrets,
+        )
 
 
 class MemoryStorage:
@@ -295,8 +372,45 @@ class StubEngineFactory:
             model=extractor.model or DEFAULT_MODEL,
         )
 
-    def for_extractor(self, extractor: Extractor) -> StubEngine:
+    def for_extractor(
+        self,
+        extractor: Extractor,
+        *,
+        provider: Provider | None = None,
+        api_key: str | None = None,
+    ) -> StubEngine:
         return self.engine
+
+
+def build_memory_uow(
+    files: MemoryFileRepository,
+    extractors: MemoryExtractorRepository,
+    jobs: MemoryJobRepository,
+    *,
+    providers: MemoryProviderRepository | None = None,
+    secrets: MemorySecretStore | None = None,
+) -> MemoryUnitOfWorkFactory:
+    return MemoryUnitOfWorkFactory(
+        files=files,
+        extractors=extractors,
+        jobs=jobs,
+        providers=providers,
+        secrets=secrets,
+    )
+
+
+def build_job_service(
+    jobs: MemoryJobRepository,
+    files: MemoryFileRepository,
+    extractors: MemoryExtractorRepository,
+    storage: MemoryStorage,
+    engine_factory: StubEngineFactory,
+) -> JobService:
+    return JobService(
+        build_memory_uow(files, extractors, jobs),
+        storage,
+        engine_factory,
+    )
 
 
 @pytest.fixture
@@ -306,15 +420,17 @@ def services():
     jobs = MemoryJobRepository()
     storage = MemoryStorage()
     engine = StubEngine(response=ExtractionResponse(data={"receipt_id": "2"}))
+    uow = build_memory_uow(files, extractors, jobs)
     return {
         "files": files,
         "extractors": extractors,
         "jobs": jobs,
         "storage": storage,
         "engine": engine,
-        "file_service": FileService(files, storage),
-        "extractor_service": ExtractorService(extractors, files, default_model=DEFAULT_MODEL),
-        "job_service": JobService(jobs, files, extractors, storage, StubEngineFactory(engine)),
+        "uow": uow,
+        "file_service": FileService(uow, storage),
+        "extractor_service": ExtractorService(uow, default_model=DEFAULT_MODEL),
+        "job_service": JobService(uow, storage, StubEngineFactory(engine)),
     }
 
 
@@ -374,6 +490,31 @@ def test_file_service_rejects_deleting_example_files(services) -> None:
     assert file_service.get(file.id) == file
 
 
+def test_parent_resources_cannot_delete_jobs_implicitly(services) -> None:
+    file = services["file_service"].upload(
+        file_name="a.md", content_type="text/markdown", content=b"Receipt #2"
+    )
+    extractor = services["extractor_service"].create(
+        name="receipt", instructions="extract", schema=schema()
+    )
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    with pytest.raises(ValidationFailure, match="file is referenced by jobs"):
+        services["file_service"].delete(file.id)
+    with pytest.raises(ValidationFailure, match="extractor is referenced by jobs"):
+        services["extractor_service"].delete(extractor.id)
+
+    assert services["job_service"].get(job.id) == job
+    assert services["storage"].deleted == []
+
+    assert services["job_service"].delete(job.id) == DeleteJobResult.DELETED
+    services["file_service"].delete(file.id)
+    services["extractor_service"].delete(extractor.id)
+
+    with pytest.raises(NotFoundError):
+        services["job_service"].get(job.id)
+
+
 def test_file_service_rejects_empty_filename(services) -> None:
     with pytest.raises(ValidationFailure):
         services["file_service"].upload(file_name="", content_type="", content=b"")
@@ -384,6 +525,21 @@ def test_file_service_rejects_unsupported_file_type(services) -> None:
         services["file_service"].upload(
             file_name="a.eml", content_type="message/rfc822", content=b""
         )
+
+
+def test_file_service_removes_written_content_when_persistence_fails(services) -> None:
+    def fail_save(file: File) -> None:
+        raise RuntimeError("database failed")
+
+    services["files"].save = fail_save
+
+    with pytest.raises(RuntimeError, match="database failed"):
+        services["file_service"].upload(
+            file_name="a.md", content_type="text/markdown", content=b"hello"
+        )
+
+    assert len(services["storage"].deleted) == 1
+    assert services["storage"].contents == {}
 
 
 def test_extractor_service_create_update_list_delete(services) -> None:
@@ -825,7 +981,7 @@ def test_job_service_delete_retries_when_queued_delete_loses_race(services) -> N
     running = job.mark_running()
     job_repo = RacingDeleteJobRepository(replacement=running)
     job_repo.save(job)
-    job_service = JobService(
+    job_service = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -867,7 +1023,7 @@ def test_job_service_cancel_rechecks_when_status_transition_loses_race(services)
     completed = job.mark_running().mark_completed(JobResult(data={"receipt_id": "2"}))
     job_repo = RejectingJobRepository(replacement=completed)
     job_repo.save(job)
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -884,7 +1040,7 @@ def test_job_service_cancels_when_job_is_already_canceling_before_engine_extract
 ) -> None:
     job_repo = ControlledJobRepository(status_to_apply=JobStatus.CANCELING)
     services["jobs"] = job_repo
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -909,7 +1065,7 @@ def test_job_service_cancels_when_job_is_already_canceling_before_engine_extract
 def test_job_service_deletes_when_job_is_deleting_before_engine_extract(services) -> None:
     job_repo = ControlledJobRepository(status_to_apply=JobStatus.DELETING)
     services["jobs"] = job_repo
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -943,7 +1099,7 @@ def test_job_service_returns_latest_when_execution_config_save_loses_race(servic
     replacement = running.mark_completed(JobResult(data={"receipt_id": "2"}))
     job_repo = RejectingJobRepository(replacement=replacement)
     job_repo.save(running)
-    job_service = JobService(
+    job_service = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -972,8 +1128,9 @@ def test_job_service_cancels_when_job_is_canceling_after_execution_config_save(
 
     storage = CancelingStorage()
     services["storage"] = storage
-    services["file_service"] = FileService(services["files"], storage)
-    services["job_service"] = JobService(
+    storage_uow = build_memory_uow(services["files"], services["extractors"], services["jobs"])
+    services["file_service"] = FileService(storage_uow, storage)
+    services["job_service"] = build_job_service(
         services["jobs"],
         services["files"],
         services["extractors"],
@@ -1071,7 +1228,7 @@ def test_job_service_cancels_when_final_save_loses_race_to_canceling(services) -
         rejected_statuses={JobStatus.COMPLETED},
     )
     job_repo.save(running)
-    job_service = JobService(
+    job_service = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -1090,7 +1247,7 @@ def test_job_service_cancels_when_job_becomes_canceling_after_extraction(
     job_repo = ControlledJobRepository(complete_status_to_apply=JobStatus.CANCELING)
 
     services["jobs"] = job_repo
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -1128,7 +1285,7 @@ def test_job_service_cancels_when_job_becomes_canceling_before_saving_completed(
 ) -> None:
     job_repo = MemoryJobRepository()
     services["jobs"] = job_repo
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -1169,7 +1326,7 @@ def test_job_service_deletes_when_job_becomes_deleting_before_saving_completed(
 ) -> None:
     job_repo = MemoryJobRepository()
     services["jobs"] = job_repo
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -1233,7 +1390,7 @@ def test_job_service_cancels_when_engine_raises_cancelled_and_job_is_canceling(
 ) -> None:
     job_repo = ControlledJobRepository(status_to_apply=JobStatus.CANCELING)
     services["jobs"] = job_repo
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -1259,7 +1416,7 @@ def test_job_service_cancels_when_canceling_before_extraction_cancelled_handler(
 ) -> None:
     job_repo = MemoryJobRepository()
     services["jobs"] = job_repo
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -1300,7 +1457,7 @@ def test_job_service_returns_already_canceled_job_when_engine_raises_cancelled(
 ) -> None:
     job_repo = ControlledJobRepository(status_to_apply=JobStatus.CANCELED, preserve_canceled=True)
     services["jobs"] = job_repo
-    services["job_service"] = JobService(
+    services["job_service"] = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -1400,7 +1557,7 @@ def test_cancel_if_requested_returns_latest_when_finalize_loses_race(services) -
     canceling = job.mark_running().mark_canceling()
     job_repo = RejectingJobRepository(replacement=canceling)
     job_repo.save(canceling)
-    job_service = JobService(
+    job_service = build_job_service(
         job_repo,
         services["files"],
         services["extractors"],
@@ -1585,6 +1742,21 @@ def test_job_service_engine_exception_fails_job(services) -> None:
     assert "model unavailable" in completed.error.message
 
 
+def test_job_service_does_not_convert_persistence_contention_into_job_failure(
+    services,
+) -> None:
+    services["engine"].error = PersistenceBusyError()
+    file = services["file_service"].upload(file_name="a.md", content_type="", content=b"x")
+    extractor = services["extractor_service"].create(name="e", instructions="i", schema=schema())
+    job = services["job_service"].create(extractor_id=extractor.id, file_id=file.id)
+
+    with pytest.raises(PersistenceBusyError):
+        services["job_service"].run_claimed(job)
+
+    persisted = services["job_service"].get(job.id)
+    assert persisted.status == JobStatus.RUNNING
+
+
 def test_job_service_missing_resources_during_run_fail_job(services) -> None:
     job = Job(
         id="job_1",
@@ -1703,7 +1875,8 @@ def _provider_service() -> tuple[ProviderService, MemoryProviderRepository, Memo
     providers.save(
         Provider(name=ProviderName.OPENAI_COMPATIBLE, base_url="http://127.0.0.1:8080/v1")
     )
-    return ProviderService(providers, secrets), providers, secrets
+    uow = MemoryUnitOfWorkFactory(providers=providers, secrets=secrets)
+    return ProviderService(uow), providers, secrets
 
 
 def test_provider_service_list_get_and_missing() -> None:

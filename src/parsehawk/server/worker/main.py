@@ -5,6 +5,7 @@ import logging
 import time
 
 from parsehawk import tracing
+from parsehawk.core.domain.errors import PersistenceBusyError
 from parsehawk.logging import configure_logging
 from parsehawk.server.container import build_container
 
@@ -25,7 +26,12 @@ def run_forever(poll_seconds: float) -> None:
     try:
         logger.info("Worker started")
         while True:
-            job = container.job_service.run_next_queued()
+            try:
+                job = container.job_service.run_next_queued()
+            except PersistenceBusyError:
+                logger.warning("Persistence busy; retrying after %.2f seconds", poll_seconds)
+                time.sleep(poll_seconds)
+                continue
             if job is None:
                 time.sleep(poll_seconds)
             else:

@@ -37,6 +37,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
   /:
     get:
       tags:
@@ -53,6 +59,12 @@ paths:
                 $ref: '#/components/schemas/RootResponse'
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -80,6 +92,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
     post:
       tags:
       - files
@@ -101,6 +119,12 @@ paths:
                 $ref: '#/components/schemas/FileResponse'
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -146,6 +170,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '404':
           description: The requested ParseHawk resource does not exist.
           content:
@@ -162,7 +192,8 @@ paths:
       tags:
       - files
       summary: Delete a file
-      description: Delete one stored file and its local content.
+      description: Delete one stored file and its local content. Files referenced by jobs must remain
+        until those jobs are deleted.
       operationId: deleteFile
       parameters:
       - name: file_id
@@ -178,6 +209,12 @@ paths:
           description: Successful Response
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -224,6 +261,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '404':
           description: The requested ParseHawk resource does not exist.
           content:
@@ -264,6 +307,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
     post:
       tags:
       - extractors
@@ -285,6 +334,12 @@ paths:
                 $ref: '#/components/schemas/ExtractorResponse'
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -320,6 +375,12 @@ paths:
                 $ref: '#/components/schemas/ExtractorResponse'
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -370,6 +431,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '404':
           description: The requested ParseHawk resource does not exist.
           content:
@@ -416,6 +483,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '422':
           description: The request or domain input failed validation.
           content:
@@ -426,7 +499,8 @@ paths:
       tags:
       - extractors
       summary: Delete an extractor
-      description: Delete a custom extractor. Built-in extractors cannot be deleted.
+      description: Delete a custom extractor. Built-in extractors and extractors referenced by jobs cannot
+        be deleted.
       operationId: deleteExtractor
       parameters:
       - name: extractor_ref
@@ -442,6 +516,12 @@ paths:
           description: Successful Response
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -481,6 +561,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
   /v1/providers/{name}:
     get:
       tags:
@@ -505,6 +591,12 @@ paths:
                 $ref: '#/components/schemas/ProviderResponse'
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -548,6 +640,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '422':
           description: The request or domain input failed validation.
           content:
@@ -578,6 +676,12 @@ paths:
                 $ref: '#/components/schemas/ProviderModelsResponse'
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -616,6 +720,12 @@ paths:
                 $ref: '#/components/schemas/JobResponse'
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -681,6 +791,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '422':
           description: Validation Error
           content:
@@ -712,6 +828,12 @@ paths:
                 $ref: '#/components/schemas/JobResponse'
         '500':
           description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
           content:
             application/json:
               schema:
@@ -759,6 +881,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '202':
           description: Cancellation and deletion accepted.
         '404':
@@ -802,6 +930,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '404':
           description: The requested ParseHawk resource does not exist.
           content:
@@ -841,6 +975,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
         '422':
           description: The request or domain input failed validation.
           content:
@@ -854,6 +994,12 @@ components:
   schemas:
     ApiErrorResponse:
       properties:
+        code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Code
+          description: Stable machine-readable error code when the failure is retryable or actionable.
         detail:
           anyOf:
           - type: string

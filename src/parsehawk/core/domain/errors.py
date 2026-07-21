@@ -27,3 +27,13 @@ class ProviderRequestError(ParseHawkError):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class PersistenceBusyError(ParseHawkError):
+    """Raised when persistence lock contention exceeds the configured wait."""
+
+    code = "persistence_busy"
+    retryable = True
+
+    def __init__(self) -> None:
+        super().__init__("Persistence is temporarily busy; retry the request")
