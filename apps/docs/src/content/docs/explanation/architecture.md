@@ -66,6 +66,11 @@ data/
 The API and worker must see the same database, file store, and provider-secret
 key. Local Docker Compose mounts one host directory into both processes.
 
+Every API use case and worker database phase checks out its own SQLAlchemy Core
+connection and owns one short transaction. Repositories never commit on their
+own. The worker commits its claim before preparing files or calling a model, so
+slow document and provider work never holds a SQLite transaction open.
+
 ## Model boundary
 
 The worker resolves a provider and model for each extractor. All providers use
