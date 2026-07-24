@@ -2002,10 +2002,7 @@ function normalizeSchemaField(schemaField: SchemaField): SchemaField {
 }
 
 function enumValuesFromEditorText(value: string): string[] {
-  return value
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return value === "" ? [] : value.split(/\r?\n/);
 }
 
 function pastedCommaSeparatedEnumValues(event: ClipboardEvent<HTMLTextAreaElement>): string[] {

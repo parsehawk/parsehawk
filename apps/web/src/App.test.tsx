@@ -351,6 +351,26 @@ describe("App run workflow", () => {
     });
   });
 
+  it("allows spaces and new lines while editing enum choices", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/files" || url === "/v1/extractors") {
+        return jsonResponse([]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add field" }));
+
+    const enumValues = screen.getByLabelText("Enum values");
+    await userEvent.type(enumValues, "Pending review{enter}Needs follow up");
+
+    expect(enumValues).toHaveValue("Pending review\nNeeds follow up");
+  });
+
   it("does not infer examples from receipt-like user records and resets edited extractors", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
