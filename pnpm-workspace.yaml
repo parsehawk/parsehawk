@@ -9,9 +9,10 @@ overrides:
   esbuild: ">=0.28.1"
   # The packages below are transitive deps with open security advisories
   # (GHSA-frvp-7c67-39w9, GHSA-3jxr-9vmj-r5cp, GHSA-v2hh-gcrm-f6hx,
-  # GHSA-hmw2-7cc7-3qxx, GHSA-w62v-xxxg-mg59, GHSA-52cp-r559-cp3m); all reach
-  # us via dev tooling (shadcn CLI and friends). The lockfile holds a single
-  # major of each, so a blanket floor at the first patched release is safe.
+  # GHSA-hmw2-7cc7-3qxx, GHSA-w62v-xxxg-mg59, GHSA-52cp-r559-cp3m,
+  # GHSA-r28c-9q8g-f849); all reach us via dev tooling (shadcn CLI, vite,
+  # astro, and friends). The lockfile holds a single major of each, so a
+  # blanket floor at the first patched release is safe.
   # @hono/node-server 2.x is a major bump, but its dependent
   # (@modelcontextprotocol/sdk) accepts "^1.19.9 || ^2.0.5" as of 1.30.0.
   # fast-uri and js-yaml use caret ranges to stay on the major their
@@ -22,6 +23,7 @@ overrides:
   form-data: ">=4.0.6"
   hono: ">=4.12.27"
   js-yaml: "^4.3.0"
+  postcss: ">=8.5.18"
 
 # systeminformation is a transitive dep (shadcn -> @dotenvx/dotenvx) whose 5.31.8
 # release landed in our lockfile <24h after publish. Exempt only this reviewed
