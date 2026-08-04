@@ -45,6 +45,12 @@ The UI edits the same definition documented in [core concepts](/explanation/core
    inspect the raw Markdown.
 6. Copy the complete result or download it as a `.md` file.
 
+The **Document** and **Per page** views render headings, emphasis, links, lists,
+code, page breaks, GitHub-style tables, and safe table HTML returned by parsing
+models. **Raw Markdown** always preserves the exact source text. Image references
+whose generated assets are not available are shown as labeled references instead
+of broken images.
+
 The result panel also shows the provider, model, internal adapter, duration, and
 actionable terminal error. Active parse jobs can be canceled, and completed jobs
 can be deleted. The parsing token budget is server-controlled through

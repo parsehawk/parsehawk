@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, ComponentType, ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 import {
   AlertCircle,
   ArrowLeft,
@@ -11,6 +15,7 @@ import {
   Copy,
   Download,
   Eye,
+  FileImage,
   FileJson,
   FileText,
   HelpCircle,
@@ -1913,18 +1918,33 @@ function ParseWorkspace() {
 }
 
 function MarkdownPreview(props: { content: string }) {
+  const content = props.content.replaceAll("<!-- page-break -->", "\n\n---\n\n");
+
   return (
-    <article className="min-h-48 rounded-xl border bg-card p-5 text-sm leading-7">
-      {props.content.split("\n").map((line, index) => {
-        const key = `${index}-${line.slice(0, 16)}`;
-        if (line.startsWith("### ")) return <h3 key={key} className="mt-5 text-lg font-semibold">{line.slice(4)}</h3>;
-        if (line.startsWith("## ")) return <h2 key={key} className="mt-6 text-xl font-semibold">{line.slice(3)}</h2>;
-        if (line.startsWith("# ")) return <h1 key={key} className="mb-4 text-2xl font-semibold">{line.slice(2)}</h1>;
-        if (/^[-*] /.test(line)) return <div key={key} className="ml-4">• {line.slice(2)}</div>;
-        if (/^\d+\. /.test(line)) return <div key={key} className="ml-4">{line}</div>;
-        if (line === "<!-- page-break -->") return <Separator key={key} className="my-6" />;
-        return line ? <p key={key} className="whitespace-pre-wrap">{line}</p> : <br key={key} />;
-      })}
+    <article className="markdown-preview min-h-48 rounded-xl border bg-card p-5 text-sm leading-7">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        components={{
+          a: ({ node: _node, ...linkProps }) => (
+            <a {...linkProps} target="_blank" rel="noreferrer" />
+          ),
+          img: ({ node: _node, alt, src }) => (
+            <span className="markdown-image-reference">
+              <FileImage aria-hidden="true" />
+              <span>{alt || "Image reference"}</span>
+              {src ? <code>{src}</code> : null}
+            </span>
+          ),
+          table: ({ node: _node, ...tableProps }) => (
+            <div className="markdown-table-wrap">
+              <table {...tableProps} />
+            </div>
+          )
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </article>
   );
 }
