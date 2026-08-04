@@ -13,9 +13,11 @@ from sqlalchemy.engine import URL, RowMapping
 from sqlalchemy.exc import DBAPIError
 
 from parsehawk.core.application.ports import (
+    ExtractionJobRepository,
     ExtractorRepository,
     FileRepository,
-    JobRepository,
+    ParseJobRepository,
+    ParserRepository,
     ProviderRepository,
     SecretStore,
     UnitOfWork,
@@ -23,25 +25,34 @@ from parsehawk.core.application.ports import (
 from parsehawk.core.domain.errors import PersistenceBusyError
 from parsehawk.core.domain.models import (
     Example,
+    ExtractionError,
+    ExtractionJob,
+    ExtractionResult,
     Extractor,
     ExtractorSource,
     File,
     FileSource,
-    Job,
-    JobError,
-    JobResult,
     JobStatus,
+    ParseError,
+    ParseJob,
+    Parser,
+    ParseResult,
+    ParserOutputFormat,
+    ParserSnapshot,
+    ParserSource,
     Provider,
     ProviderName,
     ReasoningEffort,
     utc_now,
 )
 from parsehawk.server.adapters.persistence.migrations import apply_pending
+from parsehawk.server.adapters.persistence.tables import extraction_jobs as extraction_jobs_table
 from parsehawk.server.adapters.persistence.tables import (
     extractors as extractors_table,
 )
 from parsehawk.server.adapters.persistence.tables import files as files_table
-from parsehawk.server.adapters.persistence.tables import jobs as jobs_table
+from parsehawk.server.adapters.persistence.tables import parse_jobs as parse_jobs_table
+from parsehawk.server.adapters.persistence.tables import parsers as parsers_table
 from parsehawk.server.adapters.persistence.tables import (
     provider_secrets as provider_secrets_table,
 )
@@ -268,7 +279,69 @@ class SQLiteExtractorRow:
 
 
 @dataclass(frozen=True)
-class SQLiteJobRow:
+class SQLiteParserRow:
+    id: str
+    name: str
+    display_name: str
+    output_format: str
+    instructions: str
+    reasoning_effort: str | None
+    provider_name: str | None
+    model: str | None
+    source: str
+    seed_key: str | None
+    seed_version: int | None
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_domain(cls, parser: Parser) -> SQLiteParserRow:
+        return cls(
+            id=parser.id,
+            name=parser.name,
+            display_name=parser.display_name,
+            output_format=parser.output_format.value,
+            instructions=parser.instructions,
+            reasoning_effort=parser.reasoning_effort.value if parser.reasoning_effort else None,
+            provider_name=parser.provider_name.value if parser.provider_name else None,
+            model=parser.model,
+            source=parser.source.value,
+            seed_key=parser.seed_key,
+            seed_version=parser.seed_version,
+            created_at=parser.created_at.isoformat(),
+            updated_at=parser.updated_at.isoformat(),
+        )
+
+    @classmethod
+    def from_mapping(cls, row: RowMapping) -> SQLiteParserRow:
+        return cls(**dict(row))
+
+    def to_domain(self) -> Parser:
+        created_at = _datetime_from_text(self.created_at)
+        updated_at = _datetime_from_text(self.updated_at)
+        assert created_at is not None
+        assert updated_at is not None
+        return Parser(
+            id=self.id,
+            name=self.name,
+            display_name=self.display_name,
+            output_format=ParserOutputFormat(self.output_format),
+            instructions=self.instructions,
+            reasoning_effort=ReasoningEffort(self.reasoning_effort)
+            if self.reasoning_effort
+            else None,
+            provider_name=ProviderName(self.provider_name) if self.provider_name else None,
+            model=self.model,
+            source=ParserSource(self.source),
+            seed_key=self.seed_key,
+            seed_version=self.seed_version,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+
+@dataclass(frozen=True)
+class SQLiteExtractionJobRow:
     id: str
     extractor_id: str
     file_id: str | None
@@ -283,7 +356,7 @@ class SQLiteJobRow:
     model_used: str | None
 
     @classmethod
-    def from_domain(cls, job: Job) -> SQLiteJobRow:
+    def from_domain(cls, job: ExtractionJob) -> SQLiteExtractionJobRow:
         return cls(
             id=job.id,
             extractor_id=job.extractor_id,
@@ -300,13 +373,13 @@ class SQLiteJobRow:
         )
 
     @classmethod
-    def from_mapping(cls, row: RowMapping) -> SQLiteJobRow:
+    def from_mapping(cls, row: RowMapping) -> SQLiteExtractionJobRow:
         return cls(**dict(row))
 
-    def to_domain(self) -> Job:
+    def to_domain(self) -> ExtractionJob:
         created_at = _datetime_from_text(self.created_at)
         assert created_at is not None
-        return Job(
+        return ExtractionJob(
             id=self.id,
             extractor_id=self.extractor_id,
             file_id=self.file_id,
@@ -316,8 +389,81 @@ class SQLiteJobRow:
             else None,
             model_used=self.model_used,
             status=JobStatus(self.status),
-            result=JobResult.model_validate(_load_json(self.result)) if self.result else None,
-            error=JobError.model_validate(_load_json(self.error)) if self.error else None,
+            result=ExtractionResult.model_validate(_load_json(self.result))
+            if self.result
+            else None,
+            error=ExtractionError.model_validate(_load_json(self.error)) if self.error else None,
+            created_at=created_at,
+            started_at=_datetime_from_text(self.started_at),
+            completed_at=_datetime_from_text(self.completed_at),
+        )
+
+
+@dataclass(frozen=True)
+class SQLiteParseJobRow:
+    id: str
+    parser_id: str
+    file_id: str
+    parser_snapshot: str
+    status: str
+    result: str | None
+    error: str | None
+    created_at: str
+    started_at: str | None
+    completed_at: str | None
+    provider_name_used: str | None
+    model_used: str | None
+    reasoning_effort_used: str | None
+    model_adapter_used: str | None
+
+    @classmethod
+    def from_domain(cls, job: ParseJob) -> SQLiteParseJobRow:
+        return cls(
+            id=job.id,
+            parser_id=job.parser_id,
+            file_id=job.file_id,
+            parser_snapshot=_dump_json(job.parser_snapshot.model_dump(mode="json")),
+            status=job.status.value,
+            result=(
+                _dump_json(job.result.model_dump(mode="json", exclude_computed_fields=True))
+                if job.result
+                else None
+            ),
+            error=_dump_json(job.error.model_dump(mode="json")) if job.error else None,
+            created_at=job.created_at.isoformat(),
+            started_at=_datetime_to_text(job.started_at),
+            completed_at=_datetime_to_text(job.completed_at),
+            provider_name_used=job.provider_name_used.value if job.provider_name_used else None,
+            model_used=job.model_used,
+            reasoning_effort_used=(
+                job.reasoning_effort_used.value if job.reasoning_effort_used else None
+            ),
+            model_adapter_used=job.model_adapter_used,
+        )
+
+    @classmethod
+    def from_mapping(cls, row: RowMapping) -> SQLiteParseJobRow:
+        return cls(**dict(row))
+
+    def to_domain(self) -> ParseJob:
+        created_at = _datetime_from_text(self.created_at)
+        assert created_at is not None
+        return ParseJob(
+            id=self.id,
+            parser_id=self.parser_id,
+            file_id=self.file_id,
+            parser_snapshot=ParserSnapshot.model_validate(_load_json(self.parser_snapshot)),
+            status=JobStatus(self.status),
+            provider_name_used=ProviderName(self.provider_name_used)
+            if self.provider_name_used
+            else None,
+            model_used=self.model_used,
+            reasoning_effort_used=ReasoningEffort(self.reasoning_effort_used)
+            if self.reasoning_effort_used
+            else None,
+            model_adapter_used=self.model_adapter_used,
+            result=ParseResult.model_validate(_load_json(self.result)) if self.result else None,
+            error=ParseError.model_validate(_load_json(self.error)) if self.error else None,
             created_at=created_at,
             started_at=_datetime_from_text(self.started_at),
             completed_at=_datetime_from_text(self.completed_at),
@@ -442,72 +588,121 @@ class SQLiteExtractorRepository:
         )
 
 
-class SQLiteJobRepository:
+class SQLiteParserRepository:
     def __init__(self, connection: Connection) -> None:
         self._connection = connection
 
-    def save(self, job: Job) -> None:
-        values = asdict(SQLiteJobRow.from_domain(job))
-        statement = sqlite_insert(jobs_table).values(**values)
+    def save(self, parser: Parser) -> None:
+        values = asdict(SQLiteParserRow.from_domain(parser))
+        statement = sqlite_insert(parsers_table).values(**values)
         statement = statement.on_conflict_do_update(
-            index_elements=[jobs_table.c.id],
+            index_elements=[parsers_table.c.id],
             set_={
                 column.name: statement.excluded[column.name]
-                for column in jobs_table.c
+                for column in parsers_table.c
                 if column.name != "id"
             },
         )
         self._connection.execute(statement)
 
-    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
+    def list(self) -> List[Parser]:
+        rows = self._connection.execute(
+            select(parsers_table).order_by(parsers_table.c.id)
+        ).mappings()
+        return [SQLiteParserRow.from_mapping(row).to_domain() for row in rows]
+
+    def get(self, parser_id: str) -> Parser | None:
+        row = (
+            self._connection.execute(select(parsers_table).where(parsers_table.c.id == parser_id))
+            .mappings()
+            .first()
+        )
+        return SQLiteParserRow.from_mapping(row).to_domain() if row else None
+
+    def get_by_name(self, name: str) -> Parser | None:
+        row = (
+            self._connection.execute(select(parsers_table).where(parsers_table.c.name == name))
+            .mappings()
+            .first()
+        )
+        return SQLiteParserRow.from_mapping(row).to_domain() if row else None
+
+    def delete(self, parser_id: str) -> None:
+        self._connection.execute(delete(parsers_table).where(parsers_table.c.id == parser_id))
+
+
+class SQLiteExtractionJobRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def save(self, job: ExtractionJob) -> None:
+        values = asdict(SQLiteExtractionJobRow.from_domain(job))
+        statement = sqlite_insert(extraction_jobs_table).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[extraction_jobs_table.c.id],
+            set_={
+                column.name: statement.excluded[column.name]
+                for column in extraction_jobs_table.c
+                if column.name != "id"
+            },
+        )
+        self._connection.execute(statement)
+
+    def save_if_status(self, job: ExtractionJob, expected: Iterable[JobStatus]) -> bool:
         statuses = tuple(status.value for status in expected)
         if not statuses:
             return False
-        values = asdict(SQLiteJobRow.from_domain(job))
+        values = asdict(SQLiteExtractionJobRow.from_domain(job))
         job_id = values.pop("id")
         result = self._connection.execute(
-            update(jobs_table)
-            .where(jobs_table.c.id == job_id)
-            .where(jobs_table.c.status.in_(statuses))
+            update(extraction_jobs_table)
+            .where(extraction_jobs_table.c.id == job_id)
+            .where(extraction_jobs_table.c.status.in_(statuses))
             .values(**values)
         )
         return result.rowcount == 1
 
-    def list(self, extractor_id: str | None = None) -> List[Job]:
-        statement = select(jobs_table)
+    def list(self, extractor_id: str | None = None) -> List[ExtractionJob]:
+        statement = select(extraction_jobs_table)
         if extractor_id is not None:
-            statement = statement.where(jobs_table.c.extractor_id == extractor_id)
-        rows = self._connection.execute(statement.order_by(jobs_table.c.created_at)).mappings()
-        return [SQLiteJobRow.from_mapping(row).to_domain() for row in rows]
+            statement = statement.where(extraction_jobs_table.c.extractor_id == extractor_id)
+        rows = self._connection.execute(
+            statement.order_by(extraction_jobs_table.c.created_at)
+        ).mappings()
+        return [SQLiteExtractionJobRow.from_mapping(row).to_domain() for row in rows]
 
-    def get(self, job_id: str) -> Job | None:
+    def get(self, job_id: str) -> ExtractionJob | None:
         row = (
-            self._connection.execute(select(jobs_table).where(jobs_table.c.id == job_id))
+            self._connection.execute(
+                select(extraction_jobs_table).where(extraction_jobs_table.c.id == job_id)
+            )
             .mappings()
             .first()
         )
-        return SQLiteJobRow.from_mapping(row).to_domain() if row else None
+        return SQLiteExtractionJobRow.from_mapping(row).to_domain() if row else None
 
     def delete(self, job_id: str) -> None:
-        self._connection.execute(delete(jobs_table).where(jobs_table.c.id == job_id))
+        self._connection.execute(
+            delete(extraction_jobs_table).where(extraction_jobs_table.c.id == job_id)
+        )
 
     def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool:
         statuses = tuple(status.value for status in expected)
         if not statuses:
             return False
         result = self._connection.execute(
-            delete(jobs_table)
-            .where(jobs_table.c.id == job_id)
-            .where(jobs_table.c.status.in_(statuses))
+            delete(extraction_jobs_table)
+            .where(extraction_jobs_table.c.id == job_id)
+            .where(extraction_jobs_table.c.status.in_(statuses))
         )
         return result.rowcount == 1
 
-    def claim_next_queued(self) -> Job | None:
+    def claim_next_queued(self) -> ExtractionJob | None:
         row = (
             self._connection.execute(
-                select(jobs_table)
-                .where(jobs_table.c.status == JobStatus.QUEUED.value)
-                .order_by(jobs_table.c.created_at)
+                select(extraction_jobs_table)
+                .where(extraction_jobs_table.c.status == JobStatus.QUEUED.value)
+                .order_by(extraction_jobs_table.c.created_at)
                 .limit(1)
             )
             .mappings()
@@ -515,12 +710,12 @@ class SQLiteJobRepository:
         )
         if row is None:
             return None
-        claimed = SQLiteJobRow.from_mapping(row).to_domain().mark_running()
-        updated = SQLiteJobRow.from_domain(claimed)
+        claimed = SQLiteExtractionJobRow.from_mapping(row).to_domain().mark_running()
+        updated = SQLiteExtractionJobRow.from_domain(claimed)
         result = self._connection.execute(
-            update(jobs_table)
-            .where(jobs_table.c.id == updated.id)
-            .where(jobs_table.c.status == JobStatus.QUEUED.value)
+            update(extraction_jobs_table)
+            .where(extraction_jobs_table.c.id == updated.id)
+            .where(extraction_jobs_table.c.status == JobStatus.QUEUED.value)
             .values(status=updated.status, started_at=updated.started_at)
         )
         return claimed if result.rowcount == 1 else None
@@ -528,7 +723,9 @@ class SQLiteJobRepository:
     def has_for_file(self, file_id: str) -> bool:
         return (
             self._connection.execute(
-                select(jobs_table.c.id).where(jobs_table.c.file_id == file_id).limit(1)
+                select(extraction_jobs_table.c.id)
+                .where(extraction_jobs_table.c.file_id == file_id)
+                .limit(1)
             ).first()
             is not None
         )
@@ -536,7 +733,115 @@ class SQLiteJobRepository:
     def has_for_extractor(self, extractor_id: str) -> bool:
         return (
             self._connection.execute(
-                select(jobs_table.c.id).where(jobs_table.c.extractor_id == extractor_id).limit(1)
+                select(extraction_jobs_table.c.id)
+                .where(extraction_jobs_table.c.extractor_id == extractor_id)
+                .limit(1)
+            ).first()
+            is not None
+        )
+
+
+class SQLiteParseJobRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def save(self, job: ParseJob) -> None:
+        values = asdict(SQLiteParseJobRow.from_domain(job))
+        statement = sqlite_insert(parse_jobs_table).values(**values)
+        statement = statement.on_conflict_do_update(
+            index_elements=[parse_jobs_table.c.id],
+            set_={
+                column.name: statement.excluded[column.name]
+                for column in parse_jobs_table.c
+                if column.name != "id"
+            },
+        )
+        self._connection.execute(statement)
+
+    def save_if_status(self, job: ParseJob, expected: Iterable[JobStatus]) -> bool:
+        statuses = tuple(status.value for status in expected)
+        if not statuses:
+            return False
+        values = asdict(SQLiteParseJobRow.from_domain(job))
+        job_id = values.pop("id")
+        result = self._connection.execute(
+            update(parse_jobs_table)
+            .where(parse_jobs_table.c.id == job_id)
+            .where(parse_jobs_table.c.status.in_(statuses))
+            .values(**values)
+        )
+        return result.rowcount == 1
+
+    def list(self, parser_id: str | None = None) -> List[ParseJob]:
+        statement = select(parse_jobs_table)
+        if parser_id is not None:
+            statement = statement.where(parse_jobs_table.c.parser_id == parser_id)
+        rows = self._connection.execute(
+            statement.order_by(parse_jobs_table.c.created_at)
+        ).mappings()
+        return [SQLiteParseJobRow.from_mapping(row).to_domain() for row in rows]
+
+    def get(self, job_id: str) -> ParseJob | None:
+        row = (
+            self._connection.execute(
+                select(parse_jobs_table).where(parse_jobs_table.c.id == job_id)
+            )
+            .mappings()
+            .first()
+        )
+        return SQLiteParseJobRow.from_mapping(row).to_domain() if row else None
+
+    def delete(self, job_id: str) -> None:
+        self._connection.execute(delete(parse_jobs_table).where(parse_jobs_table.c.id == job_id))
+
+    def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool:
+        statuses = tuple(status.value for status in expected)
+        if not statuses:
+            return False
+        result = self._connection.execute(
+            delete(parse_jobs_table)
+            .where(parse_jobs_table.c.id == job_id)
+            .where(parse_jobs_table.c.status.in_(statuses))
+        )
+        return result.rowcount == 1
+
+    def claim_next_queued(self) -> ParseJob | None:
+        row = (
+            self._connection.execute(
+                select(parse_jobs_table)
+                .where(parse_jobs_table.c.status == JobStatus.QUEUED.value)
+                .order_by(parse_jobs_table.c.created_at)
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            return None
+        claimed = SQLiteParseJobRow.from_mapping(row).to_domain().mark_running()
+        updated = SQLiteParseJobRow.from_domain(claimed)
+        result = self._connection.execute(
+            update(parse_jobs_table)
+            .where(parse_jobs_table.c.id == updated.id)
+            .where(parse_jobs_table.c.status == JobStatus.QUEUED.value)
+            .values(status=updated.status, started_at=updated.started_at)
+        )
+        return claimed if result.rowcount == 1 else None
+
+    def has_for_file(self, file_id: str) -> bool:
+        return (
+            self._connection.execute(
+                select(parse_jobs_table.c.id).where(parse_jobs_table.c.file_id == file_id).limit(1)
+            ).first()
+            is not None
+        )
+
+    def has_for_parser(self, parser_id: str) -> bool:
+        return (
+            self._connection.execute(
+                select(parse_jobs_table.c.id)
+                .where(parse_jobs_table.c.parser_id == parser_id)
+                .limit(1)
             ).first()
             is not None
         )
@@ -635,7 +940,9 @@ class SQLiteUnitOfWork:
 
     files: FileRepository
     extractors: ExtractorRepository
-    jobs: JobRepository
+    parsers: ParserRepository
+    extraction_jobs: ExtractionJobRepository
+    parse_jobs: ParseJobRepository
     providers: ProviderRepository
     secrets: SecretStore
 
@@ -659,7 +966,9 @@ class SQLiteUnitOfWork:
             raise
         self.files = SQLiteFileRepository(self._connection)
         self.extractors = SQLiteExtractorRepository(self._connection)
-        self.jobs = SQLiteJobRepository(self._connection)
+        self.parsers = SQLiteParserRepository(self._connection)
+        self.extraction_jobs = SQLiteExtractionJobRepository(self._connection)
+        self.parse_jobs = SQLiteParseJobRepository(self._connection)
         self.providers = SQLiteProviderRepository(self._connection)
         self.secrets = SQLiteSecretStore(self._connection, self._cipher)
         return self

@@ -94,20 +94,22 @@ def test_receipt_api_workflow(monkeypatch, tmp_path, mock_inference) -> None:
         assert extractor_id.startswith("extractor_")
 
         job_response = client.post(
-            "/v1/jobs",
+            "/v1/extraction-jobs",
             json={"extractor_id": extractor_id, "file_id": file_id},
         )
         assert job_response.status_code == 201
         job_id = job_response.json()["id"]
         assert job_id.startswith("job_")
 
-        jobs_response = client.get(f"/v1/jobs?extractor_id={extractor_id}")
+        jobs_response = client.get(f"/v1/extraction-jobs?extractor_id={extractor_id}")
         assert jobs_response.status_code == 200
         assert [job["id"] for job in jobs_response.json()] == [job_id]
+        legacy_jobs_response = client.get(f"/v1/jobs?extractor_id={extractor_id}")
+        assert legacy_jobs_response.json() == jobs_response.json()
 
         assert run_once() is True
 
-        result_response = client.get(f"/v1/jobs/{job_id}")
+        result_response = client.get(f"/v1/extraction-jobs/{job_id}")
         assert result_response.status_code == 200
         payload = result_response.json()
         assert payload["status"] == "completed"
@@ -118,6 +120,7 @@ def test_receipt_api_workflow(monkeypatch, tmp_path, mock_inference) -> None:
         assert "valid" not in payload["result"]
         assert "validation_errors" not in payload["result"]
         assert payload["result"]["data"] == ground_truth
+        assert client.get(f"/v1/jobs/{job_id}").json() == payload
 
 
 def test_failed_schema_validation_hides_internal_result(
@@ -191,15 +194,15 @@ def test_delete_running_job_returns_accepted_and_marks_deleting(monkeypatch, tmp
 
         container = client.app.state.container
         with container.uow_factory(write=True) as uow:
-            job = uow.jobs.get(job_id)
+            job = uow.extraction_jobs.get(job_id)
             assert job is not None
-            uow.jobs.save(job.mark_running())
+            uow.extraction_jobs.save(job.mark_running())
             uow.commit()
 
         response = client.delete(f"/v1/jobs/{job_id}")
 
         assert response.status_code == 202
-        persisted = container.job_service.get(job_id)
+        persisted = container.extraction_job_service.get(job_id)
         assert persisted is not None
         assert persisted.status == JobStatus.DELETING
 
@@ -275,6 +278,11 @@ def test_openapi_links_parsehawk_schema_dialect(monkeypatch, tmp_path) -> None:
         "properties"
     ]["schema"]
     assert "ParseHawk extraction schema" in schema_property["description"]
+    for path in ("/v1/jobs", "/v1/jobs/{job_id}", "/v1/jobs/{job_id}/cancel"):
+        for operation in paths[path].values():
+            assert operation["deprecated"] is True
+    assert paths["/v1/extraction-jobs"]["post"].get("deprecated") is not True
+    assert paths["/v1/parse-jobs"]["post"].get("deprecated") is not True
 
 
 def test_job_can_run_against_inline_text(monkeypatch, tmp_path, mock_inference) -> None:
@@ -317,6 +325,116 @@ def test_job_can_run_against_inline_text(monkeypatch, tmp_path, mock_inference) 
             "Corner Market\nReceipt #R-42\nDate: 2026-06-21\nTotal EUR 12.40"
         )
         assert result_response.json()["result"]["data"]["receipt_id"] == "R-42"
+
+
+def test_parser_and_parse_job_api_workflow(monkeypatch, tmp_path, mock_inference) -> None:
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PARSEHAWK_DATABASE_PATH", str(tmp_path / "parsehawk.db"))
+
+    with TestClient(create_app()) as client:
+        prebuilt = client.get("/v1/parsers/document-to-markdown")
+        assert prebuilt.status_code == 200
+        assert prebuilt.json()["is_prebuilt"] is True
+        assert prebuilt.json()["output_format"] == "markdown"
+
+        created = client.post(
+            "/v1/parsers",
+            json={
+                "name": "integration-parser",
+                "display_name": "Integration Parser",
+                "instructions": "Preserve page headings.",
+            },
+        )
+        assert created.status_code == 201
+        parser_id = created.json()["id"]
+        assert client.get("/v1/parsers/integration-parser").json()["id"] == parser_id
+
+        updated = client.patch(
+            f"/v1/parsers/{parser_id}",
+            json={"instructions": "Preserve headings and lists."},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["instructions"] == "Preserve headings and lists."
+
+        uploaded = client.post(
+            "/v1/files",
+            files={"upload": ("two-pages.pdf", pdf_bytes(), "application/pdf")},
+        )
+        assert uploaded.status_code == 201
+        file_id = uploaded.json()["id"]
+
+        queued = client.post(
+            "/v1/parse-jobs",
+            json={"parser_name": "integration-parser", "file_id": file_id},
+        )
+        assert queued.status_code == 201
+        job_id = queued.json()["id"]
+        assert job_id.startswith("parse_job_")
+        assert queued.json()["parser_snapshot"]["instructions"] == ("Preserve headings and lists.")
+        listed = client.get("/v1/parse-jobs?parser_name=integration-parser")
+        assert [job["id"] for job in listed.json()] == [job_id]
+
+        client.patch(
+            f"/v1/parsers/{parser_id}",
+            json={"instructions": "This must not alter the queued snapshot."},
+        )
+        assert run_once() is True
+
+        completed = client.get(f"/v1/parse-jobs/{job_id}")
+        assert completed.status_code == 200
+        payload = completed.json()
+        assert payload["status"] == "completed"
+        assert payload["parser_snapshot"]["instructions"] == "Preserve headings and lists."
+        assert payload["provider_name_used"] == "openai_compatible_api"
+        assert payload["model_adapter_used"] == "nuextract_markdown"
+        assert payload["result"] == {
+            "format": "markdown",
+            "content": "# Parsed page 1\n\n<!-- page-break -->\n\n# Parsed page 2",
+            "page_count": 2,
+            "pages": [
+                {"page_number": 1, "content": "# Parsed page 1"},
+                {"page_number": 2, "content": "# Parsed page 2"},
+            ],
+        }
+
+        assert client.delete(f"/v1/parse-jobs/{job_id}").status_code == 204
+        assert client.delete(f"/v1/parsers/{parser_id}").status_code == 204
+
+
+def test_parse_job_validation_cancellation_and_deletion_api(
+    monkeypatch,
+    tmp_path,
+    mock_inference,
+) -> None:
+    monkeypatch.setenv("PARSEHAWK_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PARSEHAWK_DATABASE_PATH", str(tmp_path / "parsehawk.db"))
+
+    with TestClient(create_app()) as client:
+        uploaded = client.post(
+            "/v1/files",
+            files={"upload": ("page.png", b"png", "image/png")},
+        )
+        file_id = uploaded.json()["id"]
+        invalid = client.post(
+            "/v1/parse-jobs",
+            json={
+                "parser_id": "parser_unknown",
+                "parser_name": "document-to-markdown",
+                "file_id": file_id,
+            },
+        )
+        assert invalid.status_code == 422
+
+        queued = client.post(
+            "/v1/parse-jobs",
+            json={"parser_name": "document-to-markdown", "file_id": file_id},
+        )
+        job_id = queued.json()["id"]
+        canceled = client.post(f"/v1/parse-jobs/{job_id}/cancel")
+        assert canceled.status_code == 200
+        assert canceled.json()["status"] == "canceled"
+        assert client.delete(f"/v1/parse-jobs/{job_id}").status_code == 204
+        assert client.get(f"/v1/parse-jobs/{job_id}").status_code == 404
 
 
 def pdf_bytes() -> bytes:

@@ -13,6 +13,18 @@ sidebar:
 | CLI                | Ships with the ParseHawk Python package          | Keep CLI and server on the same release where possible                          |
 | Extractor output   | Defined by each extractor schema                 | Use a new stable name for a breaking output shape                               |
 
+## v0.3 to v0.4 extraction-job migration
+
+| Release | Canonical surface                        | Compatibility surface                       |
+| ------- | ---------------------------------------- | ------------------------------------------- |
+| v0.3    | `/v1/extraction-jobs`, `extraction-jobs` | `/v1/jobs`, `parsehawk jobs` are deprecated |
+| v0.4    | `/v1/extraction-jobs`, `extraction-jobs` | Generic job aliases are removed             |
+
+The v0.3 aliases use the same extraction service, rows, transitions, status
+codes, and response schema. Existing `job_...` identifiers remain valid and are
+not rewritten. New parsing work is separate at `/v1/parse-jobs` and uses
+`parse_job_...` identifiers.
+
 ## Contract artifacts
 
 - Human REST reference: [`/reference/api/`](/reference/api/)

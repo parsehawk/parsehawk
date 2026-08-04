@@ -275,6 +275,9 @@ CLI_COMMAND_EXAMPLES = {
     "parsehawk extract": (
         "parsehawk extract tests/fixtures/receipt/receipt.jpg --extractor receipt --wait"
     ),
+    "parsehawk parse": (
+        "parsehawk parse document.pdf --parser document-to-markdown --wait --output document.md"
+    ),
     "parsehawk files": "parsehawk files --help",
     "parsehawk files list": "parsehawk files list",
     "parsehawk files get": "parsehawk files get file_...",
@@ -297,6 +300,21 @@ CLI_COMMAND_EXAMPLES = {
         'parsehawk extractors update invoice_v1 --display-name "Invoices"'
     ),
     "parsehawk extractors delete": "parsehawk extractors delete invoice_v1",
+    "parsehawk parsers": "parsehawk parsers --help",
+    "parsehawk parsers list": "parsehawk parsers list",
+    "parsehawk parsers get": "parsehawk parsers get document-to-markdown",
+    "parsehawk parsers create": (
+        'parsehawk parsers create --name legal-document --display-name "Legal document" '
+        '--instructions "Preserve section numbering."'
+    ),
+    "parsehawk parsers put": (
+        'parsehawk parsers put legal-document --display-name "Legal document" '
+        '--instructions "Preserve section numbering."'
+    ),
+    "parsehawk parsers update": (
+        'parsehawk parsers update legal-document --display-name "Legal document parser"'
+    ),
+    "parsehawk parsers delete": "parsehawk parsers delete legal-document",
     "parsehawk providers": "parsehawk providers --help",
     "parsehawk providers list": "parsehawk providers list",
     "parsehawk providers get": "parsehawk providers get openai_compatible_api",
@@ -304,13 +322,30 @@ CLI_COMMAND_EXAMPLES = {
         "parsehawk providers configure openai --api-key-env OPENAI_API_KEY"
     ),
     "parsehawk providers models": "parsehawk providers models openai_compatible_api",
+    "parsehawk extraction-jobs": "parsehawk extraction-jobs --help",
+    "parsehawk extraction-jobs create": (
+        'parsehawk extraction-jobs create invoice_v1 --text "Invoice A-204 · Total EUR 128.40"'
+    ),
+    "parsehawk extraction-jobs list": ("parsehawk extraction-jobs list --extractor invoice_v1"),
+    "parsehawk extraction-jobs get": "parsehawk extraction-jobs get job_...",
+    "parsehawk extraction-jobs cancel": "parsehawk extraction-jobs cancel job_...",
+    "parsehawk extraction-jobs delete": "parsehawk extraction-jobs delete job_...",
     "parsehawk jobs": "parsehawk jobs --help",
     "parsehawk jobs create": (
         'parsehawk jobs create invoice_v1 --text "Invoice A-204 · Total EUR 128.40"'
     ),
     "parsehawk jobs list": "parsehawk jobs list --extractor invoice_v1",
     "parsehawk jobs get": "parsehawk jobs get job_...",
+    "parsehawk jobs cancel": "parsehawk jobs cancel job_...",
     "parsehawk jobs delete": "parsehawk jobs delete job_...",
+    "parsehawk parse-jobs": "parsehawk parse-jobs --help",
+    "parsehawk parse-jobs create": (
+        "parsehawk parse-jobs create document-to-markdown --file-id file_..."
+    ),
+    "parsehawk parse-jobs list": "parsehawk parse-jobs list --parser document-to-markdown",
+    "parsehawk parse-jobs get": "parsehawk parse-jobs get parse_job_...",
+    "parsehawk parse-jobs cancel": "parsehawk parse-jobs cancel parse_job_...",
+    "parsehawk parse-jobs delete": "parsehawk parse-jobs delete parse_job_...",
 }
 
 
@@ -363,12 +398,18 @@ def main(argv: list[str] | None = None) -> None:
         schemas(args)
     elif args.command == "extractors":
         extractors(args)
+    elif args.command == "parsers":
+        parsers(args)
     elif args.command == "providers":
         providers(args)
-    elif args.command == "jobs":
-        jobs(args)
+    elif args.command in {"extraction-jobs", "jobs"}:
+        extraction_jobs(args, deprecated_alias=args.command == "jobs")
+    elif args.command == "parse-jobs":
+        parse_jobs(args)
     elif args.command == "extract":
         extract(args)
+    elif args.command == "parse":
+        parse(args)
     elif args.command == "config":
         config_command(args)
     elif args.command == "doctor":
@@ -543,6 +584,32 @@ def build_parser() -> argparse.ArgumentParser:
     extract_parser.add_argument("--output", help="Write the result JSON to this path.")
     _add_api_url(extract_parser)
 
+    parse_parser = _command_parser(
+        subparsers,
+        "parse",
+        "Run a one-shot document-to-Markdown parse and optionally wait for its result.",
+    )
+    parse_parser.add_argument("source", nargs="?", help="Local PDF, JPG/JPEG, or PNG path.")
+    parse_parser.add_argument(
+        "--parser",
+        default="document-to-markdown",
+        help="Parser ID or stable name.",
+    )
+    parse_parser.add_argument("--file-id", help="Use an already uploaded file ID.")
+    parse_parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait for completion and print the complete-document Markdown.",
+    )
+    parse_parser.add_argument(
+        "--poll-seconds", type=float, default=1.0, help="Polling interval while waiting."
+    )
+    parse_parser.add_argument(
+        "--timeout-seconds", type=float, default=600.0, help="Maximum wait time."
+    )
+    parse_parser.add_argument("--output", help="Write complete-document Markdown to this path.")
+    _add_api_url(parse_parser)
+
     files_parser = _command_parser(
         subparsers, "files", "Upload, inspect, list, and delete source files."
     )
@@ -684,6 +751,93 @@ def build_parser() -> argparse.ArgumentParser:
     extractors_delete_parser.add_argument("extractor_ref", help="Extractor ID or stable name.")
     _add_api_url(extractors_delete_parser)
 
+    parsers_parser = _command_parser(
+        subparsers, "parsers", "Create, inspect, update, and delete reusable parsers."
+    )
+    parsers_subparsers = parsers_parser.add_subparsers(dest="parsers_command", required=True)
+    parsers_list_parser = _command_parser(parsers_subparsers, "list", "List reusable parsers.")
+    _add_api_url(parsers_list_parser)
+    parsers_get_parser = _command_parser(
+        parsers_subparsers, "get", "Get a parser by ID or stable name."
+    )
+    parsers_get_parser.add_argument("parser_ref", help="Parser ID or stable name.")
+    _add_api_url(parsers_get_parser)
+    parsers_create_parser = _command_parser(
+        parsers_subparsers, "create", "Create a reusable parser."
+    )
+    parsers_create_parser.add_argument("--name", help="Optional stable parser name.")
+    parsers_create_parser.add_argument("--display-name", help="Human-readable parser name.")
+    parsers_create_parser.add_argument(
+        "--instructions",
+        default="",
+        help="Inline instructions or a text-file path.",
+    )
+    parsers_create_parser.add_argument(
+        "--reasoning-effort",
+        choices=_REASONING_EFFORT_CHOICES,
+        help="Reasoning effort override; 'default' clears the override.",
+    )
+    parsers_create_parser.add_argument(
+        "--provider",
+        dest="provider_name",
+        choices=_PROVIDER_NAMES,
+        help="Provider override for this parser.",
+    )
+    parsers_create_parser.add_argument("--model", help="Provider model override.")
+    _add_api_url(parsers_create_parser)
+    parsers_put_parser = _command_parser(
+        parsers_subparsers, "put", "Create or fully replace a parser by reference."
+    )
+    parsers_put_parser.add_argument("parser_ref", help="Parser ID or stable name.")
+    parsers_put_parser.add_argument("--name", help="Stable parser name.")
+    parsers_put_parser.add_argument(
+        "--display-name", required=True, help="Human-readable parser name."
+    )
+    parsers_put_parser.add_argument(
+        "--instructions",
+        default="",
+        help="Inline instructions or a text-file path.",
+    )
+    parsers_put_parser.add_argument(
+        "--reasoning-effort",
+        choices=_REASONING_EFFORT_CHOICES,
+        help="Reasoning effort override; 'default' clears the override.",
+    )
+    parsers_put_parser.add_argument(
+        "--provider",
+        dest="provider_name",
+        choices=_PROVIDER_NAMES,
+        help="Provider override for this parser.",
+    )
+    parsers_put_parser.add_argument("--model", help="Provider model override.")
+    _add_api_url(parsers_put_parser)
+    parsers_update_parser = _command_parser(
+        parsers_subparsers, "update", "Update selected fields on a parser."
+    )
+    parsers_update_parser.add_argument("parser_ref", help="Parser ID or stable name.")
+    parsers_update_parser.add_argument("--display-name", help="Human-readable parser name.")
+    parsers_update_parser.add_argument(
+        "--instructions", help="Inline instructions or a text-file path."
+    )
+    parsers_update_parser.add_argument(
+        "--reasoning-effort",
+        choices=_REASONING_EFFORT_CHOICES,
+        help="Reasoning effort override; 'default' clears the override.",
+    )
+    parsers_update_parser.add_argument(
+        "--provider",
+        dest="provider_name",
+        choices=_PROVIDER_NAMES,
+        help="Provider override for this parser.",
+    )
+    parsers_update_parser.add_argument("--model", help="Provider model override.")
+    _add_api_url(parsers_update_parser)
+    parsers_delete_parser = _command_parser(
+        parsers_subparsers, "delete", "Delete a parser by ID or stable name."
+    )
+    parsers_delete_parser.add_argument("parser_ref", help="Parser ID or stable name.")
+    _add_api_url(parsers_delete_parser)
+
     providers_parser = _command_parser(
         subparsers, "providers", "Inspect and configure model providers."
     )
@@ -722,40 +876,139 @@ def build_parser() -> argparse.ArgumentParser:
     providers_models_parser.add_argument("name", choices=_PROVIDER_NAMES, help="Provider name.")
     _add_api_url(providers_models_parser)
 
-    jobs_parser = _command_parser(
-        subparsers, "jobs", "Create, inspect, list, and delete extraction jobs."
+    for command_name, command_help in (
+        ("extraction-jobs", "Create, inspect, list, cancel, and delete extraction jobs."),
+        ("jobs", "Deprecated alias for extraction-jobs; removed in v0.4."),
+    ):
+        jobs_parser = _command_parser(subparsers, command_name, command_help)
+        jobs_subparsers = jobs_parser.add_subparsers(
+            dest="extraction_jobs_command",
+            required=True,
+        )
+        jobs_create_parser = _command_parser(
+            jobs_subparsers,
+            "create",
+            "Create an asynchronous extraction job.",
+        )
+        jobs_create_parser.add_argument(
+            "extractor_id",
+            nargs="?",
+            help="Extractor ID or stable name.",
+        )
+        jobs_create_parser.add_argument(
+            "--extractor",
+            dest="extractor_id_option",
+            help="Extractor ID or stable name.",
+        )
+        jobs_input = jobs_create_parser.add_mutually_exclusive_group(required=True)
+        jobs_input.add_argument(
+            "--file-id",
+            "--file",
+            dest="file_id",
+            help="Previously uploaded file ID.",
+        )
+        jobs_input.add_argument("--text", help="Inline source text.")
+        jobs_input.add_argument("--text-file", help="Path to a source text file.")
+        _add_api_url(jobs_create_parser)
+        jobs_list_parser = _command_parser(
+            jobs_subparsers,
+            "list",
+            "List extraction jobs.",
+        )
+        jobs_list_parser.add_argument(
+            "--extractor-id",
+            "--extractor",
+            dest="extractor_id",
+            help="Filter by extractor ID or stable name.",
+        )
+        _add_api_url(jobs_list_parser)
+        jobs_get_parser = _command_parser(
+            jobs_subparsers,
+            "get",
+            "Get an extraction job by ID.",
+        )
+        jobs_get_parser.add_argument("job_id", help="Extraction job ID.")
+        _add_api_url(jobs_get_parser)
+        jobs_cancel_parser = _command_parser(
+            jobs_subparsers,
+            "cancel",
+            "Request cancellation of a queued or running extraction job.",
+        )
+        jobs_cancel_parser.add_argument("job_id", help="Extraction job ID.")
+        _add_api_url(jobs_cancel_parser)
+        jobs_delete_parser = _command_parser(
+            jobs_subparsers,
+            "delete",
+            "Cancel a pending job or delete a finished job.",
+        )
+        jobs_delete_parser.add_argument("job_id", help="Extraction job ID.")
+        _add_api_url(jobs_delete_parser)
+
+    parse_jobs_parser = _command_parser(
+        subparsers,
+        "parse-jobs",
+        "Create, inspect, list, cancel, and delete document parsing jobs.",
     )
-    jobs_subparsers = jobs_parser.add_subparsers(dest="jobs_command", required=True)
-    jobs_create_parser = _command_parser(
-        jobs_subparsers, "create", "Create an asynchronous extraction job."
+    parse_jobs_subparsers = parse_jobs_parser.add_subparsers(
+        dest="parse_jobs_command",
+        required=True,
     )
-    jobs_create_parser.add_argument("extractor_id", nargs="?", help="Extractor ID or stable name.")
-    jobs_create_parser.add_argument(
-        "--extractor", dest="extractor_id_option", help="Extractor ID or stable name."
+    parse_jobs_create_parser = _command_parser(
+        parse_jobs_subparsers,
+        "create",
+        "Create an asynchronous parse job.",
     )
-    jobs_input = jobs_create_parser.add_mutually_exclusive_group(required=True)
-    jobs_input.add_argument(
-        "--file-id", "--file", dest="file_id", help="Previously uploaded file ID."
+    parse_jobs_create_parser.add_argument(
+        "parser_id",
+        nargs="?",
+        help="Parser ID or stable name.",
     )
-    jobs_input.add_argument("--text", help="Inline source text.")
-    jobs_input.add_argument("--text-file", help="Path to a source text file.")
-    _add_api_url(jobs_create_parser)
-    jobs_list_parser = _command_parser(jobs_subparsers, "list", "List extraction jobs.")
-    jobs_list_parser.add_argument(
-        "--extractor-id",
-        "--extractor",
-        dest="extractor_id",
-        help="Filter by extractor ID or stable name.",
+    parse_jobs_create_parser.add_argument(
+        "--parser",
+        dest="parser_id_option",
+        help="Parser ID or stable name.",
     )
-    _add_api_url(jobs_list_parser)
-    jobs_get_parser = _command_parser(jobs_subparsers, "get", "Get an extraction job by ID.")
-    jobs_get_parser.add_argument("job_id", help="Job ID.")
-    _add_api_url(jobs_get_parser)
-    jobs_delete_parser = _command_parser(
-        jobs_subparsers, "delete", "Cancel a pending job or delete a finished job."
+    parse_jobs_create_parser.add_argument(
+        "--file-id",
+        "--file",
+        required=True,
+        dest="file_id",
+        help="Previously uploaded PDF or image file ID.",
     )
-    jobs_delete_parser.add_argument("job_id", help="Job ID.")
-    _add_api_url(jobs_delete_parser)
+    _add_api_url(parse_jobs_create_parser)
+    parse_jobs_list_parser = _command_parser(
+        parse_jobs_subparsers,
+        "list",
+        "List parse jobs.",
+    )
+    parse_jobs_list_parser.add_argument(
+        "--parser-id",
+        "--parser",
+        dest="parser_id",
+        help="Filter by parser ID or stable name.",
+    )
+    _add_api_url(parse_jobs_list_parser)
+    parse_jobs_get_parser = _command_parser(
+        parse_jobs_subparsers,
+        "get",
+        "Get a parse job by ID.",
+    )
+    parse_jobs_get_parser.add_argument("job_id", help="Parse job ID.")
+    _add_api_url(parse_jobs_get_parser)
+    parse_jobs_cancel_parser = _command_parser(
+        parse_jobs_subparsers,
+        "cancel",
+        "Request cancellation of a queued or running parse job.",
+    )
+    parse_jobs_cancel_parser.add_argument("job_id", help="Parse job ID.")
+    _add_api_url(parse_jobs_cancel_parser)
+    parse_jobs_delete_parser = _command_parser(
+        parse_jobs_subparsers,
+        "delete",
+        "Cancel a pending parse job or delete a finished parse job.",
+    )
+    parse_jobs_delete_parser.add_argument("job_id", help="Parse job ID.")
+    _add_api_url(parse_jobs_delete_parser)
 
     return parser
 
@@ -1384,6 +1637,73 @@ def extractors(args: argparse.Namespace) -> None:
         print_deleted("extractor", args.extractor_ref)
 
 
+def parsers(args: argparse.Namespace) -> None:
+    if args.parsers_command == "list":
+        print_json(api_request(args.api_url, "GET", "/v1/parsers"))
+    elif args.parsers_command == "get":
+        print_json(api_request(args.api_url, "GET", f"/v1/parsers/{args.parser_ref}"))
+    elif args.parsers_command == "create":
+        display_name = args.display_name or args.name
+        if not display_name:
+            raise SystemExit("Provide --display-name or --name")
+        payload: dict[str, Any] = {
+            "display_name": display_name,
+            "instructions": read_text_argument(args.instructions),
+        }
+        if args.name is not None:
+            payload["name"] = args.name
+        _add_model_selection_to_payload(args, payload)
+        print_json(api_request(args.api_url, "POST", "/v1/parsers", payload=payload))
+    elif args.parsers_command == "put":
+        payload = {
+            "display_name": args.display_name,
+            "instructions": read_text_argument(args.instructions),
+        }
+        if args.name is not None:
+            payload["name"] = args.name
+        _add_model_selection_to_payload(args, payload)
+        print_json(
+            api_request(
+                args.api_url,
+                "PUT",
+                f"/v1/parsers/{args.parser_ref}",
+                payload=payload,
+            )
+        )
+    elif args.parsers_command == "update":
+        payload = {}
+        if args.display_name is not None:
+            payload["display_name"] = args.display_name
+        if args.instructions is not None:
+            payload["instructions"] = read_text_argument(args.instructions)
+        _add_model_selection_to_payload(args, payload)
+        if not payload:
+            raise SystemExit("No parser updates provided")
+        print_json(
+            api_request(
+                args.api_url,
+                "PATCH",
+                f"/v1/parsers/{args.parser_ref}",
+                payload=payload,
+            )
+        )
+    elif args.parsers_command == "delete":
+        api_request(args.api_url, "DELETE", f"/v1/parsers/{args.parser_ref}")
+        print_deleted("parser", args.parser_ref)
+
+
+def _add_model_selection_to_payload(
+    args: argparse.Namespace,
+    payload: dict[str, Any],
+) -> None:
+    if args.reasoning_effort is not None:
+        payload["reasoning_effort"] = _reasoning_effort_payload_value(args.reasoning_effort)
+    if args.provider_name is not None:
+        payload["provider_name"] = args.provider_name
+    if args.model is not None:
+        payload["model"] = args.model
+
+
 def providers(args: argparse.Namespace) -> None:
     if args.providers_command == "list":
         print_json(api_request(args.api_url, "GET", "/v1/providers"))
@@ -1411,8 +1731,14 @@ def providers(args: argparse.Namespace) -> None:
         )
 
 
-def jobs(args: argparse.Namespace) -> None:
-    if args.jobs_command == "create":
+def extraction_jobs(args: argparse.Namespace, *, deprecated_alias: bool = False) -> None:
+    if deprecated_alias:
+        print(
+            "Warning: 'parsehawk jobs' is deprecated; use 'parsehawk extraction-jobs'. "
+            "The alias will be removed in v0.4.",
+            file=sys.stderr,
+        )
+    if args.extraction_jobs_command == "create":
         extractor_id = args.extractor_id or args.extractor_id_option
         if not extractor_id:
             raise SystemExit("Provide an extractor id or --extractor extractor_123")
@@ -1427,21 +1753,66 @@ def jobs(args: argparse.Namespace) -> None:
             api_request(
                 args.api_url,
                 "POST",
-                "/v1/jobs",
+                "/v1/extraction-jobs",
                 payload=payload,
             )
         )
-    elif args.jobs_command == "list":
+    elif args.extraction_jobs_command == "list":
         job_filters: dict[str, str | None] = (
             extractor_ref_payload(args.extractor_id) if args.extractor_id else {}
         )
         query = _query_string(job_filters)
-        print_json(api_request(args.api_url, "GET", f"/v1/jobs{query}"))
-    elif args.jobs_command == "get":
-        print_json(api_request(args.api_url, "GET", f"/v1/jobs/{args.job_id}"))
-    elif args.jobs_command == "delete":
-        api_request(args.api_url, "DELETE", f"/v1/jobs/{args.job_id}")
-        print_deleted("job", args.job_id)
+        print_json(api_request(args.api_url, "GET", f"/v1/extraction-jobs{query}"))
+    elif args.extraction_jobs_command == "get":
+        print_json(api_request(args.api_url, "GET", f"/v1/extraction-jobs/{args.job_id}"))
+    elif args.extraction_jobs_command == "cancel":
+        print_json(
+            api_request(
+                args.api_url,
+                "POST",
+                f"/v1/extraction-jobs/{args.job_id}/cancel",
+            )
+        )
+    elif args.extraction_jobs_command == "delete":
+        api_request(args.api_url, "DELETE", f"/v1/extraction-jobs/{args.job_id}")
+        print_deleted("extraction job", args.job_id)
+
+
+def parse_jobs(args: argparse.Namespace) -> None:
+    if args.parse_jobs_command == "create":
+        parser_ref = args.parser_id or args.parser_id_option
+        if not parser_ref:
+            raise SystemExit("Provide a parser id or --parser document-to-markdown")
+        print_json(
+            api_request(
+                args.api_url,
+                "POST",
+                "/v1/parse-jobs",
+                payload={**parser_ref_payload(parser_ref), "file_id": args.file_id},
+            )
+        )
+    elif args.parse_jobs_command == "list":
+        job_filters = parser_ref_payload(args.parser_id) if args.parser_id else {}
+        print_json(
+            api_request(
+                args.api_url,
+                "GET",
+                f"/v1/parse-jobs{_query_string(job_filters)}",
+            )
+        )
+    elif args.parse_jobs_command == "get":
+        print_json(api_request(args.api_url, "GET", f"/v1/parse-jobs/{args.job_id}"))
+    elif args.parse_jobs_command == "cancel":
+        print_json(
+            api_request(
+                args.api_url,
+                "POST",
+                f"/v1/parse-jobs/{args.job_id}/cancel",
+            )
+        )
+    elif args.parse_jobs_command == "delete":
+        api_request(args.api_url, "DELETE", f"/v1/parse-jobs/{args.job_id}")
+        print_deleted("parse job", args.job_id)
 
 
 def extract(args: argparse.Namespace) -> None:
@@ -1450,7 +1821,7 @@ def extract(args: argparse.Namespace) -> None:
     job = api_request(
         args.api_url,
         "POST",
-        "/v1/jobs",
+        "/v1/extraction-jobs",
         payload={**extractor_ref_payload(extractor_ref), **job_input},
     )
     if args.wait:
@@ -1467,6 +1838,45 @@ def extract(args: argparse.Namespace) -> None:
         print(f"Wrote extraction output: {args.output}")
     else:
         print_json(payload)
+
+
+def parse(args: argparse.Namespace) -> None:
+    if args.source is not None and args.file_id is not None:
+        raise SystemExit("Provide exactly one of a source path or --file-id")
+    if args.source is None and args.file_id is None:
+        raise SystemExit("Provide a source path or --file-id")
+    if args.output and not args.wait:
+        raise SystemExit("--output requires --wait so Markdown is available")
+
+    file_id = args.file_id
+    if file_id is None:
+        uploaded = upload_file(args.api_url, str(args.source).removeprefix("@"))
+        file_id = str(uploaded["id"])
+    job = api_request(
+        args.api_url,
+        "POST",
+        "/v1/parse-jobs",
+        payload={**parser_ref_payload(args.parser), "file_id": file_id},
+    )
+    if not args.wait:
+        print_json(job)
+        return
+
+    job = wait_for_job(
+        args.api_url,
+        str(job["id"]),
+        resource_path="/v1/parse-jobs",
+        job_kind="parse job",
+        timeout_seconds=args.timeout_seconds,
+        poll_seconds=args.poll_seconds,
+    )
+    markdown = parse_result_content(job)
+    if args.output:
+        output_path = Path(args.output).expanduser()
+        output_path.write_text(markdown, encoding="utf-8")
+        print(f"Wrote Markdown output: {output_path}")
+    else:
+        print(markdown)
 
 
 def config_command(args: argparse.Namespace) -> None:
@@ -2168,6 +2578,12 @@ def extractor_ref_payload(extractor_ref: str) -> dict[str, str | None]:
     return {"extractor_name": extractor_ref}
 
 
+def parser_ref_payload(parser_ref: str) -> dict[str, str | None]:
+    if parser_ref.startswith("parser_"):
+        return {"parser_id": parser_ref}
+    return {"parser_name": parser_ref}
+
+
 def extraction_job_input(args: argparse.Namespace) -> dict[str, str]:
     provided_inputs = [
         args.source is not None,
@@ -2200,17 +2616,19 @@ def wait_for_job(
     api_url: str,
     job_id: str,
     *,
+    resource_path: str = "/v1/extraction-jobs",
+    job_kind: str = "extraction job",
     timeout_seconds: float,
     poll_seconds: float,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
-        job = api_request(api_url, "GET", f"/v1/jobs/{job_id}")
+        job = api_request(api_url, "GET", f"{resource_path}/{job_id}")
         status_value = str(job.get("status", ""))
         if status_value in {"completed", "failed", "canceled"}:
             return job
         time.sleep(max(poll_seconds, 0.0))
-    raise SystemExit(f"Timed out waiting for job: {job_id}")
+    raise SystemExit(f"Timed out waiting for {job_kind}: {job_id}")
 
 
 def extraction_result_payload(job: dict[str, Any]) -> Any:
@@ -2218,6 +2636,19 @@ def extraction_result_payload(job: dict[str, Any]) -> Any:
     if isinstance(result, dict) and "data" in result:
         return result["data"]
     return job
+
+
+def parse_result_content(job: dict[str, Any]) -> str:
+    status_value = str(job.get("status", ""))
+    if status_value != "completed":
+        error = job.get("error")
+        detail = error.get("message") if isinstance(error, dict) else None
+        suffix = f": {detail}" if detail else ""
+        raise SystemExit(f"Parse job {status_value or 'did not complete'}{suffix}")
+    result = job.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("content"), str):
+        raise SystemExit("Completed parse job did not include Markdown content")
+    return result["content"]
 
 
 def default_extractor_name(args: argparse.Namespace) -> str:

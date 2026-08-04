@@ -29,9 +29,10 @@
   <a href="https://github.com/parsehawk/parsehawk/stargazers"><img src="https://img.shields.io/github/stars/parsehawk/parsehawk?style=social" alt="GitHub stars"></a>
 </p>
 
-ParseHawk turns PDFs, scans, images, text, and Markdown into validated JSON. It
-is built for private document workflows where you want to define the output
-contract and keep control of files, models, and infrastructure.
+ParseHawk turns PDFs, scans, images, text, and Markdown into validated JSON, and
+parses PDFs and images into page-aware Markdown. It is built for private
+document workflows where you want to define the output contract and keep
+control of files, models, and infrastructure.
 
 The default setup runs locally with NuExtract3 through vLLM on Linux NVIDIA or
 vLLM Metal on macOS Apple Silicon. Individual extractors can instead use Ollama,
@@ -44,6 +45,7 @@ OpenAI, Microsoft Foundry, or another OpenAI-compatible model server.
 ## What You Get
 
 - Structured extraction from PDFs, scans, images, text, and Markdown
+- Document-to-Markdown parsing with complete-document and per-page results
 - Your own output contracts with JSON Schema Draft 2020-12
 - Zero-shot instructions and optional few-shot examples
 - Validated JSON stored with an asynchronous job record
@@ -104,6 +106,14 @@ Expected extracted values include:
 }
 ```
 
+Or parse a document with the seeded `document-to-markdown` parser:
+
+```bash
+parsehawk parse tests/fixtures/receipt/receipt.pdf \
+  --wait \
+  --output receipt.md
+```
+
 Check the installation or stop the stack:
 
 ```bash
@@ -118,7 +128,7 @@ The complete guided path is in
 
 | Goal | Guide |
 | --- | --- |
-| Learn the end-to-end workflow | [Tutorials](https://docs.parsehawk.com/tutorials/first-extraction/) |
+| Learn the end-to-end workflow | [Extraction](https://docs.parsehawk.com/tutorials/first-extraction/) · [Document to Markdown](https://docs.parsehawk.com/tutorials/document-to-markdown/) |
 | Install on supported hardware | [macOS](https://docs.parsehawk.com/how-to/install-macos/) · [Linux NVIDIA](https://docs.parsehawk.com/how-to/install-linux-nvidia/) |
 | Choose a model provider | [Bundled vLLM](https://docs.parsehawk.com/how-to/bundled-runtime/) · [Ollama](https://docs.parsehawk.com/how-to/ollama/) · [OpenAI](https://docs.parsehawk.com/how-to/openai/) · [Microsoft Foundry](https://docs.parsehawk.com/how-to/microsoft-foundry/) · [Compatible APIs](https://docs.parsehawk.com/how-to/openai-compatible/) |
 | Integrate over HTTP | [REST tutorial](https://docs.parsehawk.com/tutorials/rest-api/) · [API reference](https://docs.parsehawk.com/reference/api/) · [OpenAPI YAML](https://docs.parsehawk.com/openapi.yaml) |

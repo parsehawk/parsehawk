@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from parsehawk.config import Settings
 from parsehawk.core.application.services import (
+    ExtractionJobService,
     ExtractorService,
     FileService,
-    JobService,
+    ParseJobService,
+    ParserService,
     ProviderService,
 )
 from parsehawk.server.adapters.persistence.migrations import migrations_disabled
@@ -50,8 +52,21 @@ class Container:
         self.extractor_service = ExtractorService(
             self.uow_factory, default_model=settings.vllm_model
         )
+        self.parser_service = ParserService(
+            self.uow_factory,
+            default_model=settings.vllm_model,
+        )
         self.provider_service = ProviderService(self.uow_factory)
-        self.job_service = JobService(self.uow_factory, self.storage, self.engine_factory)
+        self.extraction_job_service = ExtractionJobService(
+            self.uow_factory,
+            self.storage,
+            self.engine_factory,
+        )
+        self.parse_job_service = ParseJobService(
+            self.uow_factory,
+            self.storage,
+            self.engine_factory,
+        )
 
     def close(self) -> None:
         self.uow_factory.close()

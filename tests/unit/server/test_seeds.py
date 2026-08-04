@@ -3,6 +3,7 @@ from __future__ import annotations
 from parsehawk.config import Settings
 from parsehawk.core.domain.models import ProviderName
 from parsehawk.server.bootstrap.seeds import (
+    DOCUMENT_TO_MARKDOWN_PARSER_SEED_KEY,
     OPENAI_BASE_URL,
     RECEIPT_EXTRACTOR_SEED_KEY,
     seed_prebuilt_data,
@@ -39,6 +40,19 @@ def test_seed_prebuilt_data_is_idempotent(tmp_path) -> None:
         "semantic": "verbatim-string"
     }
     assert "nuextract_template" not in prebuilt[0].model_dump()
+
+    container = build_container(settings)
+    try:
+        parsers = container.parser_service.list()
+    finally:
+        container.close()
+    prebuilt_parsers = [
+        parser for parser in parsers if parser.seed_key == DOCUMENT_TO_MARKDOWN_PARSER_SEED_KEY
+    ]
+    assert len(prebuilt_parsers) == 1
+    assert prebuilt_parsers[0].name == "document-to-markdown"
+    assert prebuilt_parsers[0].is_prebuilt is True
+    assert prebuilt_parsers[0].seed_version == 1
 
 
 def test_seed_creates_the_three_fixed_providers(tmp_path) -> None:
@@ -145,6 +159,24 @@ def test_seeded_prebuilt_extractor_uses_default_provider_and_inherited_model(tmp
             extractor
             for extractor in container.extractor_service.list()
             if extractor.seed_key == RECEIPT_EXTRACTOR_SEED_KEY
+        )
+    finally:
+        container.close()
+    assert prebuilt.provider_name == ProviderName.OPENAI_COMPATIBLE
+    assert prebuilt.model is None
+
+
+def test_seeded_prebuilt_parser_uses_default_provider_and_inherited_model(tmp_path) -> None:
+    settings = _settings(tmp_path)
+
+    seed_prebuilt_data(settings)
+
+    container = build_container(settings)
+    try:
+        prebuilt = next(
+            parser
+            for parser in container.parser_service.list()
+            if parser.seed_key == DOCUMENT_TO_MARKDOWN_PARSER_SEED_KEY
         )
     finally:
         container.close()

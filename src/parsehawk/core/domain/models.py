@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 EXTRACTOR_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$")
 
@@ -28,6 +28,15 @@ class FileSource(StrEnum):
 class ExtractorSource(StrEnum):
     USER = "user"
     PREBUILT = "prebuilt"
+
+
+class ParserSource(StrEnum):
+    USER = "user"
+    PREBUILT = "prebuilt"
+
+
+class ParserOutputFormat(StrEnum):
+    MARKDOWN = "markdown"
 
 
 class ProviderName(StrEnum):
@@ -73,7 +82,7 @@ def normalize_provider_configuration(
 
 
 class ReasoningEffort(StrEnum):
-    """Explicit reasoning effort for an extractor's model.
+    """Explicit reasoning effort for an extractor's or parser's model.
 
     The values mirror OpenAI's ``reasoning_effort`` parameter. Extractors store
     ``None`` by default, which means "send no reasoning parameter and use the
@@ -218,6 +227,70 @@ class Extractor(Entity):
         return value
 
 
+class Parser(Entity):
+    id: str
+    name: str
+    display_name: str
+    output_format: ParserOutputFormat = ParserOutputFormat.MARKDOWN
+    instructions: str = ""
+    reasoning_effort: ReasoningEffort | None = None
+    provider_name: ProviderName | None = None
+    model: str | None = None
+    source: ParserSource = ParserSource.USER
+    seed_key: str | None = None
+    seed_version: int | None = Field(default=None, ge=1)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+    @property
+    def is_prebuilt(self) -> bool:
+        return self.source == ParserSource.PREBUILT
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        validate_parser_name(value)
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("display_name is required")
+        return value
+
+
+class ParserSnapshot(Entity):
+    parser_id: str
+    name: str
+    display_name: str
+    output_format: ParserOutputFormat
+    instructions: str
+    reasoning_effort: ReasoningEffort | None = None
+    provider_name: ProviderName | None = None
+    model: str | None = None
+
+    @classmethod
+    def from_parser(cls, parser: Parser) -> ParserSnapshot:
+        return cls(
+            parser_id=parser.id,
+            name=parser.name,
+            display_name=parser.display_name,
+            output_format=parser.output_format,
+            instructions=parser.instructions,
+            reasoning_effort=parser.reasoning_effort,
+            provider_name=parser.provider_name,
+            model=parser.model,
+        )
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("display_name is required")
+        return value
+
+
 class Provider(Entity):
     """Connection configuration for one of the fixed model providers.
 
@@ -269,7 +342,7 @@ class ValidationIssue(Entity):
     message: str
 
 
-class JobResult(Entity):
+class ExtractionResult(Entity):
     data: dict[str, Any]
     validation_errors: list[ValidationIssue] = Field(default_factory=list)
 
@@ -278,12 +351,12 @@ class JobResult(Entity):
         return not self.validation_errors
 
 
-class JobError(Entity):
+class ExtractionError(Entity):
     message: str
     code: str = "extraction_failed"
 
 
-class Job(Entity):
+class ExtractionJob(Entity):
     id: str
     extractor_id: str
     status: JobStatus
@@ -291,47 +364,144 @@ class Job(Entity):
     source_text: str | None = None
     provider_name_used: ProviderName | None = None
     model_used: str | None = None
-    result: JobResult | None = None
-    error: JobError | None = None
+    result: ExtractionResult | None = None
+    error: ExtractionError | None = None
     created_at: datetime = Field(default_factory=utc_now)
     started_at: datetime | None = None
     completed_at: datetime | None = None
 
-    def mark_running(self) -> Job:
+    def mark_running(self) -> ExtractionJob:
         return self.model_copy(update={"status": JobStatus.RUNNING, "started_at": utc_now()})
 
-    def with_execution_config(self, *, provider_name: ProviderName, model: str) -> Job:
+    def with_execution_config(self, *, provider_name: ProviderName, model: str) -> ExtractionJob:
         return self.model_copy(update={"provider_name_used": provider_name, "model_used": model})
 
-    def mark_completed(self, result: JobResult) -> Job:
+    def mark_completed(self, result: ExtractionResult) -> ExtractionJob:
         return self.model_copy(
             update={"status": JobStatus.COMPLETED, "result": result, "completed_at": utc_now()}
         )
 
-    def mark_failed(self, message: str, code: str = "extraction_failed") -> Job:
+    def mark_failed(self, message: str, code: str = "extraction_failed") -> ExtractionJob:
         return self.model_copy(
             update={
                 "status": JobStatus.FAILED,
-                "error": JobError(message=message, code=code),
+                "error": ExtractionError(message=message, code=code),
                 "completed_at": utc_now(),
             }
         )
 
-    def mark_canceling(self) -> Job:
+    def mark_canceling(self) -> ExtractionJob:
         return self.model_copy(
             update={
                 "status": JobStatus.CANCELING,
             }
         )
 
-    def mark_deleting(self) -> Job:
+    def mark_deleting(self) -> ExtractionJob:
         return self.model_copy(
             update={
                 "status": JobStatus.DELETING,
             }
         )
 
-    def mark_canceled(self) -> Job:
+    def mark_canceled(self) -> ExtractionJob:
+        return self.model_copy(update={"status": JobStatus.CANCELED, "completed_at": utc_now()})
+
+
+PAGE_BREAK_SEPARATOR = "\n\n<!-- page-break -->\n\n"
+
+
+class ParsePageResult(Entity):
+    page_number: int = Field(ge=1)
+    content: str
+
+
+class ParseResult(Entity):
+    format: ParserOutputFormat = ParserOutputFormat.MARKDOWN
+    pages: list[ParsePageResult]
+
+    @model_validator(mode="after")
+    def validate_pages(self) -> ParseResult:
+        if not self.pages:
+            raise ValueError("parse result must contain at least one page")
+        page_numbers = [page.page_number for page in self.pages]
+        if page_numbers != list(range(1, len(self.pages) + 1)):
+            raise ValueError("parse result pages must be unique, contiguous, and one-based")
+        return self
+
+    @computed_field
+    @property
+    def content(self) -> str:
+        return PAGE_BREAK_SEPARATOR.join(page.content for page in self.pages)
+
+    @computed_field
+    @property
+    def page_count(self) -> int:
+        return len(self.pages)
+
+
+class ParseError(Entity):
+    message: str
+    code: str = "parsing_failed"
+
+
+class ParseJob(Entity):
+    id: str
+    parser_id: str
+    file_id: str
+    parser_snapshot: ParserSnapshot
+    status: JobStatus
+    provider_name_used: ProviderName | None = None
+    model_used: str | None = None
+    reasoning_effort_used: ReasoningEffort | None = None
+    model_adapter_used: str | None = None
+    result: ParseResult | None = None
+    error: ParseError | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    def mark_running(self) -> ParseJob:
+        return self.model_copy(update={"status": JobStatus.RUNNING, "started_at": utc_now()})
+
+    def with_execution_config(
+        self,
+        *,
+        provider_name: ProviderName,
+        model: str,
+        reasoning_effort: ReasoningEffort | None,
+        model_adapter: str,
+    ) -> ParseJob:
+        return self.model_copy(
+            update={
+                "provider_name_used": provider_name,
+                "model_used": model,
+                "reasoning_effort_used": reasoning_effort,
+                "model_adapter_used": model_adapter,
+            }
+        )
+
+    def mark_completed(self, result: ParseResult) -> ParseJob:
+        return self.model_copy(
+            update={"status": JobStatus.COMPLETED, "result": result, "completed_at": utc_now()}
+        )
+
+    def mark_failed(self, message: str, code: str = "parsing_failed") -> ParseJob:
+        return self.model_copy(
+            update={
+                "status": JobStatus.FAILED,
+                "error": ParseError(message=message, code=code),
+                "completed_at": utc_now(),
+            }
+        )
+
+    def mark_canceling(self) -> ParseJob:
+        return self.model_copy(update={"status": JobStatus.CANCELING})
+
+    def mark_deleting(self) -> ParseJob:
+        return self.model_copy(update={"status": JobStatus.DELETING})
+
+    def mark_canceled(self) -> ParseJob:
         return self.model_copy(update={"status": JobStatus.CANCELED, "completed_at": utc_now()})
 
 
@@ -345,6 +515,16 @@ def validate_extractor_name(name: str) -> None:
         )
 
 
+def validate_parser_name(name: str) -> None:
+    if name.startswith("parser_"):
+        raise ValueError("parser name cannot start with the reserved parser_ prefix")
+    if not EXTRACTOR_NAME_PATTERN.fullmatch(name):
+        raise ValueError(
+            "parser name must be 1-64 characters of lowercase letters, digits, "
+            "hyphens, or underscores and must start and end with a letter or digit"
+        )
+
+
 def slugify_extractor_name(display_name: str) -> str:
     normalized = unicodedata.normalize("NFKD", display_name).encode("ascii", "ignore").decode()
     slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower())
@@ -354,6 +534,20 @@ def slugify_extractor_name(display_name: str) -> str:
     return slug[:64].strip("-") or "extractor"
 
 
+def slugify_parser_name(display_name: str) -> str:
+    normalized = unicodedata.normalize("NFKD", display_name).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower())
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    if not slug:
+        slug = "parser"
+    return slug[:64].strip("-") or "parser"
+
+
 def extractor_name_suffix(extractor_id: str, length: int = 8) -> str:
     digest = hashlib.sha256(extractor_id.encode("utf-8")).hexdigest()
+    return digest[:length]
+
+
+def parser_name_suffix(parser_id: str, length: int = 8) -> str:
+    digest = hashlib.sha256(parser_id.encode("utf-8")).hexdigest()
     return digest[:length]

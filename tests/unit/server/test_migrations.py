@@ -32,6 +32,8 @@ INHERIT_OPENAI_COMPATIBLE_DEFAULT_MODEL_ID = (
 JOB_EXECUTION_MODEL_METADATA_ID = "20260708133000_job_execution_model_metadata"
 EXTRACTOR_REASONING_EFFORT_ID = "20260709090000_extractor_reasoning_effort"
 RESTRICT_JOB_PARENT_DELETION_ID = "20260721120000_restrict_job_parent_deletion"
+EXPLICIT_EXTRACTION_JOBS_ID = "20260804070000_explicit_extraction_jobs"
+ADD_PARSERS_AND_PARSE_JOBS_ID = "20260804071000_add_parsers_and_parse_jobs"
 ALL_MIGRATION_IDS = [
     BASELINE_ID,
     ADD_PROVIDERS_ID,
@@ -42,6 +44,8 @@ ALL_MIGRATION_IDS = [
     JOB_EXECUTION_MODEL_METADATA_ID,
     EXTRACTOR_REASONING_EFFORT_ID,
     RESTRICT_JOB_PARENT_DELETION_ID,
+    EXPLICIT_EXTRACTION_JOBS_ID,
+    ADD_PARSERS_AND_PARSE_JOBS_ID,
 ]
 
 # The full current schema after all migrations. ALTER-added columns
@@ -75,7 +79,7 @@ EXPECTED_COLUMNS = {
         "model",
         "reasoning_effort",
     ],
-    "jobs": [
+    "extraction_jobs": [
         "id",
         "extractor_id",
         "file_id",
@@ -88,6 +92,37 @@ EXPECTED_COLUMNS = {
         "completed_at",
         "provider_name_used",
         "model_used",
+    ],
+    "parsers": [
+        "id",
+        "name",
+        "display_name",
+        "output_format",
+        "instructions",
+        "reasoning_effort",
+        "provider_name",
+        "model",
+        "source",
+        "seed_key",
+        "seed_version",
+        "created_at",
+        "updated_at",
+    ],
+    "parse_jobs": [
+        "id",
+        "parser_id",
+        "file_id",
+        "parser_snapshot",
+        "status",
+        "result",
+        "error",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "provider_name_used",
+        "model_used",
+        "reasoning_effort_used",
+        "model_adapter_used",
     ],
     "providers": [
         "name",
@@ -128,14 +163,23 @@ def test_baseline_applied_to_fresh_db_matches_current_schema(conn: sqlite3.Conne
     assert applied == ALL_MIGRATION_IDS
     for table, expected in EXPECTED_COLUMNS.items():
         assert columns(conn, table) == expected
-    assert indexes(conn, "jobs") == {
-        "idx_jobs_extractor_id",
-        "idx_jobs_status_created_at",
+    assert indexes(conn, "extraction_jobs") == {
+        "idx_extraction_jobs_extractor_id",
+        "idx_extraction_jobs_status_created_at",
     }
     assert "idx_extractors_name" in indexes(conn, "extractors")
-    assert foreign_keys(conn, "jobs") == {
+    assert foreign_keys(conn, "extraction_jobs") == {
         ("file_id", "files", "id", "RESTRICT"),
         ("extractor_id", "extractors", "id", "RESTRICT"),
+    }
+    assert indexes(conn, "parse_jobs") == {
+        "idx_parse_jobs_parser_id",
+        "idx_parse_jobs_status_created_at",
+    }
+    assert "idx_parsers_name" in indexes(conn, "parsers")
+    assert foreign_keys(conn, "parse_jobs") == {
+        ("file_id", "files", "id", "RESTRICT"),
+        ("parser_id", "parsers", "id", "RESTRICT"),
     }
 
 
@@ -153,7 +197,8 @@ def test_restrict_parent_deletion_migration_preserves_existing_jobs(
     conn: sqlite3.Connection,
 ) -> None:
     _register_functions(conn)
-    earlier_ids = ALL_MIGRATION_IDS[:-1]
+    restrict_index = ALL_MIGRATION_IDS.index(RESTRICT_JOB_PARENT_DELETION_ID)
+    earlier_ids = ALL_MIGRATION_IDS[:restrict_index]
     for migration_id in earlier_ids:
         migration = next(
             migration for migration in discover_migrations() if migration.id == migration_id
@@ -194,14 +239,18 @@ def test_restrict_parent_deletion_migration_preserves_existing_jobs(
     )
     conn.commit()
 
-    assert apply_pending(conn) == [RESTRICT_JOB_PARENT_DELETION_ID]
-    assert conn.execute("SELECT id FROM jobs").fetchone()["id"] == "job_1"
+    assert apply_pending(conn) == [
+        RESTRICT_JOB_PARENT_DELETION_ID,
+        EXPLICIT_EXTRACTION_JOBS_ID,
+        ADD_PARSERS_AND_PARSE_JOBS_ID,
+    ]
+    assert conn.execute("SELECT id FROM extraction_jobs").fetchone()["id"] == "job_1"
 
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("DELETE FROM files WHERE id = 'file_1'")
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("DELETE FROM extractors WHERE id = 'extractor_1'")
-    assert conn.execute("SELECT id FROM jobs").fetchone()["id"] == "job_1"
+    assert conn.execute("SELECT id FROM extraction_jobs").fetchone()["id"] == "job_1"
 
 
 def test_migration_status_reports_pending_before_apply(conn: sqlite3.Connection) -> None:
@@ -372,7 +421,9 @@ def test_extractor_name_migration_preserves_job_foreign_keys(conn: sqlite3.Conne
 
     apply_pending(conn)
 
-    job = conn.execute("SELECT extractor_id FROM jobs WHERE id = ?", ("job_1",)).fetchone()
+    job = conn.execute(
+        "SELECT extractor_id FROM extraction_jobs WHERE id = ?", ("job_1",)
+    ).fetchone()
     extractor = conn.execute(
         "SELECT id, name, display_name FROM extractors WHERE id = ?",
         ("extractor_invoice",),
@@ -448,6 +499,8 @@ def test_provider_configuration_migration_renames_foundry_without_data_loss(
         JOB_EXECUTION_MODEL_METADATA_ID,
         EXTRACTOR_REASONING_EFFORT_ID,
         RESTRICT_JOB_PARENT_DELETION_ID,
+        EXPLICIT_EXTRACTION_JOBS_ID,
+        ADD_PARSERS_AND_PARSE_JOBS_ID,
     ]
 
     assert columns(conn, "providers") == EXPECTED_COLUMNS["providers"]
@@ -509,6 +562,8 @@ def test_remove_foundry_api_version_config_migration_strips_already_migrated_con
         JOB_EXECUTION_MODEL_METADATA_ID,
         EXTRACTOR_REASONING_EFFORT_ID,
         RESTRICT_JOB_PARENT_DELETION_ID,
+        EXPLICIT_EXTRACTION_JOBS_ID,
+        ADD_PARSERS_AND_PARSE_JOBS_ID,
     ]
 
     provider = conn.execute(
@@ -577,6 +632,8 @@ def test_inherit_openai_compatible_default_model_migration_preserves_custom_mode
         JOB_EXECUTION_MODEL_METADATA_ID,
         EXTRACTOR_REASONING_EFFORT_ID,
         RESTRICT_JOB_PARENT_DELETION_ID,
+        EXPLICIT_EXTRACTION_JOBS_ID,
+        ADD_PARSERS_AND_PARSE_JOBS_ID,
     ]
 
     models = {
@@ -652,6 +709,8 @@ def test_extractor_reasoning_effort_migration_backfills_per_adapter(
     assert apply_pending(conn) == [
         EXTRACTOR_REASONING_EFFORT_ID,
         RESTRICT_JOB_PARENT_DELETION_ID,
+        EXPLICIT_EXTRACTION_JOBS_ID,
+        ADD_PARSERS_AND_PARSE_JOBS_ID,
     ]
 
     assert "enable_thinking" not in columns(conn, "extractors")

@@ -44,6 +44,7 @@ body; connection failures include the target API URL.
 - [`parsehawk runtime test`](#parsehawk-runtime-test)
 - [`parsehawk runtime doctor`](#parsehawk-runtime-doctor)
 - [`parsehawk extract`](#parsehawk-extract)
+- [`parsehawk parse`](#parsehawk-parse)
 - [`parsehawk files`](#parsehawk-files)
 - [`parsehawk files list`](#parsehawk-files-list)
 - [`parsehawk files get`](#parsehawk-files-get)
@@ -58,23 +59,43 @@ body; connection failures include the target API URL.
 - [`parsehawk extractors put`](#parsehawk-extractors-put)
 - [`parsehawk extractors update`](#parsehawk-extractors-update)
 - [`parsehawk extractors delete`](#parsehawk-extractors-delete)
+- [`parsehawk parsers`](#parsehawk-parsers)
+- [`parsehawk parsers list`](#parsehawk-parsers-list)
+- [`parsehawk parsers get`](#parsehawk-parsers-get)
+- [`parsehawk parsers create`](#parsehawk-parsers-create)
+- [`parsehawk parsers put`](#parsehawk-parsers-put)
+- [`parsehawk parsers update`](#parsehawk-parsers-update)
+- [`parsehawk parsers delete`](#parsehawk-parsers-delete)
 - [`parsehawk providers`](#parsehawk-providers)
 - [`parsehawk providers list`](#parsehawk-providers-list)
 - [`parsehawk providers get`](#parsehawk-providers-get)
 - [`parsehawk providers configure`](#parsehawk-providers-configure)
 - [`parsehawk providers models`](#parsehawk-providers-models)
+- [`parsehawk extraction-jobs`](#parsehawk-extraction-jobs)
+- [`parsehawk extraction-jobs create`](#parsehawk-extraction-jobs-create)
+- [`parsehawk extraction-jobs list`](#parsehawk-extraction-jobs-list)
+- [`parsehawk extraction-jobs get`](#parsehawk-extraction-jobs-get)
+- [`parsehawk extraction-jobs cancel`](#parsehawk-extraction-jobs-cancel)
+- [`parsehawk extraction-jobs delete`](#parsehawk-extraction-jobs-delete)
 - [`parsehawk jobs`](#parsehawk-jobs)
 - [`parsehawk jobs create`](#parsehawk-jobs-create)
 - [`parsehawk jobs list`](#parsehawk-jobs-list)
 - [`parsehawk jobs get`](#parsehawk-jobs-get)
+- [`parsehawk jobs cancel`](#parsehawk-jobs-cancel)
 - [`parsehawk jobs delete`](#parsehawk-jobs-delete)
+- [`parsehawk parse-jobs`](#parsehawk-parse-jobs)
+- [`parsehawk parse-jobs create`](#parsehawk-parse-jobs-create)
+- [`parsehawk parse-jobs list`](#parsehawk-parse-jobs-list)
+- [`parsehawk parse-jobs get`](#parsehawk-parse-jobs-get)
+- [`parsehawk parse-jobs cancel`](#parsehawk-parse-jobs-cancel)
+- [`parsehawk parse-jobs delete`](#parsehawk-parse-jobs-delete)
 
 ## parsehawk
 
 Run and operate the local-first ParseHawk document extraction platform.
 
 ```console
-$ parsehawk [-h] {start,dev,restart,stop,status,migrate,doctor,config,runtime,extract,files,schemas,extractors,providers,jobs} ...
+$ parsehawk [-h] {start,dev,restart,stop,status,migrate,doctor,config,runtime,extract,parse,files,schemas,extractors,parsers,providers,extraction-jobs,jobs,parse-jobs} ...
 ```
 
 ### Example
@@ -89,10 +110,14 @@ $ parsehawk --help
 - [`parsehawk dev`](#parsehawk-dev)
 - [`parsehawk doctor`](#parsehawk-doctor)
 - [`parsehawk extract`](#parsehawk-extract)
+- [`parsehawk extraction-jobs`](#parsehawk-extraction-jobs)
 - [`parsehawk extractors`](#parsehawk-extractors)
 - [`parsehawk files`](#parsehawk-files)
 - [`parsehawk jobs`](#parsehawk-jobs)
 - [`parsehawk migrate`](#parsehawk-migrate)
+- [`parsehawk parse`](#parsehawk-parse)
+- [`parsehawk parse-jobs`](#parsehawk-parse-jobs)
+- [`parsehawk parsers`](#parsehawk-parsers)
 - [`parsehawk providers`](#parsehawk-providers)
 - [`parsehawk restart`](#parsehawk-restart)
 - [`parsehawk runtime`](#parsehawk-runtime)
@@ -513,6 +538,36 @@ $ parsehawk extract tests/fixtures/receipt/receipt.jpg --extractor receipt --wai
 | `--output OUTPUT` | Write the result JSON to this path. | No | — |
 | `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
 
+## parsehawk parse
+
+Run a one-shot document-to-Markdown parse and optionally wait for its result.
+
+```console
+$ parsehawk parse [-h] [--parser PARSER] [--file-id FILE_ID] [--wait] [--poll-seconds POLL_SECONDS] [--timeout-seconds TIMEOUT_SECONDS] [--output OUTPUT] [--api-url API_URL] [source]
+```
+
+### Example
+
+```console
+$ parsehawk parse document.pdf --parser document-to-markdown --wait --output document.md
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `[source]` | Local PDF, JPG/JPEG, or PNG path. | No | — |
+| `--parser PARSER` | Parser ID or stable name. | No | `document-to-markdown` |
+| `--file-id FILE_ID` | Use an already uploaded file ID. | No | — |
+| `--wait` | Wait for completion and print the complete-document Markdown. | No | `false` |
+| `--poll-seconds POLL_SECONDS` | Polling interval while waiting. | No | `1.0` |
+| `--timeout-seconds TIMEOUT_SECONDS` | Maximum wait time. | No | `600.0` |
+| `--output OUTPUT` | Write complete-document Markdown to this path. | No | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
 ## parsehawk files
 
 Upload, inspect, list, and delete source files.
@@ -877,6 +932,193 @@ $ parsehawk extractors delete invoice_v1
 | `extractor_ref` | Extractor ID or stable name. | Yes | — |
 | `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
 
+## parsehawk parsers
+
+Create, inspect, update, and delete reusable parsers.
+
+```console
+$ parsehawk parsers [-h] {list,get,create,put,update,delete} ...
+```
+
+### Example
+
+```console
+$ parsehawk parsers --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk parsers create`](#parsehawk-parsers-create)
+- [`parsehawk parsers delete`](#parsehawk-parsers-delete)
+- [`parsehawk parsers get`](#parsehawk-parsers-get)
+- [`parsehawk parsers list`](#parsehawk-parsers-list)
+- [`parsehawk parsers put`](#parsehawk-parsers-put)
+- [`parsehawk parsers update`](#parsehawk-parsers-update)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+
+## parsehawk parsers list
+
+List reusable parsers.
+
+```console
+$ parsehawk parsers list [-h] [--api-url API_URL]
+```
+
+### Example
+
+```console
+$ parsehawk parsers list
+```
+
+### Related commands
+
+- [`parsehawk parsers`](#parsehawk-parsers)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parsers get
+
+Get a parser by ID or stable name.
+
+```console
+$ parsehawk parsers get [-h] [--api-url API_URL] parser_ref
+```
+
+### Example
+
+```console
+$ parsehawk parsers get document-to-markdown
+```
+
+### Related commands
+
+- [`parsehawk parsers`](#parsehawk-parsers)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `parser_ref` | Parser ID or stable name. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parsers create
+
+Create a reusable parser.
+
+```console
+$ parsehawk parsers create [-h] [--name NAME] [--display-name DISPLAY_NAME] [--instructions INSTRUCTIONS] [--reasoning-effort {default,none,minimal,low,medium,high,xhigh}] [--provider {openai,microsoft_foundry,openai_compatible_api}] [--model MODEL] [--api-url API_URL]
+```
+
+### Example
+
+```console
+$ parsehawk parsers create --name legal-document --display-name "Legal document" --instructions "Preserve section numbering."
+```
+
+### Related commands
+
+- [`parsehawk parsers`](#parsehawk-parsers)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `--name NAME` | Optional stable parser name. | No | — |
+| `--display-name DISPLAY_NAME` | Human-readable parser name. | No | — |
+| `--instructions INSTRUCTIONS` | Inline instructions or a text-file path. | No | `""` |
+| `--reasoning-effort REASONING_EFFORT` | Reasoning effort override; 'default' clears the override. Choices: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. | No | — |
+| `--provider PROVIDER_NAME` | Provider override for this parser. Choices: `openai`, `microsoft_foundry`, `openai_compatible_api`. | No | — |
+| `--model MODEL` | Provider model override. | No | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parsers put
+
+Create or fully replace a parser by reference.
+
+```console
+$ parsehawk parsers put [-h] [--name NAME] --display-name DISPLAY_NAME [--instructions INSTRUCTIONS] [--reasoning-effort {default,none,minimal,low,medium,high,xhigh}] [--provider {openai,microsoft_foundry,openai_compatible_api}] [--model MODEL] [--api-url API_URL] parser_ref
+```
+
+### Example
+
+```console
+$ parsehawk parsers put legal-document --display-name "Legal document" --instructions "Preserve section numbering."
+```
+
+### Related commands
+
+- [`parsehawk parsers`](#parsehawk-parsers)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `parser_ref` | Parser ID or stable name. | Yes | — |
+| `--name NAME` | Stable parser name. | No | — |
+| `--display-name DISPLAY_NAME` | Human-readable parser name. | Yes | — |
+| `--instructions INSTRUCTIONS` | Inline instructions or a text-file path. | No | `""` |
+| `--reasoning-effort REASONING_EFFORT` | Reasoning effort override; 'default' clears the override. Choices: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. | No | — |
+| `--provider PROVIDER_NAME` | Provider override for this parser. Choices: `openai`, `microsoft_foundry`, `openai_compatible_api`. | No | — |
+| `--model MODEL` | Provider model override. | No | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parsers update
+
+Update selected fields on a parser.
+
+```console
+$ parsehawk parsers update [-h] [--display-name DISPLAY_NAME] [--instructions INSTRUCTIONS] [--reasoning-effort {default,none,minimal,low,medium,high,xhigh}] [--provider {openai,microsoft_foundry,openai_compatible_api}] [--model MODEL] [--api-url API_URL] parser_ref
+```
+
+### Example
+
+```console
+$ parsehawk parsers update legal-document --display-name "Legal document parser"
+```
+
+### Related commands
+
+- [`parsehawk parsers`](#parsehawk-parsers)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `parser_ref` | Parser ID or stable name. | Yes | — |
+| `--display-name DISPLAY_NAME` | Human-readable parser name. | No | — |
+| `--instructions INSTRUCTIONS` | Inline instructions or a text-file path. | No | — |
+| `--reasoning-effort REASONING_EFFORT` | Reasoning effort override; 'default' clears the override. Choices: `default`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. | No | — |
+| `--provider PROVIDER_NAME` | Provider override for this parser. Choices: `openai`, `microsoft_foundry`, `openai_compatible_api`. | No | — |
+| `--model MODEL` | Provider model override. | No | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parsers delete
+
+Delete a parser by ID or stable name.
+
+```console
+$ parsehawk parsers delete [-h] [--api-url API_URL] parser_ref
+```
+
+### Example
+
+```console
+$ parsehawk parsers delete legal-document
+```
+
+### Related commands
+
+- [`parsehawk parsers`](#parsehawk-parsers)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `parser_ref` | Parser ID or stable name. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
 ## parsehawk providers
 
 Inspect and configure model providers.
@@ -1002,12 +1244,163 @@ $ parsehawk providers models openai_compatible_api
 | `name` | Provider name. Choices: `openai`, `microsoft_foundry`, `openai_compatible_api`. | Yes | — |
 | `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
 
-## parsehawk jobs
+## parsehawk extraction-jobs
 
-Create, inspect, list, and delete extraction jobs.
+Create, inspect, list, cancel, and delete extraction jobs.
 
 ```console
-$ parsehawk jobs [-h] {create,list,get,delete} ...
+$ parsehawk extraction-jobs [-h] {create,list,get,cancel,delete} ...
+```
+
+### Example
+
+```console
+$ parsehawk extraction-jobs --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk extraction-jobs cancel`](#parsehawk-extraction-jobs-cancel)
+- [`parsehawk extraction-jobs create`](#parsehawk-extraction-jobs-create)
+- [`parsehawk extraction-jobs delete`](#parsehawk-extraction-jobs-delete)
+- [`parsehawk extraction-jobs get`](#parsehawk-extraction-jobs-get)
+- [`parsehawk extraction-jobs list`](#parsehawk-extraction-jobs-list)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+
+## parsehawk extraction-jobs create
+
+Create an asynchronous extraction job.
+
+```console
+$ parsehawk extraction-jobs create [-h] [--extractor EXTRACTOR_ID_OPTION] (--file-id FILE_ID | --text TEXT | --text-file TEXT_FILE) [--api-url API_URL] [extractor_id]
+```
+
+### Example
+
+```console
+$ parsehawk extraction-jobs create invoice_v1 --text "Invoice A-204 · Total EUR 128.40"
+```
+
+### Related commands
+
+- [`parsehawk extraction-jobs`](#parsehawk-extraction-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `[extractor_id]` | Extractor ID or stable name. | No | — |
+| `--extractor EXTRACTOR_ID_OPTION` | Extractor ID or stable name. | No | — |
+| `--file-id FILE_ID`, `--file FILE_ID` | Previously uploaded file ID. | One of group | — |
+| `--text TEXT` | Inline source text. | One of group | — |
+| `--text-file TEXT_FILE` | Path to a source text file. | One of group | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk extraction-jobs list
+
+List extraction jobs.
+
+```console
+$ parsehawk extraction-jobs list [-h] [--extractor-id EXTRACTOR_ID] [--api-url API_URL]
+```
+
+### Example
+
+```console
+$ parsehawk extraction-jobs list --extractor invoice_v1
+```
+
+### Related commands
+
+- [`parsehawk extraction-jobs`](#parsehawk-extraction-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `--extractor-id EXTRACTOR_ID`, `--extractor EXTRACTOR_ID` | Filter by extractor ID or stable name. | No | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk extraction-jobs get
+
+Get an extraction job by ID.
+
+```console
+$ parsehawk extraction-jobs get [-h] [--api-url API_URL] job_id
+```
+
+### Example
+
+```console
+$ parsehawk extraction-jobs get job_...
+```
+
+### Related commands
+
+- [`parsehawk extraction-jobs`](#parsehawk-extraction-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `job_id` | Extraction job ID. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk extraction-jobs cancel
+
+Request cancellation of a queued or running extraction job.
+
+```console
+$ parsehawk extraction-jobs cancel [-h] [--api-url API_URL] job_id
+```
+
+### Example
+
+```console
+$ parsehawk extraction-jobs cancel job_...
+```
+
+### Related commands
+
+- [`parsehawk extraction-jobs`](#parsehawk-extraction-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `job_id` | Extraction job ID. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk extraction-jobs delete
+
+Cancel a pending job or delete a finished job.
+
+```console
+$ parsehawk extraction-jobs delete [-h] [--api-url API_URL] job_id
+```
+
+### Example
+
+```console
+$ parsehawk extraction-jobs delete job_...
+```
+
+### Related commands
+
+- [`parsehawk extraction-jobs`](#parsehawk-extraction-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `job_id` | Extraction job ID. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk jobs
+
+Deprecated alias for extraction-jobs; removed in v0.4.
+
+```console
+$ parsehawk jobs [-h] {create,list,get,cancel,delete} ...
 ```
 
 ### Example
@@ -1019,6 +1412,7 @@ $ parsehawk jobs --help
 ### Related commands
 
 - [`parsehawk`](#parsehawk)
+- [`parsehawk jobs cancel`](#parsehawk-jobs-cancel)
 - [`parsehawk jobs create`](#parsehawk-jobs-create)
 - [`parsehawk jobs delete`](#parsehawk-jobs-delete)
 - [`parsehawk jobs get`](#parsehawk-jobs-get)
@@ -1101,7 +1495,31 @@ $ parsehawk jobs get job_...
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
-| `job_id` | Job ID. | Yes | — |
+| `job_id` | Extraction job ID. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk jobs cancel
+
+Request cancellation of a queued or running extraction job.
+
+```console
+$ parsehawk jobs cancel [-h] [--api-url API_URL] job_id
+```
+
+### Example
+
+```console
+$ parsehawk jobs cancel job_...
+```
+
+### Related commands
+
+- [`parsehawk jobs`](#parsehawk-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `job_id` | Extraction job ID. | Yes | — |
 | `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
 
 ## parsehawk jobs delete
@@ -1125,5 +1543,154 @@ $ parsehawk jobs delete job_...
 | Argument | Description | Required | Default |
 | --- | --- | --- | --- |
 | `-h`, `--help` | show this help message and exit | No | — |
-| `job_id` | Job ID. | Yes | — |
+| `job_id` | Extraction job ID. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parse-jobs
+
+Create, inspect, list, cancel, and delete document parsing jobs.
+
+```console
+$ parsehawk parse-jobs [-h] {create,list,get,cancel,delete} ...
+```
+
+### Example
+
+```console
+$ parsehawk parse-jobs --help
+```
+
+### Related commands
+
+- [`parsehawk`](#parsehawk)
+- [`parsehawk parse-jobs cancel`](#parsehawk-parse-jobs-cancel)
+- [`parsehawk parse-jobs create`](#parsehawk-parse-jobs-create)
+- [`parsehawk parse-jobs delete`](#parsehawk-parse-jobs-delete)
+- [`parsehawk parse-jobs get`](#parsehawk-parse-jobs-get)
+- [`parsehawk parse-jobs list`](#parsehawk-parse-jobs-list)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+
+## parsehawk parse-jobs create
+
+Create an asynchronous parse job.
+
+```console
+$ parsehawk parse-jobs create [-h] [--parser PARSER_ID_OPTION] --file-id FILE_ID [--api-url API_URL] [parser_id]
+```
+
+### Example
+
+```console
+$ parsehawk parse-jobs create document-to-markdown --file-id file_...
+```
+
+### Related commands
+
+- [`parsehawk parse-jobs`](#parsehawk-parse-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `[parser_id]` | Parser ID or stable name. | No | — |
+| `--parser PARSER_ID_OPTION` | Parser ID or stable name. | No | — |
+| `--file-id FILE_ID`, `--file FILE_ID` | Previously uploaded PDF or image file ID. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parse-jobs list
+
+List parse jobs.
+
+```console
+$ parsehawk parse-jobs list [-h] [--parser-id PARSER_ID] [--api-url API_URL]
+```
+
+### Example
+
+```console
+$ parsehawk parse-jobs list --parser document-to-markdown
+```
+
+### Related commands
+
+- [`parsehawk parse-jobs`](#parsehawk-parse-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `--parser-id PARSER_ID`, `--parser PARSER_ID` | Filter by parser ID or stable name. | No | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parse-jobs get
+
+Get a parse job by ID.
+
+```console
+$ parsehawk parse-jobs get [-h] [--api-url API_URL] job_id
+```
+
+### Example
+
+```console
+$ parsehawk parse-jobs get parse_job_...
+```
+
+### Related commands
+
+- [`parsehawk parse-jobs`](#parsehawk-parse-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `job_id` | Parse job ID. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parse-jobs cancel
+
+Request cancellation of a queued or running parse job.
+
+```console
+$ parsehawk parse-jobs cancel [-h] [--api-url API_URL] job_id
+```
+
+### Example
+
+```console
+$ parsehawk parse-jobs cancel parse_job_...
+```
+
+### Related commands
+
+- [`parsehawk parse-jobs`](#parsehawk-parse-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `job_id` | Parse job ID. | Yes | — |
+| `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |
+
+## parsehawk parse-jobs delete
+
+Cancel a pending parse job or delete a finished parse job.
+
+```console
+$ parsehawk parse-jobs delete [-h] [--api-url API_URL] job_id
+```
+
+### Example
+
+```console
+$ parsehawk parse-jobs delete parse_job_...
+```
+
+### Related commands
+
+- [`parsehawk parse-jobs`](#parsehawk-parse-jobs)
+
+| Argument | Description | Required | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | show this help message and exit | No | — |
+| `job_id` | Parse job ID. | Yes | — |
 | `--api-url API_URL` | ParseHawk API URL; defaults to PARSEHAWK_API_URL when set. | No | `http://127.0.0.1:8000` |

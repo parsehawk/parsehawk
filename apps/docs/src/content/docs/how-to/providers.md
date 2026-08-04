@@ -53,5 +53,6 @@ parsehawk extractors update invoice_v1 \
   --model my-model
 ```
 
-Existing jobs retain their recorded execution metadata. New jobs use the
-extractor's current provider and model.
+Existing extraction jobs retain their recorded execution metadata. New jobs use
+the extractor's current provider and model. Parsers select providers and models
+the same way, but parse jobs snapshot parser configuration at creation time.

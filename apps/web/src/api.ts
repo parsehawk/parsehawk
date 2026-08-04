@@ -2,7 +2,9 @@ import type {
   Extractor,
   ExtractorExample,
   FileRecord,
-  Job,
+  ExtractionJob,
+  ParseJob,
+  Parser,
   Provider,
   ProviderConfiguration,
   ProviderName,
@@ -149,25 +151,93 @@ export function validateSchema(payload: SchemaValidationRequest): Promise<Schema
   });
 }
 
-export function createJob(
+export function createExtractionJob(
   extractorName: string,
   input: { file_id: string } | { text: string }
-): Promise<Job> {
-  return request<Job>("/v1/jobs", {
+): Promise<ExtractionJob> {
+  return request<ExtractionJob>("/v1/extraction-jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ extractor_name: extractorName, ...input })
   });
 }
 
-export function listJobs(extractorId: string): Promise<Job[]> {
-  return request<Job[]>(`/v1/jobs?extractor_id=${encodeURIComponent(extractorId)}`);
+export function listExtractionJobs(extractorId: string): Promise<ExtractionJob[]> {
+  return request<ExtractionJob[]>(
+    `/v1/extraction-jobs?extractor_id=${encodeURIComponent(extractorId)}`
+  );
 }
 
-export function getJob(jobId: string): Promise<Job> {
-  return request<Job>(`/v1/jobs/${jobId}`);
+export function getExtractionJob(jobId: string): Promise<ExtractionJob> {
+  return request<ExtractionJob>(`/v1/extraction-jobs/${jobId}`);
 }
 
-export function deleteJob(jobId: string): Promise<void> {
-  return request<void>(`/v1/jobs/${jobId}`, { method: "DELETE" });
+export function deleteExtractionJob(jobId: string): Promise<void> {
+  return request<void>(`/v1/extraction-jobs/${jobId}`, { method: "DELETE" });
+}
+
+export function listParsers(): Promise<Parser[]> {
+  return request<Parser[]>("/v1/parsers");
+}
+
+export function createParser(payload: {
+  name?: string;
+  display_name: string;
+  output_format?: "markdown";
+  instructions: string;
+  reasoning_effort: ReasoningEffort | null;
+  provider_name?: ProviderName;
+  model?: string | null;
+}): Promise<Parser> {
+  return request<Parser>("/v1/parsers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateParser(
+  parserId: string,
+  payload: {
+    display_name?: string;
+    instructions?: string;
+    reasoning_effort?: ReasoningEffort | null;
+    provider_name?: ProviderName;
+    model?: string | null;
+  }
+): Promise<Parser> {
+  return request<Parser>(`/v1/parsers/${parserId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteParser(parserId: string): Promise<void> {
+  return request<void>(`/v1/parsers/${parserId}`, { method: "DELETE" });
+}
+
+export function createParseJob(parserName: string, fileId: string): Promise<ParseJob> {
+  return request<ParseJob>("/v1/parse-jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parser_name: parserName, file_id: fileId })
+  });
+}
+
+export function listParseJobs(parserId?: string): Promise<ParseJob[]> {
+  const query = parserId ? `?parser_id=${encodeURIComponent(parserId)}` : "";
+  return request<ParseJob[]>(`/v1/parse-jobs${query}`);
+}
+
+export function getParseJob(jobId: string): Promise<ParseJob> {
+  return request<ParseJob>(`/v1/parse-jobs/${jobId}`);
+}
+
+export function cancelParseJob(jobId: string): Promise<ParseJob> {
+  return request<ParseJob>(`/v1/parse-jobs/${jobId}/cancel`, { method: "POST" });
+}
+
+export function deleteParseJob(jobId: string): Promise<void> {
+  return request<void>(`/v1/parse-jobs/${jobId}`, { method: "DELETE" });
 }

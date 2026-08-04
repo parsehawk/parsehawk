@@ -7,26 +7,37 @@ from parsehawk.core.domain import ids
 from parsehawk.core.domain.ids import new_id
 from parsehawk.core.domain.models import (
     NUEXTRACT3_MODELS,
+    PAGE_BREAK_SEPARATOR,
     Example,
     ExampleInput,
     ExampleInputKind,
+    ExtractionJob,
+    ExtractionResult,
     Extractor,
     ExtractorSource,
     File,
     FileSource,
-    Job,
-    JobResult,
     JobStatus,
+    ParseJob,
+    ParsePageResult,
+    Parser,
+    ParseResult,
+    ParserOutputFormat,
+    ParserSnapshot,
+    ParserSource,
     Provider,
     ProviderName,
     ValidationIssue,
     extractor_name_suffix,
+    parser_name_suffix,
     slugify_extractor_name,
+    slugify_parser_name,
+    validate_parser_name,
 )
 
 
 def test_job_state_transitions_and_result_validity() -> None:
-    job = Job(
+    job = ExtractionJob(
         id="job_1",
         extractor_id="extractor_1",
         file_id="file_1",
@@ -43,14 +54,14 @@ def test_job_state_transitions_and_result_validity() -> None:
     assert configured.provider_name_used == ProviderName.OPENAI_COMPATIBLE
     assert configured.model_used == "numind/NuExtract3-W4A16"
 
-    valid_result = JobResult(data={"receipt_id": "2"})
+    valid_result = ExtractionResult(data={"receipt_id": "2"})
     completed = configured.mark_completed(valid_result)
     assert completed.status == JobStatus.COMPLETED
     assert completed.completed_at is not None
     assert completed.result is valid_result
     assert valid_result.valid is True
 
-    invalid_result = JobResult(
+    invalid_result = ExtractionResult(
         data={},
         validation_errors=[ValidationIssue(path="receipt_id", message="required")],
     )
@@ -254,6 +265,112 @@ def test_nuextract3_model_set() -> None:
     assert "numind/NuExtract3" in NUEXTRACT3_MODELS
     assert "gpt-4o-mini" not in NUEXTRACT3_MODELS
     assert len(NUEXTRACT3_MODELS) == 11
+
+
+def test_parser_validation_and_snapshot() -> None:
+    parser = Parser(
+        id="parser_1",
+        name="document-to-markdown",
+        display_name="Document to Markdown",
+        instructions="Preserve footnotes.",
+        provider_name=ProviderName.OPENAI_COMPATIBLE,
+        source=ParserSource.PREBUILT,
+    )
+
+    assert parser.output_format == ParserOutputFormat.MARKDOWN
+    assert parser.is_prebuilt is True
+    assert slugify_parser_name("Legal Document Parser") == "legal-document-parser"
+    assert ParserSnapshot.from_parser(parser).parser_id == parser.id
+
+    with pytest.raises(ValidationError):
+        Parser(
+            id="parser_bad",
+            name="Parser Bad",
+            display_name="Parser",
+        )
+    with pytest.raises(ValidationError):
+        Parser(
+            id="parser_blank",
+            name="parser-blank",
+            display_name=" ",
+        )
+    with pytest.raises(ValidationError):
+        ParserSnapshot(
+            parser_id=parser.id,
+            name=parser.name,
+            display_name=" ",
+            output_format=ParserOutputFormat.MARKDOWN,
+            instructions="",
+        )
+
+    with pytest.raises(ValueError, match="reserved parser_ prefix"):
+        validate_parser_name("parser_reserved")
+    with pytest.raises(ValueError, match="must be 1-64"):
+        validate_parser_name("Invalid Parser")
+    assert slugify_parser_name("☃") == "parser"
+    assert parser_name_suffix("parser_1") == hashlib.sha256(b"parser_1").hexdigest()[:8]
+
+
+def test_parse_result_derives_complete_document_from_contiguous_pages() -> None:
+    result = ParseResult(
+        pages=[
+            ParsePageResult(page_number=1, content="# First"),
+            ParsePageResult(page_number=2, content="## Second"),
+        ]
+    )
+
+    assert result.content == f"# First{PAGE_BREAK_SEPARATOR}## Second"
+    assert result.page_count == 2
+    assert result.model_dump()["content"] == result.content
+
+    with pytest.raises(ValidationError, match="at least one page"):
+        ParseResult(pages=[])
+    with pytest.raises(ValidationError, match="contiguous"):
+        ParseResult(
+            pages=[
+                ParsePageResult(page_number=1, content="one"),
+                ParsePageResult(page_number=3, content="three"),
+            ]
+        )
+
+
+def test_parse_job_state_transitions_and_execution_metadata() -> None:
+    parser = Parser(
+        id="parser_1",
+        name="document-to-markdown",
+        display_name="Document to Markdown",
+    )
+    job = ParseJob(
+        id="parse_job_1",
+        parser_id=parser.id,
+        file_id="file_1",
+        parser_snapshot=ParserSnapshot.from_parser(parser),
+        status=JobStatus.QUEUED,
+    )
+
+    running = job.mark_running().with_execution_config(
+        provider_name=ProviderName.OPENAI_COMPATIBLE,
+        model="numind/NuExtract3-W4A16",
+        reasoning_effort=None,
+        model_adapter="nuextract_markdown",
+    )
+    completed = running.mark_completed(
+        ParseResult(pages=[ParsePageResult(page_number=1, content="# Document")])
+    )
+
+    assert completed.status == JobStatus.COMPLETED
+    assert completed.result is not None and completed.result.content == "# Document"
+    assert completed.provider_name_used == ProviderName.OPENAI_COMPATIBLE
+    assert completed.model_adapter_used == "nuextract_markdown"
+
+    failed = running.mark_failed("provider failed", code="provider_error")
+    assert failed.status == JobStatus.FAILED
+    assert failed.error is not None and failed.error.code == "provider_error"
+    assert running.mark_canceling().status == JobStatus.CANCELING
+    assert running.mark_deleting().status == JobStatus.DELETING
+    canceled = running.mark_canceled()
+    assert canceled.status == JobStatus.CANCELED
+    assert canceled.completed_at is not None
 
 
 def test_example_input_validation_and_legacy_text_migration() -> None:

@@ -5,21 +5,22 @@ sidebar:
   order: 1
 ---
 
-ParseHawk separates its control surface from extraction execution. The Web UI
-and CLI are clients of the same FastAPI application; a worker performs model
-calls asynchronously.
+ParseHawk separates its control surface from extraction and parsing execution.
+The Web UI and CLI are clients of the same FastAPI application; a worker
+performs model calls asynchronously.
 
 ```text
                      ┌────────────────────────────┐
  Web UI ───────────┐ │                            │
  CLI ──────────────┼─▶         REST API           │
- Your application ─┘ │ files · extractors · jobs  │
+ Your application ─┘ │ files · extractors · parsers│
+                     │ extraction jobs · parse jobs│
                      └─────────────┬──────────────┘
                                    │ shared state
                      ┌─────────────▼──────────────┐
                      │ SQLite · files · secret key│
                      └─────────────┬──────────────┘
-                                   │ claim queued jobs
+                                   │ claim either queue fairly
                      ┌─────────────▼──────────────┐
                      │           Worker           │
                      └───────┬─────────────┬──────┘
@@ -34,16 +35,20 @@ calls asynchronously.
 
 The Web UI is for interactive work. The CLI covers both local-stack operations
 and API resources. External applications can integrate directly with the REST
-API. Because all three use the same resource model, an extractor created in the
-UI is immediately addressable from the CLI and HTTP.
+API. Because all three use the same resource model, an extractor or parser
+created in the UI is immediately addressable from the CLI and HTTP.
 
 ## API and worker
 
-The API validates requests, persists resources, and queues jobs. It does not
-hold an HTTP request open for model inference. The worker claims jobs from the
-shared SQLite state, resolves the extractor's current provider configuration,
-loads the source, calls the model, validates the output, and writes the terminal
-result.
+The API validates requests, persists resources, and writes to separate
+extraction-job and parse-job queues. It does not hold an HTTP request open for
+model inference. The worker alternates queue priority after each claim and falls
+back to the non-empty queue, preventing either workflow from starving.
+
+For extraction, the worker resolves the extractor and returns schema-validated
+JSON. For parsing, it executes the immutable parser snapshot page by page and
+returns ordered Markdown. Each SQLite claim is atomic, and the claim transaction
+commits before file preparation or model work begins.
 
 This boundary keeps the API responsive and gives clients an explicit job
 lifecycle. It also means a healthy API is not sufficient: the worker and its
@@ -73,15 +78,20 @@ slow document and provider work never holds a SQLite transaction open.
 
 ## Model boundary
 
-The worker resolves a provider and model for each extractor. All providers use
-one OpenAI SDK transport, while the payload adapter changes by model family:
+The worker resolves a provider and model for each extractor or parser. All
+current providers use one OpenAI SDK transport, while the payload adapter changes
+by workflow and model family:
 
-- exact NuExtract3 variants receive their fine-tuned chat template
-- other models receive a generic extraction prompt and JSON Schema response
+- NuExtract3 extraction uses its fine-tuned structured template
+- generic extraction uses an extraction prompt and JSON Schema response
   constraint
+- NuExtract3 parsing uses its dedicated Markdown mode without an extraction
+  template or JSON response format
+- generic parsing sends one page at a time with a concise Markdown
+  transcription prompt
 
-This is why the same extractor can move from the bundled vLLM runtime to Ollama
-or a cloud provider without changing its data contract.
+The parsing port remains separate from the chat transport so future native OCR
+or completion-style adapters do not need to imitate extraction.
 
 ## Observability boundary
 

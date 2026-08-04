@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from parsehawk.config import Settings
-from parsehawk.core.domain.models import ExtractorSource, Provider, ProviderName
+from parsehawk.core.domain.models import ExtractorSource, ParserSource, Provider, ProviderName
 from parsehawk.server.container import Container, build_container
 
 RECEIPT_EXTRACTOR_SEED_KEY = "prebuilt:receipt:v1"
 RECEIPT_EXTRACTOR_SEED_VERSION = 1
+DOCUMENT_TO_MARKDOWN_PARSER_SEED_KEY = "prebuilt:document-to-markdown:v1"
+DOCUMENT_TO_MARKDOWN_PARSER_SEED_VERSION = 1
 
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 KNOWN_BUNDLED_RUNTIME_BASE_URLS = frozenset(
@@ -86,24 +88,37 @@ def seed_providers_in_container(container: Container) -> None:
 def seed_prebuilt_data_in_container(container: Container) -> None:
     seed_providers_in_container(container)
 
-    existing = [
+    existing_extractors = [
         extractor
         for extractor in container.extractor_service.list()
         if extractor.seed_key == RECEIPT_EXTRACTOR_SEED_KEY
     ]
-    if existing:
-        return
+    if not existing_extractors:
+        container.extractor_service.create(
+            name="receipt",
+            display_name="Receipt",
+            instructions=(
+                "Extract the receipt fields from the document. Return null for fields that are "
+                "not present in the source."
+            ),
+            schema=RECEIPT_SCHEMA,
+            examples=[],
+            source=ExtractorSource.PREBUILT,
+            seed_key=RECEIPT_EXTRACTOR_SEED_KEY,
+            seed_version=RECEIPT_EXTRACTOR_SEED_VERSION,
+        )
 
-    container.extractor_service.create(
-        name="receipt",
-        display_name="Receipt",
-        instructions=(
-            "Extract the receipt fields from the document. Return null for fields that are "
-            "not present in the source."
-        ),
-        schema=RECEIPT_SCHEMA,
-        examples=[],
-        source=ExtractorSource.PREBUILT,
-        seed_key=RECEIPT_EXTRACTOR_SEED_KEY,
-        seed_version=RECEIPT_EXTRACTOR_SEED_VERSION,
-    )
+    existing_parsers = [
+        parser
+        for parser in container.parser_service.list()
+        if parser.seed_key == DOCUMENT_TO_MARKDOWN_PARSER_SEED_KEY
+    ]
+    if not existing_parsers:
+        container.parser_service.create(
+            name="document-to-markdown",
+            display_name="Document to Markdown",
+            instructions="",
+            source=ParserSource.PREBUILT,
+            seed_key=DOCUMENT_TO_MARKDOWN_PARSER_SEED_KEY,
+            seed_version=DOCUMENT_TO_MARKDOWN_PARSER_SEED_VERSION,
+        )

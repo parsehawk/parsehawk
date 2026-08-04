@@ -8,9 +8,12 @@ from parsehawk.config import DEFAULT_VLLM_MODEL
 from parsehawk.core.application.ports import (
     ExtractionRequest,
     ExtractionResponse,
+    ParsingRequest,
+    ParsingResponse,
     ResolvedExecutionConfig,
+    ResolvedParsingConfig,
 )
-from parsehawk.core.domain.models import Extractor, ProviderName
+from parsehawk.core.domain.models import Extractor, ParserSnapshot, ProviderName
 
 
 class MockInference:
@@ -38,6 +41,14 @@ class MockInference:
             return _response(data)
 
         return _response({})
+
+    def parse_page(
+        self,
+        request: ParsingRequest,
+        cancellation_check=None,
+    ) -> ParsingResponse:
+        page_number = request.image.page_number or 1
+        return ParsingResponse(content=f"# Parsed page {page_number}")
 
 
 def _response(data: dict[str, object]) -> ExtractionResponse:
@@ -90,6 +101,23 @@ class _StubEngineFactory:
     def for_extractor(
         self,
         extractor: Extractor,
+        *,
+        provider=None,
+        api_key: str | None = None,
+    ) -> MockInference:
+        return self._engine
+
+    def resolve_parser_config(self, parser: ParserSnapshot) -> ResolvedParsingConfig:
+        return ResolvedParsingConfig(
+            provider_name=parser.provider_name or ProviderName.OPENAI_COMPATIBLE,
+            model=parser.model or DEFAULT_VLLM_MODEL,
+            reasoning_effort=parser.reasoning_effort,
+            model_adapter="nuextract_markdown",
+        )
+
+    def for_parser(
+        self,
+        parser: ParserSnapshot,
         *,
         provider=None,
         api_key: str | None = None,

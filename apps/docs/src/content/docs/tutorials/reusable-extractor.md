@@ -67,14 +67,14 @@ does not change when you edit its human-facing display name.
 ## 4. Run a text extraction
 
 ```console
-parsehawk jobs create invoice_v1 --text \
+parsehawk extraction-jobs create invoice_v1 --text \
   "Invoice A-204 · 14 July 2026 · Total EUR 128.40"
 ```
 
 Copy the returned `job_...` ID and inspect it:
 
 ```console
-parsehawk jobs get job_...
+parsehawk extraction-jobs get job_...
 ```
 
 While the worker is processing it, the job moves from `queued` to `running`.

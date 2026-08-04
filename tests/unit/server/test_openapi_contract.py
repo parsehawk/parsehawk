@@ -6,28 +6,44 @@ from parsehawk.server.api.fastapi.app import app
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "options", "head", "trace"}
 EXPECTED_OPERATION_IDS = {
+    "cancelExtractionJob",
     "cancelJob",
+    "cancelParseJob",
     "configureProvider",
+    "createExtractionJob",
     "createExtractor",
     "createJob",
+    "createParseJob",
+    "createParser",
+    "deleteExtractionJob",
     "deleteExtractor",
     "deleteFile",
     "deleteJob",
+    "deleteParseJob",
+    "deleteParser",
     "downloadFileContent",
     "getApiRoot",
+    "getExtractionJob",
     "getExtractor",
     "getFile",
     "getHealth",
     "getJob",
+    "getParseJob",
+    "getParser",
     "getProvider",
+    "listExtractionJobs",
     "listExtractors",
     "listFiles",
     "listJobs",
+    "listParseJobs",
+    "listParsers",
     "listProviderModels",
     "listProviders",
+    "updateParser",
     "updateExtractor",
     "uploadFile",
     "upsertExtractor",
+    "upsertParser",
     "validateSchema",
 }
 
@@ -82,7 +98,10 @@ def test_tags_are_ordered_and_described() -> None:
         "files",
         "schemas",
         "extractors",
+        "parsers",
         "providers",
+        "extraction-jobs",
+        "parse-jobs",
         "jobs",
     ]
     assert all(tag["description"] for tag in tags)
@@ -109,8 +128,10 @@ def test_main_flow_has_executable_curl_samples() -> None:
     operations = {
         "upload": paths["/v1/files"]["post"],
         "download": paths["/v1/files/{file_id}/content"]["get"],
-        "create_job": paths["/v1/jobs"]["post"],
-        "get_job": paths["/v1/jobs/{job_id}"]["get"],
+        "create_extraction_job": paths["/v1/extraction-jobs"]["post"],
+        "get_extraction_job": paths["/v1/extraction-jobs/{job_id}"]["get"],
+        "create_parse_job": paths["/v1/parse-jobs"]["post"],
+        "get_parse_job": paths["/v1/parse-jobs/{job_id}"]["get"],
     }
 
     for operation in operations.values():
@@ -122,3 +143,18 @@ def test_main_flow_has_executable_curl_samples() -> None:
 
     assert "upload=@document.pdf" in operations["upload"]["x-codeSamples"][0]["source"]
     assert "--output document.pdf" in operations["download"]["x-codeSamples"][0]["source"]
+
+
+def test_legacy_jobs_operations_are_deprecated_but_canonical_jobs_are_not() -> None:
+    paths = app.openapi()["paths"]
+
+    for path in ("/v1/jobs", "/v1/jobs/{job_id}", "/v1/jobs/{job_id}/cancel"):
+        for method, operation in paths[path].items():
+            if method in HTTP_METHODS:
+                assert operation["deprecated"] is True
+
+    for path in ("/v1/extraction-jobs", "/v1/parse-jobs"):
+        for method, operation in paths[path].items():
+            if method in HTTP_METHODS:
+                assert operation.get("deprecated") is not True
+    ("upsertParser",)

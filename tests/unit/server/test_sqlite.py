@@ -16,20 +16,27 @@ from parsehawk.core.domain.models import (
     Example,
     ExampleInput,
     ExampleInputKind,
+    ExtractionJob,
+    ExtractionResult,
     Extractor,
     File,
-    Job,
-    JobResult,
     JobStatus,
+    ParseJob,
+    ParsePageResult,
+    Parser,
+    ParseResult,
+    ParserSnapshot,
     Provider,
     ProviderName,
     ReasoningEffort,
     ValidationIssue,
 )
 from parsehawk.server.adapters.persistence.sqlite import (
+    SQLiteExtractionJobRepository,
     SQLiteExtractorRepository,
     SQLiteFileRepository,
-    SQLiteJobRepository,
+    SQLiteParseJobRepository,
+    SQLiteParserRepository,
     SQLiteProviderRepository,
     SQLiteSecretStore,
     SQLiteUnitOfWorkFactory,
@@ -107,7 +114,7 @@ def test_init_db_creates_structured_tables_indexes_and_foreign_keys(
         "model",
         "reasoning_effort",
     ]
-    assert columns(conn, "jobs") == [
+    assert columns(conn, "extraction_jobs") == [
         "id",
         "extractor_id",
         "file_id",
@@ -121,21 +128,61 @@ def test_init_db_creates_structured_tables_indexes_and_foreign_keys(
         "provider_name_used",
         "model_used",
     ]
-    assert indexes(conn, "jobs") == {
-        "idx_jobs_extractor_id",
-        "idx_jobs_status_created_at",
+    assert columns(conn, "parsers") == [
+        "id",
+        "name",
+        "display_name",
+        "output_format",
+        "instructions",
+        "reasoning_effort",
+        "provider_name",
+        "model",
+        "source",
+        "seed_key",
+        "seed_version",
+        "created_at",
+        "updated_at",
+    ]
+    assert columns(conn, "parse_jobs") == [
+        "id",
+        "parser_id",
+        "file_id",
+        "parser_snapshot",
+        "status",
+        "result",
+        "error",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "provider_name_used",
+        "model_used",
+        "reasoning_effort_used",
+        "model_adapter_used",
+    ]
+    assert indexes(conn, "extraction_jobs") == {
+        "idx_extraction_jobs_extractor_id",
+        "idx_extraction_jobs_status_created_at",
     }
     assert "idx_extractors_name" in indexes(conn, "extractors")
-    assert foreign_keys(conn, "jobs") == {
+    assert foreign_keys(conn, "extraction_jobs") == {
         ("file_id", "files", "id", "RESTRICT"),
         ("extractor_id", "extractors", "id", "RESTRICT"),
+    }
+    assert indexes(conn, "parse_jobs") == {
+        "idx_parse_jobs_parser_id",
+        "idx_parse_jobs_status_created_at",
+    }
+    assert "idx_parsers_name" in indexes(conn, "parsers")
+    assert foreign_keys(conn, "parse_jobs") == {
+        ("file_id", "files", "id", "RESTRICT"),
+        ("parser_id", "parsers", "id", "RESTRICT"),
     }
 
 
 def test_repositories_round_trip_domain_models(sa_conn: Connection) -> None:
     files = SQLiteFileRepository(sa_conn)
     extractors = SQLiteExtractorRepository(sa_conn)
-    jobs = SQLiteJobRepository(sa_conn)
+    jobs = SQLiteExtractionJobRepository(sa_conn)
     file = sample_file()
     extractor = sample_extractor()
     queued = sample_job(file_id=file.id, extractor_id=extractor.id)
@@ -146,7 +193,7 @@ def test_repositories_round_trip_domain_models(sa_conn: Connection) -> None:
             model="numind/NuExtract3-W4A16",
         )
         .mark_completed(
-            JobResult(
+            ExtractionResult(
                 data={"receipt_id": "2"},
                 validation_errors=[ValidationIssue(path="total", message="missing")],
             )
@@ -178,6 +225,73 @@ def test_extractor_round_trips_provider_and_model(sa_conn: Connection) -> None:
     extractors.save(extractor)
 
     assert extractors.get(extractor.id) == extractor
+
+
+def test_parser_and_parse_job_repositories_round_trip_canonical_pages(
+    sa_conn: Connection,
+) -> None:
+    files = SQLiteFileRepository(sa_conn)
+    parsers = SQLiteParserRepository(sa_conn)
+    jobs = SQLiteParseJobRepository(sa_conn)
+    file = sample_file().model_copy(
+        update={"file_name": "document.pdf", "content_type": "application/pdf"}
+    )
+    parser = sample_parser()
+    completed = (
+        sample_parse_job(file_id=file.id, parser=parser)
+        .mark_running()
+        .with_execution_config(
+            provider_name=ProviderName.OPENAI_COMPATIBLE,
+            model="numind/NuExtract3-W4A16",
+            reasoning_effort=ReasoningEffort.LOW,
+            model_adapter="nuextract_markdown",
+        )
+        .mark_completed(
+            ParseResult(
+                pages=[
+                    ParsePageResult(page_number=1, content="# One"),
+                    ParsePageResult(page_number=2, content="## Two"),
+                ]
+            )
+        )
+    )
+    files.save(file)
+    parsers.save(parser)
+    jobs.save(completed)
+
+    stored = jobs.get(completed.id)
+    assert parsers.get(parser.id) == parser
+    assert parsers.get_by_name(parser.name) == parser
+    assert stored == completed
+    assert stored is not None and stored.result is not None
+    assert stored.result.content == "# One\n\n<!-- page-break -->\n\n## Two"
+    assert jobs.list(parser_id=parser.id) == [completed]
+
+
+def test_parse_job_claim_is_atomic_and_parent_deletion_is_restricted(
+    sa_conn: Connection,
+) -> None:
+    files = SQLiteFileRepository(sa_conn)
+    parsers = SQLiteParserRepository(sa_conn)
+    jobs = SQLiteParseJobRepository(sa_conn)
+    file = sample_file().model_copy(
+        update={"file_name": "document.png", "content_type": "image/png"}
+    )
+    parser = sample_parser()
+    job = sample_parse_job(file_id=file.id, parser=parser)
+    files.save(file)
+    parsers.save(parser)
+    jobs.save(job)
+
+    claimed = jobs.claim_next_queued()
+
+    assert claimed is not None and claimed.id == job.id
+    assert claimed.status == JobStatus.RUNNING
+    assert jobs.claim_next_queued() is None
+    with pytest.raises(IntegrityError):
+        files.delete(file.id)
+    with pytest.raises(IntegrityError):
+        parsers.delete(parser.id)
 
 
 def test_provider_repository_round_trip_and_upsert(sa_conn: Connection) -> None:
@@ -240,7 +354,7 @@ def test_secret_store_encrypts_and_round_trips(sa_conn: Connection) -> None:
 def test_claim_next_queued_marks_oldest_job_running(sa_conn: Connection) -> None:
     files = SQLiteFileRepository(sa_conn)
     extractors = SQLiteExtractorRepository(sa_conn)
-    jobs = SQLiteJobRepository(sa_conn)
+    jobs = SQLiteExtractionJobRepository(sa_conn)
     file = sample_file()
     extractor = sample_extractor()
     newest = sample_job(id="job_newest", file_id=file.id, extractor_id=extractor.id)
@@ -264,7 +378,7 @@ def test_claim_next_queued_marks_oldest_job_running(sa_conn: Connection) -> None
 def test_save_if_status_refuses_stale_job_transition(sa_conn: Connection) -> None:
     files = SQLiteFileRepository(sa_conn)
     extractors = SQLiteExtractorRepository(sa_conn)
-    jobs = SQLiteJobRepository(sa_conn)
+    jobs = SQLiteExtractionJobRepository(sa_conn)
     file = sample_file()
     extractor = sample_extractor()
     running = sample_job(file_id=file.id, extractor_id=extractor.id).mark_running()
@@ -273,7 +387,7 @@ def test_save_if_status_refuses_stale_job_transition(sa_conn: Connection) -> Non
     jobs.save(running.mark_canceling())
 
     saved = jobs.save_if_status(
-        running.mark_completed(JobResult(data={"receipt_id": "2"})),
+        running.mark_completed(ExtractionResult(data={"receipt_id": "2"})),
         [JobStatus.RUNNING],
     )
 
@@ -286,7 +400,7 @@ def test_save_if_status_refuses_stale_job_transition(sa_conn: Connection) -> Non
 def test_delete_if_status_refuses_stale_job_delete(sa_conn: Connection) -> None:
     files = SQLiteFileRepository(sa_conn)
     extractors = SQLiteExtractorRepository(sa_conn)
-    jobs = SQLiteJobRepository(sa_conn)
+    jobs = SQLiteExtractionJobRepository(sa_conn)
     file = sample_file()
     extractor = sample_extractor()
     running = sample_job(file_id=file.id, extractor_id=extractor.id).mark_running()
@@ -308,7 +422,7 @@ def test_delete_if_status_refuses_stale_job_delete(sa_conn: Connection) -> None:
 def test_deleting_referenced_file_or_extractor_is_restricted(sa_conn: Connection) -> None:
     files = SQLiteFileRepository(sa_conn)
     extractors = SQLiteExtractorRepository(sa_conn)
-    jobs = SQLiteJobRepository(sa_conn)
+    jobs = SQLiteExtractionJobRepository(sa_conn)
     file = sample_file()
     extractor = sample_extractor()
     other_extractor = sample_extractor(id="extractor_other")
@@ -338,7 +452,7 @@ def test_deleting_referenced_file_or_extractor_is_restricted(sa_conn: Connection
 def test_updating_file_or_extractor_preserves_jobs(sa_conn: Connection) -> None:
     files = SQLiteFileRepository(sa_conn)
     extractors = SQLiteExtractorRepository(sa_conn)
-    jobs = SQLiteJobRepository(sa_conn)
+    jobs = SQLiteExtractionJobRepository(sa_conn)
     file = sample_file()
     extractor = sample_extractor()
     job = sample_job(file_id=file.id, extractor_id=extractor.id)
@@ -406,12 +520,12 @@ def test_concurrent_claimers_never_claim_the_same_job(
         uow.files.save(file)
         uow.extractors.save(extractor)
         for job in jobs:
-            uow.jobs.save(job)
+            uow.extraction_jobs.save(job)
         uow.commit()
 
     def claim_one() -> str | None:
         with uow_factory(write=True) as uow:
-            claimed = uow.jobs.claim_next_queued()
+            claimed = uow.extraction_jobs.claim_next_queued()
             uow.commit()
             return claimed.id if claimed else None
 
@@ -479,13 +593,37 @@ def sample_extractor(id: str = "extractor_1") -> Extractor:
     )
 
 
+def sample_parser() -> Parser:
+    return Parser(
+        id="parser_1",
+        name="document-to-markdown",
+        display_name="Document to Markdown",
+        instructions="Preserve footnotes.",
+        reasoning_effort=ReasoningEffort.LOW,
+        provider_name=ProviderName.OPENAI_COMPATIBLE,
+        created_at=datetime(2024, 1, 2, tzinfo=UTC),
+        updated_at=datetime(2024, 1, 3, tzinfo=UTC),
+    )
+
+
+def sample_parse_job(*, file_id: str, parser: Parser) -> ParseJob:
+    return ParseJob(
+        id="parse_job_1",
+        parser_id=parser.id,
+        file_id=file_id,
+        parser_snapshot=ParserSnapshot.from_parser(parser),
+        status=JobStatus.QUEUED,
+        created_at=datetime(2024, 1, 4, tzinfo=UTC),
+    )
+
+
 def sample_job(
     *,
     id: str = "job_1",
     file_id: str | None,
     extractor_id: str,
-) -> Job:
-    return Job(
+) -> ExtractionJob:
+    return ExtractionJob(
         id=id,
         extractor_id=extractor_id,
         file_id=file_id,

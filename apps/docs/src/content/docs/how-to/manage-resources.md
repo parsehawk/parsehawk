@@ -1,6 +1,6 @@
 ---
-title: Manage files and extractors
-description: Upload, inspect, synchronize, and remove the persistent resources used by extraction jobs.
+title: Manage files, extractors, and parsers
+description: Upload, inspect, synchronize, and remove resources used by extraction jobs and parse jobs.
 sidebar:
   order: 10
 ---
@@ -64,6 +64,32 @@ instead of silently replacing the contract used by existing consumers.
 Few-shot file examples reference uploaded `file_...` IDs and are therefore tied
 to the target ParseHawk data store. Inline-text examples are easier to move
 between installations.
+
+## Parsers
+
+Parser names follow the same stable lowercase convention and cannot begin with
+the reserved `parser_` prefix. Create or synchronize a custom parser with:
+
+```console
+parsehawk parsers put legal-document \
+  --display-name "Legal document" \
+  --instructions instructions.txt \
+  --provider openai \
+  --model gpt-5-mini
+```
+
+Inspect, partially update, or delete it with:
+
+```console
+parsehawk parsers list
+parsehawk parsers get legal-document
+parsehawk parsers update legal-document --display-name "Legal documents"
+parsehawk parsers delete legal-document
+```
+
+The seeded `document-to-markdown` parser is read-only. Parser edits affect only
+new jobs because every parse job stores a configuration snapshot. A parser or
+file referenced by a parse job cannot be deleted until the job is removed.
 
 See [operate asynchronous jobs](/how-to/jobs/) for execution and retention
 behavior after resources exist.

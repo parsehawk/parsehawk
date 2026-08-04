@@ -29,10 +29,10 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123" && init?.method !== "POST") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123" && init?.method !== "POST") {
         return jsonResponse([]);
       }
-      if (url === "/v1/jobs" && init?.method === "POST") {
+      if (url === "/v1/extraction-jobs" && init?.method === "POST") {
         return jsonResponse({
           id: "job_123",
           extractor_id: "extractor_123",
@@ -56,9 +56,90 @@ describe("App run workflow", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Text" }));
     await userEvent.click(screen.getByRole("button", { name: "Run extraction" }));
 
-    expect(await screen.findByText("Job progress")).toBeInTheDocument();
+    expect(await screen.findByText("Extraction job progress")).toBeInTheDocument();
     expect(screen.getAllByText("Queued").length).toBeGreaterThan(0);
     expect(screen.queryByText("artifact_dir")).not.toBeInTheDocument();
+  });
+
+  it("renders document, per-page, and raw Markdown parse results", async () => {
+    const parser = {
+      id: "parser_123",
+      name: "document-to-markdown",
+      display_name: "Document to Markdown",
+      output_format: "markdown",
+      instructions: "",
+      reasoning_effort: null,
+      provider_name: null,
+      model: null,
+      source: "prebuilt",
+      is_prebuilt: true,
+      created_at: "2026-06-21T00:00:00Z",
+      updated_at: "2026-06-21T00:00:00Z"
+    };
+    const content = "# Invoice\n\nFirst page\n\n<!-- page-break -->\n\n## Page two\n\nSecond page";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([
+          {
+            id: "file_123",
+            file_name: "invoice.pdf",
+            content_type: "application/pdf",
+            size_bytes: 42,
+            sha256: "abc",
+            created_at: "2026-06-21T00:00:00Z"
+          }
+        ]);
+      }
+      if (url === "/v1/extractors") return jsonResponse([]);
+      if (url === "/v1/parsers") return jsonResponse([parser]);
+      if (url === "/v1/parse-jobs?parser_id=parser_123") {
+        return jsonResponse([
+          {
+            id: "parse_job_123",
+            parser_id: parser.id,
+            file_id: "file_123",
+            parser_snapshot: { ...parser, parser_id: parser.id },
+            provider_name_used: "openai_compatible_api",
+            model_used: "numind/NuExtract3-2B",
+            reasoning_effort_used: null,
+            model_adapter_used: "nuextract_markdown",
+            status: "completed",
+            result: {
+              format: "markdown",
+              content,
+              page_count: 2,
+              pages: [
+                { page_number: 1, content: "# Invoice\n\nFirst page" },
+                { page_number: 2, content: "## Page two\n\nSecond page" }
+              ]
+            },
+            error: null,
+            created_at: "2026-06-21T00:00:00Z",
+            started_at: "2026-06-21T00:00:01Z",
+            completed_at: "2026-06-21T00:00:03Z"
+          }
+        ]);
+      }
+      return jsonResponse({ detail: `unexpected request: ${url}` }, { status: 500 });
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByRole("tab", { name: "Parse" }));
+
+    expect(await screen.findByRole("heading", { name: "Invoice" })).toBeInTheDocument();
+    expect(screen.getByText("nuextract_markdown")).toBeInTheDocument();
+    expect(screen.getByText("2s")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Per page (2)" }));
+    await userEvent.selectOptions(screen.getByLabelText("Parsed page"), "2");
+    expect(screen.getByRole("heading", { name: "Page two" })).toBeInTheDocument();
+    expect(screen.queryByText("First page")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Raw Markdown" }));
+    expect(
+      screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent === content)
+    ).toBeInTheDocument();
   });
 
   it("starts fresh extractor drafts empty when no extractors are saved", async () => {
@@ -403,7 +484,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
         return jsonResponse([]);
       }
       return jsonResponse({ detail: "unexpected request" }, { status: 500 });
@@ -459,7 +540,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_example") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_example") {
         return jsonResponse([]);
       }
       return jsonResponse({ detail: "unexpected request" }, { status: 500 });
@@ -497,7 +578,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
         return jsonResponse([
           {
             id: "job_123",
@@ -517,7 +598,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs/job_123" && method === "DELETE") {
+      if (url === "/v1/extraction-jobs/job_123" && method === "DELETE") {
         return new Response(null, { status: 204 });
       }
       return jsonResponse({ detail: "unexpected request" }, { status: 500 });
@@ -525,7 +606,7 @@ describe("App run workflow", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Jobs")).toBeInTheDocument();
+    expect(await screen.findByText("Extraction jobs")).toBeInTheDocument();
     expect(await screen.findByText("job_123")).toBeInTheDocument();
     expect((await screen.findAllByText("1s")).length).toBeGreaterThan(0);
     expect(screen.getByText("numind/NuExtract3-W4A16")).toBeInTheDocument();
@@ -538,7 +619,7 @@ describe("App run workflow", () => {
     await waitFor(() => {
       expect(screen.queryByText("job_123")).not.toBeInTheDocument();
     });
-    expect(requests).toContainEqual({ method: "DELETE", url: "/v1/jobs/job_123" });
+    expect(requests).toContainEqual({ method: "DELETE", url: "/v1/extraction-jobs/job_123" });
   });
 
   it("renders deleting jobs as active", async () => {
@@ -560,7 +641,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
         return jsonResponse([
           {
             id: "job_deleting",
@@ -622,7 +703,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
         return jsonResponse([
           {
             id: "job_file",

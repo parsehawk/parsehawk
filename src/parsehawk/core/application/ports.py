@@ -3,7 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Protocol, Self
 
-from parsehawk.core.domain.models import Extractor, File, Job, JobStatus, Provider, ProviderName
+from parsehawk.core.domain.models import (
+    ExtractionJob,
+    Extractor,
+    File,
+    JobStatus,
+    ParseJob,
+    Parser,
+    ParserSnapshot,
+    Provider,
+    ProviderName,
+    ReasoningEffort,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +36,14 @@ class PreparedDocument:
 class ResolvedExecutionConfig:
     provider_name: ProviderName
     model: str
+
+
+@dataclass(frozen=True)
+class ResolvedParsingConfig:
+    provider_name: ProviderName
+    model: str
+    reasoning_effort: ReasoningEffort | None
+    model_adapter: str
 
 
 class FileRepository(Protocol):  # pragma: no cover
@@ -49,24 +68,56 @@ class ExtractorRepository(Protocol):  # pragma: no cover
     def delete(self, extractor_id: str) -> None: ...
 
 
-class JobRepository(Protocol):  # pragma: no cover
-    def save(self, job: Job) -> None: ...
+class ParserRepository(Protocol):  # pragma: no cover
+    def save(self, parser: Parser) -> None: ...
 
-    def save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool: ...
+    def list(self) -> List[Parser]: ...
 
-    def list(self, extractor_id: str | None = None) -> List[Job]: ...
+    def get(self, parser_id: str) -> Parser | None: ...
 
-    def get(self, job_id: str) -> Job | None: ...
+    def get_by_name(self, name: str) -> Parser | None: ...
+
+    def delete(self, parser_id: str) -> None: ...
+
+
+class ExtractionJobRepository(Protocol):  # pragma: no cover
+    def save(self, job: ExtractionJob) -> None: ...
+
+    def save_if_status(self, job: ExtractionJob, expected: Iterable[JobStatus]) -> bool: ...
+
+    def list(self, extractor_id: str | None = None) -> List[ExtractionJob]: ...
+
+    def get(self, job_id: str) -> ExtractionJob | None: ...
 
     def delete(self, job_id: str) -> None: ...
 
     def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool: ...
 
-    def claim_next_queued(self) -> Job | None: ...
+    def claim_next_queued(self) -> ExtractionJob | None: ...
 
     def has_for_file(self, file_id: str) -> bool: ...
 
     def has_for_extractor(self, extractor_id: str) -> bool: ...
+
+
+class ParseJobRepository(Protocol):  # pragma: no cover
+    def save(self, job: ParseJob) -> None: ...
+
+    def save_if_status(self, job: ParseJob, expected: Iterable[JobStatus]) -> bool: ...
+
+    def list(self, parser_id: str | None = None) -> List[ParseJob]: ...
+
+    def get(self, job_id: str) -> ParseJob | None: ...
+
+    def delete(self, job_id: str) -> None: ...
+
+    def delete_if_status(self, job_id: str, expected: Iterable[JobStatus]) -> bool: ...
+
+    def claim_next_queued(self) -> ParseJob | None: ...
+
+    def has_for_file(self, file_id: str) -> bool: ...
+
+    def has_for_parser(self, parser_id: str) -> bool: ...
 
 
 class ProviderRepository(Protocol):  # pragma: no cover
@@ -92,7 +143,9 @@ class UnitOfWork(Protocol):  # pragma: no cover
 
     files: FileRepository
     extractors: ExtractorRepository
-    jobs: JobRepository
+    parsers: ParserRepository
+    extraction_jobs: ExtractionJobRepository
+    parse_jobs: ParseJobRepository
     providers: ProviderRepository
     secrets: SecretStore
 
@@ -144,6 +197,26 @@ class EngineFactory(Protocol):  # pragma: no cover
     ) -> ExtractionEngine: ...
 
 
+class ParsingEngine(Protocol):  # pragma: no cover
+    def parse_page(
+        self,
+        request: "ParsingRequest",
+        cancellation_check: Callable[[], bool] | None = None,
+    ) -> "ParsingResponse": ...
+
+
+class ParsingEngineFactory(Protocol):  # pragma: no cover
+    def resolve_parser_config(self, parser: ParserSnapshot) -> ResolvedParsingConfig: ...
+
+    def for_parser(
+        self,
+        parser: ParserSnapshot,
+        *,
+        provider: Provider | None = None,
+        api_key: str | None = None,
+    ) -> ParsingEngine: ...
+
+
 class ExtractionRequest:
     def __init__(
         self,
@@ -174,3 +247,21 @@ class ExtractionResponse:
         data: dict,
     ) -> None:
         self.data = data
+
+
+class ParsingRequest:
+    def __init__(
+        self,
+        *,
+        image: PreparedImage,
+        instructions: str,
+        reasoning_effort: ReasoningEffort | None = None,
+    ) -> None:
+        self.image = image
+        self.instructions = instructions
+        self.reasoning_effort = reasoning_effort
+
+
+class ParsingResponse:
+    def __init__(self, *, content: str) -> None:
+        self.content = content

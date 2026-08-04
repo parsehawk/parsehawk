@@ -32,12 +32,12 @@ Microsoft Foundry. See [model providers](/how-to/providers/) for the exact setup
 
 A default `parsehawk start` exposes four services on loopback:
 
-| Service       | Address                 | Purpose                                        |
-| ------------- | ----------------------- | ---------------------------------------------- |
-| Web UI        | `http://127.0.0.1:5173` | Human workflow for files, extractors, and jobs |
-| REST API      | `http://127.0.0.1:8000` | Data plane used by the UI and CLI              |
-| Phoenix       | `http://127.0.0.1:6006` | Local model-call tracing                       |
-| Model runtime | `http://127.0.0.1:8080` | Bundled OpenAI-compatible inference server     |
+| Service       | Address                 | Purpose                                       |
+| ------------- | ----------------------- | --------------------------------------------- |
+| Web UI        | `http://127.0.0.1:5173` | Extraction and document-to-Markdown workflows |
+| REST API      | `http://127.0.0.1:8000` | Data plane used by the UI and CLI             |
+| Phoenix       | `http://127.0.0.1:6006` | Local model-call tracing                      |
+| Model runtime | `http://127.0.0.1:8080` | Bundled OpenAI-compatible inference server    |
 
 Run `parsehawk doctor` after installation to check the host prerequisites and
 service health.

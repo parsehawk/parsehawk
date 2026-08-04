@@ -58,6 +58,7 @@ class LocalFileStorage:
                     PreparedImage(
                         storage_path=storage_path,
                         content_type=file.content_type,
+                        page_number=1,
                     )
                 ],
             )
