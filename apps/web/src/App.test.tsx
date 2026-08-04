@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -76,7 +76,25 @@ describe("App run workflow", () => {
       created_at: "2026-06-21T00:00:00Z",
       updated_at: "2026-06-21T00:00:00Z"
     };
-    const content = "# Invoice\n\nFirst page\n\n<!-- page-break -->\n\n## Page two\n\nSecond page";
+    const content = [
+      "# Invoice",
+      "",
+      "<figure><img src=\"img_1.png\" alt=\"Invoice logo\"></figure>",
+      "",
+      "**First page**",
+      "",
+      "[Open invoice](https://example.com/invoice)",
+      "",
+      "<table><tbody><tr><td>Service</td><td>€ 42</td></tr></tbody></table>",
+      "",
+      "<!-- page-break -->",
+      "",
+      "## Page two",
+      "",
+      "| Item | Total |",
+      "| --- | ---: |",
+      "| Support | € 7 |"
+    ].join("\n");
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/v1/files") {
@@ -110,8 +128,15 @@ describe("App run workflow", () => {
               content,
               page_count: 2,
               pages: [
-                { page_number: 1, content: "# Invoice\n\nFirst page" },
-                { page_number: 2, content: "## Page two\n\nSecond page" }
+                {
+                  page_number: 1,
+                  content:
+                    "# Invoice\n\n**First page**\n\n[Open invoice](https://example.com/invoice)\n\n<table><tbody><tr><td>Service</td><td>€ 42</td></tr></tbody></table>"
+                },
+                {
+                  page_number: 2,
+                  content: "## Page two\n\n| Item | Total |\n| --- | ---: |\n| Support | € 7 |"
+                }
               ]
             },
             error: null,
@@ -127,14 +152,25 @@ describe("App run workflow", () => {
     render(<App />);
     await userEvent.click(screen.getByRole("tab", { name: "Parse" }));
 
-    expect(await screen.findByRole("heading", { name: "Invoice" })).toBeInTheDocument();
+    const documentResult = within(await screen.findByRole("tabpanel", { name: "Document" }));
+    expect(documentResult.getByRole("heading", { name: "Invoice" })).toBeInTheDocument();
+    expect(documentResult.getByText("Invoice logo")).toBeInTheDocument();
+    expect(documentResult.queryByRole("img", { name: "Invoice logo" })).not.toBeInTheDocument();
+    expect(documentResult.getByText("First page").tagName).toBe("STRONG");
+    expect(documentResult.getByRole("link", { name: "Open invoice" })).toHaveAttribute(
+      "href",
+      "https://example.com/invoice"
+    );
+    expect(documentResult.getAllByRole("table")[0]).toHaveTextContent("Service€ 42");
     expect(screen.getByText("nuextract_markdown")).toBeInTheDocument();
     expect(screen.getByText("2s")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("tab", { name: "Per page (2)" }));
     await userEvent.selectOptions(screen.getByLabelText("Parsed page"), "2");
-    expect(screen.getByRole("heading", { name: "Page two" })).toBeInTheDocument();
-    expect(screen.queryByText("First page")).not.toBeInTheDocument();
+    const pageResult = within(screen.getByRole("tabpanel", { name: "Per page (2)" }));
+    expect(pageResult.getByRole("heading", { name: "Page two" })).toBeInTheDocument();
+    expect(pageResult.getByRole("table")).toHaveTextContent("Support€ 7");
+    expect(pageResult.queryByText("First page")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("tab", { name: "Raw Markdown" }));
     expect(
