@@ -51,16 +51,19 @@ def test_extraction_job_api_and_execution(
     assert got.status_code == 200
     assert got.json()["id"] == job_id
 
-    # The deprecated route remains a byte-for-byte-compatible alias during v0.3.
-    legacy = client.get(f"/v1/jobs/{job_id}")
-    assert legacy.status_code == 200
-    assert legacy.json() == got.json()
-
     legacy_list = client.get(f"/v1/jobs?extractor_id={receipt_extractor}")
     assert legacy_list.status_code == 200
     assert job_id in [job["id"] for job in legacy_list.json()]
 
-    _assert_completed_receipt(poll_job(job_id))
+    completed = poll_job(job_id)
+    _assert_completed_receipt(completed)
+
+    # The deprecated route remains a byte-for-byte-compatible alias during v0.3.
+    # Compare stable terminal snapshots so a worker transition cannot race the
+    # two sequential requests.
+    legacy = client.get(f"/v1/jobs/{job_id}")
+    assert legacy.status_code == 200
+    assert legacy.json() == completed
 
     # Cover cancellation on a terminal job and the deprecated write aliases
     # without queuing additional model-bound extraction jobs.
