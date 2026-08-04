@@ -83,6 +83,17 @@ def openai_extra_body_context(extra_body: dict[str, Any]):
     return using_metadata({"parsehawk.openai.extra_body": extra_body})
 
 
+def openai_metadata_context(metadata: dict[str, Any]):
+    """Attach ParseHawk operation metadata to an OpenInference request span."""
+    if not metadata or tracing_disabled():
+        return nullcontext()
+    try:
+        from openinference.instrumentation import using_metadata
+    except Exception:
+        return nullcontext()
+    return using_metadata(metadata)
+
+
 def _register(service_name: str) -> None:
     from openinference.instrumentation.openai import OpenAIInstrumentor
     from opentelemetry import trace

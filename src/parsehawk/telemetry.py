@@ -7,7 +7,7 @@ break a Run, so every public entry point swallows its own errors.
 What we collect:
 
 - ``install`` — emitted once per install, the first time ParseHawk is started.
-- ``run_started`` — emitted each time a user starts an extraction Run.
+- ``run_started`` — emitted each time a user starts an extraction or parsing Run.
 
 Both events carry coarse, non-identifying properties (ParseHawk version, OS, and an
 approximate location that PostHog derives from the request IP at ingestion). We never
@@ -166,10 +166,19 @@ def track_install(*, data_dir: Path) -> None:
     _flush()
 
 
-def track_run_started(*, input_type: str, data_dir: Path) -> None:
+def track_run_started(
+    *,
+    input_type: str,
+    data_dir: Path,
+    workflow: str = "extraction",
+) -> None:
     """Record that a user started a Run. No-op when telemetry is disabled.
 
     Runs in the long-lived API process, so the PostHog client's background flushing
     delivers the event; no synchronous flush is needed.
     """
-    _capture(event="run_started", data_dir=data_dir, extra={"input_type": input_type})
+    _capture(
+        event="run_started",
+        data_dir=data_dir,
+        extra={"input_type": input_type, "workflow": workflow},
+    )

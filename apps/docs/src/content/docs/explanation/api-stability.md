@@ -21,13 +21,29 @@ generation.
 
 ## SDK-facing identifiers are deliberate
 
-Every operation has an explicit, stable `operationId` such as `uploadFile` or
-`createJob`. Schemas include descriptions, formats, examples, and consistent
-error responses. Automated linting checks the document for structural and
-SDK-readiness problems.
+Every operation has an explicit, stable `operationId` such as `uploadFile`,
+`createExtractionJob`, or `createParseJob`. Schemas include descriptions,
+formats, examples, and consistent error responses. Automated linting checks the
+document for structural and SDK-readiness problems.
 
 These choices reduce accidental generator churn, but they are not a promise
 that every pre-1.0 shape is frozen.
+
+## Extraction-job migration in v0.3
+
+`/v1/extraction-jobs` is the canonical extraction collection beginning in v0.3.
+The older `/v1/jobs` paths remain compatibility aliases throughout v0.3: they
+read and mutate the same records with the same status codes and response data.
+Every legacy operation is marked deprecated in OpenAPI.
+
+Use `parsehawk extraction-jobs ...` in scripts. `parsehawk jobs ...` remains an
+alias in v0.3 and prints a migration warning. Both the REST and CLI aliases are
+removed in v0.4. Extraction job IDs keep their existing opaque `job_...` form;
+there is no identifier rewrite during migration.
+
+Parsing is not added as a variant of the old collection. Parsers live at
+`/v1/parsers`, and their asynchronous work lives independently at
+`/v1/parse-jobs` with `parse_job_...` identifiers.
 
 ## Treat extractor schemas as your own API
 

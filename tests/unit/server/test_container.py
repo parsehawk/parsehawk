@@ -4,10 +4,13 @@ from pathlib import Path
 from typing import List
 
 from parsehawk.config import Settings
-from parsehawk.core.domain.models import Extractor, Provider, ProviderName
+from parsehawk.core.domain.models import Extractor, Parser, ParserSnapshot, Provider, ProviderName
 from parsehawk.server.container import Container
 from parsehawk.server.runtime.inference.factory import EngineFactory
-from parsehawk.server.runtime.inference.openai_engine import OpenAIExtractionEngine
+from parsehawk.server.runtime.inference.openai_engine import (
+    OpenAIExtractionEngine,
+    OpenAIParsingEngine,
+)
 
 
 class _Providers:
@@ -49,6 +52,18 @@ def _extractor(provider_name: ProviderName | None = None, model: str | None = No
         schema={"type": "object"},
         provider_name=provider_name,
         model=model,
+    )
+
+
+def _parser(provider_name: ProviderName | None = None, model: str | None = None) -> ParserSnapshot:
+    return ParserSnapshot.from_parser(
+        Parser(
+            id="parser_1",
+            name="document-to-markdown",
+            display_name="Document to Markdown",
+            provider_name=provider_name,
+            model=model,
+        )
     )
 
 
@@ -119,6 +134,27 @@ def test_factory_caches_by_config_and_refreshes_on_key_change() -> None:
         )
         is not first
     )
+
+
+def test_factory_builds_parsing_engine_with_separate_token_budget() -> None:
+    provider = Provider(
+        name=ProviderName.OPENAI_COMPATIBLE,
+        base_url="http://127.0.0.1:8080/v1",
+    )
+    settings = Settings(vllm_max_tokens=2048, parsing_max_tokens=8192)
+    factory = EngineFactory(settings)
+    parser = _parser()
+
+    resolved = factory.resolve_parser_config(parser)
+    engine = factory.for_parser(parser, provider=provider)
+
+    assert isinstance(engine, OpenAIParsingEngine)
+    assert resolved.provider_name == ProviderName.OPENAI_COMPATIBLE
+    assert resolved.model == settings.vllm_model
+    assert resolved.model_adapter == "nuextract_markdown"
+    assert engine._config.max_tokens == 8192
+    assert engine._config.include_response_format is False
+    assert factory.for_parser(parser, provider=provider) is engine
 
 
 def test_container_wires_services_and_leaves_local_model_inherited(tmp_path: Path) -> None:

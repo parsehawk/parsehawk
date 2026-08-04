@@ -64,7 +64,7 @@ export type ExtractorExample = {
 
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "canceling" | "deleting" | "canceled";
 
-export type Job = {
+export type ExtractionJob = {
   id: string;
   extractor_id: string;
   file_id: string | null;
@@ -74,6 +74,62 @@ export type Job = {
   status: JobStatus;
   result: null | {
     data: Record<string, unknown>;
+  };
+  error: null | {
+    message: string;
+    code: string;
+  };
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type Parser = {
+  id: string;
+  name: string;
+  display_name: string;
+  output_format: "markdown";
+  instructions: string;
+  reasoning_effort: ReasoningEffort | null;
+  provider_name: ProviderName | null;
+  model: string | null;
+  source: "user" | "prebuilt";
+  is_prebuilt: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ParserSnapshot = Pick<
+  Parser,
+  | "name"
+  | "display_name"
+  | "output_format"
+  | "instructions"
+  | "reasoning_effort"
+  | "provider_name"
+  | "model"
+> & { parser_id: string };
+
+export type ParsePageResult = {
+  page_number: number;
+  content: string;
+};
+
+export type ParseJob = {
+  id: string;
+  parser_id: string;
+  file_id: string;
+  parser_snapshot: ParserSnapshot;
+  provider_name_used: ProviderName | null;
+  model_used: string | null;
+  reasoning_effort_used: ReasoningEffort | null;
+  model_adapter_used: string | null;
+  status: JobStatus;
+  result: null | {
+    format: "markdown";
+    content: string;
+    page_count: number;
+    pages: ParsePageResult[];
   };
   error: null | {
     message: string;
