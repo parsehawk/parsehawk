@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -106,6 +106,14 @@ describe("App run workflow", () => {
             size_bytes: 42,
             sha256: "abc",
             created_at: "2026-06-21T00:00:00Z"
+          },
+          {
+            id: "file_other",
+            file_name: "currently-selected.png",
+            content_type: "image/png",
+            size_bytes: 24,
+            sha256: "def",
+            created_at: "2026-06-21T00:00:00Z"
           }
         ]);
       }
@@ -152,6 +160,12 @@ describe("App run workflow", () => {
     render(<App />);
     await userEvent.click(screen.getByRole("tab", { name: "Parse" }));
 
+    await userEvent.selectOptions(
+      await screen.findByRole("combobox", { name: "File" }),
+      "file_other"
+    );
+    expect(await screen.findByRole("button", { name: "Download invoice.md" })).toBeInTheDocument();
+
     const documentResult = within(await screen.findByRole("tabpanel", { name: "Document" }));
     expect(documentResult.getByRole("heading", { name: "Invoice" })).toBeInTheDocument();
     expect(documentResult.getByText("Invoice logo")).toBeInTheDocument();
@@ -176,6 +190,88 @@ describe("App run workflow", () => {
     expect(
       screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent === content)
     ).toBeInTheDocument();
+  });
+
+  it("keeps parse history scoped to the latest selected parser", async () => {
+    const parserAlpha = parserFixture("parser_alpha", "alpha", "Alpha parser");
+    const parserBeta = parserFixture("parser_beta", "beta", "Beta parser");
+    const fileAlpha = fileFixture("file_alpha", "alpha.png");
+    const fileBeta = fileFixture("file_beta", "beta.png");
+    const jobAlpha = parseJobFixture("job_alpha", parserAlpha, fileAlpha.id, "completed");
+    const jobBeta = parseJobFixture("job_beta", parserBeta, fileBeta.id, "completed");
+    let alphaListCalls = 0;
+    let resolveStaleAlphaJobs!: (response: Response) => void;
+    const staleAlphaJobs = new Promise<Response>((resolve) => {
+      resolveStaleAlphaJobs = resolve;
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/files") return jsonResponse([fileAlpha, fileBeta]);
+      if (url === "/v1/extractors") return jsonResponse([]);
+      if (url === "/v1/parsers") return jsonResponse([parserAlpha, parserBeta]);
+      if (url === "/v1/parse-jobs?parser_id=parser_alpha") {
+        alphaListCalls += 1;
+        return alphaListCalls === 1 ? jsonResponse([jobAlpha]) : staleAlphaJobs;
+      }
+      if (url === "/v1/parse-jobs?parser_id=parser_beta") return jsonResponse([jobBeta]);
+      return jsonResponse({ detail: `unexpected request: ${url}` }, { status: 500 });
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByRole("tab", { name: "Parse" }));
+
+    expect(await screen.findByLabelText("Delete parse job job_alpha")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("Refresh parse jobs"));
+    await waitFor(() => expect(alphaListCalls).toBe(2));
+
+    const betaParserCard = screen.getByText("Beta parser").closest<HTMLElement>("[role='button']");
+    expect(betaParserCard).not.toBeNull();
+    await userEvent.click(betaParserCard!);
+
+    expect(await screen.findByLabelText("Delete parse job job_beta")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Delete parse job job_alpha")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveStaleAlphaJobs(await jsonResponse([jobAlpha]));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByLabelText("Delete parse job job_beta")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Delete parse job job_alpha")).not.toBeInTheDocument();
+  });
+
+  it("removes a running parse job after deletion is accepted", async () => {
+    const parser = parserFixture("parser_123", "document-to-markdown", "Document to Markdown");
+    const file = fileFixture("file_123", "page.png");
+    let deleting = false;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/files") return jsonResponse([file]);
+      if (url === "/v1/extractors") return jsonResponse([]);
+      if (url === "/v1/parsers") return jsonResponse([parser]);
+      if (url === "/v1/parse-jobs?parser_id=parser_123") {
+        return jsonResponse([
+          parseJobFixture("job_running", parser, file.id, deleting ? "deleting" : "running")
+        ]);
+      }
+      if (url === "/v1/parse-jobs/job_running" && init?.method === "DELETE") {
+        deleting = true;
+        return new Response(null, { status: 202 });
+      }
+      return jsonResponse({ detail: `unexpected request: ${url}` }, { status: 500 });
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByRole("tab", { name: "Parse" }));
+
+    await userEvent.click(await screen.findByLabelText("Delete parse job job_running"));
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Delete parse job job_running")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("Parsing needs attention")).not.toBeInTheDocument();
   });
 
   it("starts fresh extractor drafts empty when no extractors are saved", async () => {
@@ -1117,4 +1213,64 @@ function jsonResponse(payload: unknown, init: ResponseInit = {}) {
       ...init
     })
   );
+}
+
+function parserFixture(id: string, name: string, displayName: string) {
+  return {
+    id,
+    name,
+    display_name: displayName,
+    output_format: "markdown",
+    instructions: "",
+    reasoning_effort: null,
+    provider_name: null,
+    model: null,
+    source: "user",
+    is_prebuilt: false,
+    created_at: "2026-06-21T00:00:00Z",
+    updated_at: "2026-06-21T00:00:00Z"
+  };
+}
+
+function fileFixture(id: string, fileName: string) {
+  return {
+    id,
+    file_name: fileName,
+    content_type: "image/png",
+    size_bytes: 42,
+    sha256: `${id}-sha`,
+    created_at: "2026-06-21T00:00:00Z"
+  };
+}
+
+function parseJobFixture(
+  id: string,
+  parser: ReturnType<typeof parserFixture>,
+  fileId: string,
+  status: "queued" | "running" | "canceling" | "deleting" | "canceled" | "completed" | "failed"
+) {
+  const completed = status === "completed";
+  return {
+    id,
+    parser_id: parser.id,
+    file_id: fileId,
+    parser_snapshot: { ...parser, parser_id: parser.id },
+    provider_name_used: completed ? "openai_compatible_api" : null,
+    model_used: completed ? "numind/NuExtract3-W4A16" : null,
+    reasoning_effort_used: null,
+    model_adapter_used: completed ? "nuextract_markdown" : null,
+    status,
+    result: completed
+      ? {
+          format: "markdown",
+          content: "# Parsed",
+          page_count: 1,
+          pages: [{ page_number: 1, content: "# Parsed" }]
+        }
+      : null,
+    error: null,
+    created_at: "2026-06-21T00:00:00Z",
+    started_at: status === "queued" ? null : "2026-06-21T00:00:01Z",
+    completed_at: completed ? "2026-06-21T00:00:02Z" : null
+  };
 }

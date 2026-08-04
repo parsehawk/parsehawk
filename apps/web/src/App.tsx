@@ -46,7 +46,6 @@ import {
   deleteExtractionJob,
   fileContentUrl,
   getExtractionJob,
-  getParseJob,
   listExtractors,
   listFiles,
   listExtractionJobs,
@@ -1322,6 +1321,7 @@ function ParseWorkspace() {
   const [savingParser, setSavingParser] = useState(false);
   const [resultView, setResultView] = useState<ParseResultView>("document");
   const [selectedPage, setSelectedPage] = useState(1);
+  const parseJobsRequestId = useRef(0);
 
   const parseFiles = useMemo(() => files.filter(isParseFile), [files]);
   const selectedFile = useMemo(
@@ -1340,6 +1340,13 @@ function ParseWorkspace() {
     () => jobs.find((candidate) => candidate.id === selectedJobId) ?? jobs[0] ?? null,
     [jobs, selectedJobId]
   );
+  const selectedJobFile = useMemo(
+    () => files.find((file) => file.id === selectedJob?.file_id) ?? null,
+    [files, selectedJob?.file_id]
+  );
+  const selectedJobDownloadName = `${
+    selectedJobFile?.file_name.replace(/\.[^.]+$/, "") ?? "document"
+  }.md`;
   const selectedResultPage = selectedJob?.result?.pages.find(
     (page) => page.page_number === selectedPage
   );
@@ -1350,33 +1357,25 @@ function ParseWorkspace() {
 
   useEffect(() => {
     if (!selectedParserId) {
+      parseJobsRequestId.current += 1;
       setJobs([]);
       setSelectedJobId("");
       return;
     }
-    listParseJobs(selectedParserId)
-      .then((nextJobs) => {
-        const sorted = sortParseJobs(nextJobs);
-        setJobs(sorted);
-        setSelectedJobId((current) =>
-          sorted.some((candidate) => candidate.id === current) ? current : (sorted[0]?.id ?? "")
-        );
-      })
-      .catch(showParseError);
+    void loadParseJobs(selectedParserId, true);
+    return () => {
+      parseJobsRequestId.current += 1;
+    };
   }, [selectedParserId]);
 
   useEffect(() => {
-    const active = jobs.filter((candidate) => !terminalStates.has(candidate.status));
-    if (active.length === 0) return;
+    const hasActiveJobs = jobs.some((candidate) => !terminalStates.has(candidate.status));
+    if (!selectedParserId || !hasActiveJobs) return;
     const timer = window.setInterval(() => {
-      Promise.all(active.map((candidate) => getParseJob(candidate.id)))
-        .then((updates) => {
-          setJobs((current) => sortParseJobs(updates.reduce(upsertParseJob, current)));
-        })
-        .catch(showParseError);
+      void loadParseJobs(selectedParserId);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [jobs]);
+  }, [jobs, selectedParserId]);
 
   useEffect(() => {
     if (!showParserEditor) return;
@@ -1416,6 +1415,25 @@ function ParseWorkspace() {
     setError(cause instanceof Error ? cause.message : "Could not complete the parsing request");
   }
 
+  async function loadParseJobs(parserId: string, clearCurrent = false) {
+    const requestId = ++parseJobsRequestId.current;
+    if (clearCurrent) {
+      setJobs([]);
+      setSelectedJobId("");
+    }
+    try {
+      const sorted = sortParseJobs(await listParseJobs(parserId));
+      if (requestId !== parseJobsRequestId.current) return;
+      setJobs(sorted);
+      setSelectedJobId((current) =>
+        sorted.some((candidate) => candidate.id === current) ? current : (sorted[0]?.id ?? "")
+      );
+      setError("");
+    } catch (cause) {
+      if (requestId === parseJobsRequestId.current) showParseError(cause);
+    }
+  }
+
   async function onUpload(filesToUpload: File[]) {
     const supported = filesToUpload.filter((file) =>
       /\.(pdf|jpe?g|png)$/i.test(file.name)
@@ -1446,6 +1464,7 @@ function ParseWorkspace() {
     setCreatingJob(true);
     try {
       const created = await createParseJob(selectedParser.name, selectedFile.id);
+      parseJobsRequestId.current += 1;
       setJobs((current) => sortParseJobs(upsertParseJob(current, created)));
       setSelectedJobId(created.id);
       setError("");
@@ -1519,6 +1538,7 @@ function ParseWorkspace() {
   async function onCancelJob(job: ParseJob) {
     try {
       const updated = await cancelParseJob(job.id);
+      parseJobsRequestId.current += 1;
       setJobs((current) => sortParseJobs(upsertParseJob(current, updated)));
     } catch (cause) {
       showParseError(cause);
@@ -1528,9 +1548,10 @@ function ParseWorkspace() {
   async function onDeleteJob(job: ParseJob) {
     try {
       await deleteParseJob(job.id);
-      const nextJobs = sortParseJobs(await listParseJobs(selectedParserId));
-      setJobs(nextJobs);
-      setSelectedJobId(nextJobs[0]?.id ?? "");
+      parseJobsRequestId.current += 1;
+      setJobs((current) => current.filter((candidate) => candidate.id !== job.id));
+      setSelectedJobId((current) => (current === job.id ? "" : current));
+      setError("");
     } catch (cause) {
       showParseError(cause);
     }
@@ -1778,12 +1799,7 @@ function ParseWorkspace() {
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Refresh parse jobs"
-                onClick={() =>
-                  selectedParserId &&
-                  listParseJobs(selectedParserId)
-                    .then((next) => setJobs(sortParseJobs(next)))
-                    .catch(showParseError)
-                }
+                onClick={() => selectedParserId && void loadParseJobs(selectedParserId)}
               >
                 <RefreshCw />
               </Button>
@@ -1845,9 +1861,10 @@ function ParseWorkspace() {
                     <Button
                       variant="outline"
                       size="sm"
+                      aria-label={`Download ${selectedJobDownloadName}`}
                       onClick={() =>
                         downloadText(
-                          `${selectedFile?.file_name.replace(/\.[^.]+$/, "") ?? "document"}.md`,
+                          selectedJobDownloadName,
                           selectedJob.result?.content ?? ""
                         )
                       }
