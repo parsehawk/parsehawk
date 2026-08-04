@@ -18,7 +18,7 @@ DEFAULT_VLLM_PYTHON_VERSION = "3.12"
 DEFAULT_NUEXTRACT_KEEP_ALIVE_SECONDS = 300
 DEFAULT_PDF_MAX_PAGES = 25
 DEFAULT_PDF_RENDER_DPI = 170
-DEFAULT_PARSING_MAX_TOKENS = 8192
+DEFAULT_PARSING_MAX_TOKENS = 4096
 # The vLLM Metal runtime is provisioned from two pinned artifacts: the vLLM
 # source release the plugin was built against, and the vllm-metal wheel from
 # the matching GitHub release tag. Bump both together — a vllm-metal release
@@ -89,7 +89,10 @@ class Settings(BaseSettings):
     parsing_max_tokens: int = Field(
         default=DEFAULT_PARSING_MAX_TOKENS,
         ge=1,
-        description="Maximum generated tokens for each parsed document page.",
+        description=(
+            "Maximum generated tokens for each parsed document page. Keep this below the model "
+            "context length so the page image and prompt still fit."
+        ),
     )
     vllm_temperature: float = Field(
         default=0.2,

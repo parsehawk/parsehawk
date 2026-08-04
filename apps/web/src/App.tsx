@@ -1720,9 +1720,9 @@ function ParseWorkspace() {
               </Field>
               <Field>
                 <FieldLabel htmlFor="parser-output-tokens">Output token budget per page</FieldLabel>
-                <Input id="parser-output-tokens" value="8192" readOnly />
+                <Input id="parser-output-tokens" value="Configured by server" readOnly />
                 <FieldDescription>
-                  Server-controlled by PARSEHAWK_PARSING_MAX_TOKENS.
+                  Defaults to 4,096 tokens. Override with PARSEHAWK_PARSING_MAX_TOKENS.
                 </FieldDescription>
               </Field>
               <div className="flex flex-wrap gap-2 md:col-span-2">
