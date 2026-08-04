@@ -150,14 +150,34 @@ def poll_job(client: httpx.Client) -> Callable[..., dict[str, Any]]:
     def _poll(job_id: str, timeout: float = JOB_TIMEOUT) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
         while True:
-            response = client.get(f"/v1/jobs/{job_id}")
+            response = client.get(f"/v1/extraction-jobs/{job_id}")
             response.raise_for_status()
             payload = response.json()
-            if payload["status"] in {"completed", "failed"}:
+            if payload["status"] in {"completed", "failed", "canceled"}:
                 return payload
             if time.monotonic() >= deadline:
                 pytest.fail(
                     f"job {job_id} did not finish within {timeout}s "
+                    f"(last status {payload['status']})"
+                )
+            time.sleep(JOB_POLL_INTERVAL)
+
+    return _poll
+
+
+@pytest.fixture
+def poll_parse_job(client: httpx.Client) -> Callable[..., dict[str, Any]]:
+    def _poll(job_id: str, timeout: float = JOB_TIMEOUT) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        while True:
+            response = client.get(f"/v1/parse-jobs/{job_id}")
+            response.raise_for_status()
+            payload = response.json()
+            if payload["status"] in {"completed", "failed", "canceled"}:
+                return payload
+            if time.monotonic() >= deadline:
+                pytest.fail(
+                    f"parse job {job_id} did not finish within {timeout}s "
                     f"(last status {payload['status']})"
                 )
             time.sleep(JOB_POLL_INTERVAL)
