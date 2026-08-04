@@ -7,14 +7,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from parsehawk.core.domain.models import (
     ExampleInputKind,
+    ExtractionError,
+    ExtractionJob,
+    ExtractionResult,
     Extractor,
     ExtractorSource,
     File,
     FileSource,
-    Job,
-    JobError,
-    JobResult,
     JobStatus,
+    ParseError,
+    ParseJob,
+    ParsePageResult,
+    Parser,
+    ParseResult,
+    ParserOutputFormat,
+    ParserSnapshot,
+    ParserSource,
     Provider,
     ProviderName,
     ReasoningEffort,
@@ -175,7 +183,7 @@ class UpsertExtractorRequest(ApiModel):
     )
 
 
-class CreateJobRequest(ApiModel):
+class CreateExtractionJobRequest(ApiModel):
     """Request to enqueue one extraction job."""
 
     extractor_id: str | None = Field(
@@ -200,7 +208,7 @@ class CreateJobRequest(ApiModel):
     )
 
     @model_validator(mode="after")
-    def validate_input(self) -> CreateJobRequest:
+    def validate_input(self) -> CreateExtractionJobRequest:
         provided_extractors = [self.extractor_id is not None, self.extractor_name is not None]
         if provided_extractors.count(True) != 1:
             raise ValueError("provide exactly one of extractor_id or extractor_name")
@@ -209,6 +217,121 @@ class CreateJobRequest(ApiModel):
             raise ValueError("provide exactly one of file_id or text")
         if self.text is not None and not self.text.strip():
             raise ValueError("text input cannot be empty")
+        return self
+
+
+class CreateParserRequest(ApiModel):
+    """Definition used to create a reusable document parser."""
+
+    name: str | None = Field(
+        default=None,
+        description="Stable URL-safe parser name. Generated from display_name when omitted.",
+        examples=["document-to-markdown"],
+    )
+    display_name: str | None = Field(
+        default=None,
+        description="Human-readable parser label. Either this field or name is required.",
+        examples=["Document to Markdown"],
+    )
+    output_format: ParserOutputFormat = Field(
+        default=ParserOutputFormat.MARKDOWN,
+        description="Output format produced by the parser. Markdown is the v0.3 format.",
+    )
+    instructions: str = Field(
+        default="",
+        description="Optional instructions appended to the document transcription prompt.",
+    )
+    reasoning_effort: ReasoningEffort | None = Field(
+        default=None,
+        description="Optional reasoning effort passed to models that support it.",
+    )
+    provider_name: ProviderName | None = Field(
+        default=None,
+        description="Configured provider to use. The local OpenAI-compatible provider is the default.",
+    )
+    model: str | None = Field(
+        default=None,
+        description="Provider model identifier. Required for hosted providers.",
+        examples=["gpt-5-mini"],
+    )
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> CreateParserRequest:
+        if self.display_name is None and self.name is None:
+            raise ValueError("provide display_name or name")
+        return self
+
+
+class UpdateParserRequest(ApiModel):
+    """Partial update for an existing parser."""
+
+    display_name: str | None = Field(default=None, description="New human-readable label.")
+    output_format: ParserOutputFormat | None = Field(
+        default=None,
+        description="New parser output format.",
+    )
+    instructions: str | None = Field(default=None, description="New parsing instructions.")
+    reasoning_effort: ReasoningEffort | None = Field(
+        default=None,
+        description="New reasoning effort; explicit null restores the model default.",
+    )
+    provider_name: ProviderName | None = Field(default=None, description="New provider selection.")
+    model: str | None = Field(
+        default=None,
+        description="New model selection; explicit null uses the local provider default.",
+    )
+
+
+class UpsertParserRequest(ApiModel):
+    """Complete parser definition used to create or replace a parser by reference."""
+
+    name: str | None = Field(
+        default=None,
+        description="Optional body name. When supplied it must match the path reference.",
+    )
+    display_name: str = Field(
+        description="Human-readable parser label.",
+        examples=["Document to Markdown"],
+    )
+    output_format: ParserOutputFormat = Field(
+        default=ParserOutputFormat.MARKDOWN,
+        description="Output format produced by the parser.",
+    )
+    instructions: str = Field(default="", description="Document parsing instructions.")
+    reasoning_effort: ReasoningEffort | None = Field(
+        default=None,
+        description="Optional reasoning effort passed to models that support it.",
+    )
+    provider_name: ProviderName | None = Field(
+        default=None,
+        description="Configured provider to use.",
+    )
+    model: str | None = Field(default=None, description="Provider model identifier.")
+
+
+class CreateParseJobRequest(ApiModel):
+    """Request to enqueue one document parsing job."""
+
+    parser_id: str | None = Field(
+        default=None,
+        description="Immutable parser identifier. Supply exactly one parser selector.",
+        examples=["parser_01JZ6QK8M7"],
+    )
+    parser_name: str | None = Field(
+        default=None,
+        description="Stable parser name. Supply exactly one parser selector.",
+        examples=["document-to-markdown"],
+    )
+    file_id: str = Field(
+        description="Uploaded PDF, JPG/JPEG, or PNG file identifier.",
+        examples=["file_01JZ6QK8M7"],
+    )
+
+    @model_validator(mode="after")
+    def validate_parser(self) -> CreateParseJobRequest:
+        provided = [self.parser_id is not None, self.parser_name is not None]
+        if provided.count(True) != 1:
+            raise ValueError("provide exactly one of parser_id or parser_name")
         return self
 
 
@@ -326,6 +449,40 @@ class ExtractorResponse(ApiModel):
         )
 
 
+class ParserResponse(ApiModel):
+    """Public representation of a reusable parser."""
+
+    id: str = Field(description="Immutable parser identifier.")
+    name: str = Field(description="Stable URL-safe parser name.")
+    display_name: str = Field(description="Human-readable parser label.")
+    output_format: ParserOutputFormat = Field(description="Configured parser output format.")
+    instructions: str = Field(description="Document parsing instructions.")
+    reasoning_effort: ReasoningEffort | None = Field(description="Configured reasoning effort.")
+    provider_name: ProviderName | None = Field(description="Configured model provider.")
+    model: str | None = Field(description="Configured provider model identifier.")
+    source: ParserSource = Field(description="How the parser was created.")
+    is_prebuilt: bool = Field(description="Whether ParseHawk ships this parser.")
+    created_at: datetime = Field(description="UTC creation time.")
+    updated_at: datetime = Field(description="UTC last-update time.")
+
+    @classmethod
+    def from_domain(cls, parser: Parser) -> ParserResponse:
+        return cls(
+            id=parser.id,
+            name=parser.name,
+            display_name=parser.display_name,
+            output_format=parser.output_format,
+            instructions=parser.instructions,
+            reasoning_effort=parser.reasoning_effort,
+            provider_name=parser.provider_name,
+            model=parser.model,
+            source=parser.source,
+            is_prebuilt=parser.is_prebuilt,
+            created_at=parser.created_at,
+            updated_at=parser.updated_at,
+        )
+
+
 class ProviderResponse(ApiModel):
     """Non-secret configuration for one model provider."""
 
@@ -380,28 +537,28 @@ class ProviderModelsResponse(ApiModel):
     models: list[str] = Field(description="Provider model identifiers.")
 
 
-class JobResultResponse(ApiModel):
+class ExtractionResultResponse(ApiModel):
     """Validated structured output produced by an extraction job."""
 
     data: dict[str, Any] = Field(description="Result validated against the extractor schema.")
 
     @classmethod
-    def from_domain(cls, result: JobResult) -> JobResultResponse:
+    def from_domain(cls, result: ExtractionResult) -> ExtractionResultResponse:
         return cls(data=result.data)
 
 
-class JobErrorResponse(ApiModel):
+class ExtractionErrorResponse(ApiModel):
     """Terminal extraction error stored with a failed job."""
 
     message: str = Field(description="Human-readable failure message.")
     code: str = Field(description="Stable machine-readable failure code.")
 
     @classmethod
-    def from_domain(cls, error: JobError) -> JobErrorResponse:
+    def from_domain(cls, error: ExtractionError) -> ExtractionErrorResponse:
         return cls.model_validate(error)
 
 
-class JobResponse(ApiModel):
+class ExtractionJobResponse(ApiModel):
     """Current state and eventual result of one extraction job."""
 
     id: str = Field(description="Immutable job identifier.", examples=["job_01JZ6QK8M7"])
@@ -413,14 +570,16 @@ class JobResponse(ApiModel):
     )
     model_used: str | None = Field(description="Model selected when execution starts.")
     status: JobStatus = Field(description="Current job lifecycle state.")
-    result: JobResultResponse | None = Field(description="Validated result for completed jobs.")
-    error: JobErrorResponse | None = Field(description="Failure details for failed jobs.")
+    result: ExtractionResultResponse | None = Field(
+        description="Validated result for completed jobs."
+    )
+    error: ExtractionErrorResponse | None = Field(description="Failure details for failed jobs.")
     created_at: datetime = Field(description="UTC creation time.")
     started_at: datetime | None = Field(description="UTC execution start time.")
     completed_at: datetime | None = Field(description="UTC terminal-state time.")
 
     @classmethod
-    def from_domain(cls, job: Job) -> JobResponse:
+    def from_domain(cls, job: ExtractionJob) -> ExtractionJobResponse:
         return cls(
             id=job.id,
             extractor_id=job.extractor_id,
@@ -429,10 +588,123 @@ class JobResponse(ApiModel):
             provider_name_used=job.provider_name_used,
             model_used=job.model_used,
             status=job.status,
-            result=JobResultResponse.from_domain(job.result)
+            result=ExtractionResultResponse.from_domain(job.result)
             if job.status == JobStatus.COMPLETED and job.result
             else None,
-            error=JobErrorResponse.from_domain(job.error) if job.error else None,
+            error=ExtractionErrorResponse.from_domain(job.error) if job.error else None,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+        )
+
+
+class ParserSnapshotResponse(ApiModel):
+    """Immutable parser configuration captured when a parse job is enqueued."""
+
+    parser_id: str = Field(description="Immutable parser identifier.")
+    name: str = Field(description="Stable parser name at enqueue time.")
+    display_name: str = Field(description="Parser label at enqueue time.")
+    output_format: ParserOutputFormat = Field(description="Output format at enqueue time.")
+    instructions: str = Field(description="Parsing instructions at enqueue time.")
+    reasoning_effort: ReasoningEffort | None = Field(
+        description="Reasoning effort at enqueue time."
+    )
+    provider_name: ProviderName | None = Field(description="Provider selection at enqueue time.")
+    model: str | None = Field(description="Model selection at enqueue time.")
+
+    @classmethod
+    def from_domain(cls, snapshot: ParserSnapshot) -> ParserSnapshotResponse:
+        return cls.model_validate(snapshot)
+
+
+class ParsePageResultResponse(ApiModel):
+    """Markdown output for one source page."""
+
+    page_number: int = Field(description="One-based source page number.", ge=1)
+    content: str = Field(description="Markdown transcription for this page.")
+
+    @classmethod
+    def from_domain(cls, page: ParsePageResult) -> ParsePageResultResponse:
+        return cls.model_validate(page)
+
+
+class ParseResultResponse(ApiModel):
+    """Canonical Markdown result for a completed parse job."""
+
+    format: ParserOutputFormat = Field(description="Result content format.")
+    content: str = Field(
+        description="All page content joined by an HTML page-break comment.",
+    )
+    page_count: int = Field(description="Number of parsed source pages.", ge=1)
+    pages: list[ParsePageResultResponse] = Field(
+        description="Canonical one-based per-page Markdown output.",
+    )
+
+    @classmethod
+    def from_domain(cls, result: ParseResult) -> ParseResultResponse:
+        return cls(
+            format=result.format,
+            content=result.content,
+            page_count=result.page_count,
+            pages=[ParsePageResultResponse.from_domain(page) for page in result.pages],
+        )
+
+
+class ParseErrorResponse(ApiModel):
+    """Terminal parsing error stored with a failed job."""
+
+    message: str = Field(description="Human-readable failure message.")
+    code: str = Field(description="Stable machine-readable failure code.")
+
+    @classmethod
+    def from_domain(cls, error: ParseError) -> ParseErrorResponse:
+        return cls.model_validate(error)
+
+
+class ParseJobResponse(ApiModel):
+    """Current state and eventual Markdown result of one parse job."""
+
+    id: str = Field(description="Immutable parse job identifier.")
+    parser_id: str = Field(description="Immutable parser identifier used by the job.")
+    file_id: str = Field(description="Input file identifier.")
+    parser_snapshot: ParserSnapshotResponse = Field(
+        description="Immutable parser configuration captured when the job was created.",
+    )
+    provider_name_used: ProviderName | None = Field(
+        description="Provider selected when execution starts.",
+    )
+    model_used: str | None = Field(description="Model selected when execution starts.")
+    reasoning_effort_used: ReasoningEffort | None = Field(
+        description="Reasoning effort selected when execution starts.",
+    )
+    model_adapter_used: str | None = Field(
+        description="Parsing request adapter selected when execution starts.",
+    )
+    status: JobStatus = Field(description="Current job lifecycle state.")
+    result: ParseResultResponse | None = Field(description="Markdown result for completed jobs.")
+    error: ParseErrorResponse | None = Field(description="Failure details for failed jobs.")
+    created_at: datetime = Field(description="UTC creation time.")
+    started_at: datetime | None = Field(description="UTC execution start time.")
+    completed_at: datetime | None = Field(description="UTC terminal-state time.")
+
+    @classmethod
+    def from_domain(cls, job: ParseJob) -> ParseJobResponse:
+        return cls(
+            id=job.id,
+            parser_id=job.parser_id,
+            file_id=job.file_id,
+            parser_snapshot=ParserSnapshotResponse.from_domain(job.parser_snapshot),
+            provider_name_used=job.provider_name_used,
+            model_used=job.model_used,
+            reasoning_effort_used=job.reasoning_effort_used,
+            model_adapter_used=job.model_adapter_used,
+            status=job.status,
+            result=(
+                ParseResultResponse.from_domain(job.result)
+                if job.status == JobStatus.COMPLETED and job.result
+                else None
+            ),
+            error=ParseErrorResponse.from_domain(job.error) if job.error else None,
             created_at=job.created_at,
             started_at=job.started_at,
             completed_at=job.completed_at,

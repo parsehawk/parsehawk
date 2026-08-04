@@ -7,8 +7,13 @@ import httpx
 import pytest
 from openai import APIConnectionError, APIStatusError, OpenAI
 
-from parsehawk.core.application.ports import ExtractionRequest
-from parsehawk.core.domain.errors import ExtractionCancelled, ProviderRequestError
+from parsehawk.core.application.ports import ExtractionRequest, ParsingRequest, PreparedImage
+from parsehawk.core.domain.errors import (
+    ExtractionCancelled,
+    ParsingCancelled,
+    ProviderRequestError,
+)
+from parsehawk.core.domain.models import ReasoningEffort
 from parsehawk.server.runtime.inference import openai_engine as openai_engine_module
 from parsehawk.server.runtime.inference.generic import (
     RESPONSE_FORMAT_JSON_OBJECT,
@@ -18,7 +23,9 @@ from parsehawk.server.runtime.inference.generic import (
 from parsehawk.server.runtime.inference.openai_engine import (
     OpenAIEngineConfig,
     OpenAIExtractionEngine,
+    OpenAIParsingEngine,
     select_adapter,
+    select_parsing_adapter,
 )
 
 NUEXTRACT_MODEL = "numind/NuExtract3-W4A16"
@@ -120,6 +127,158 @@ def test_select_adapter_matches_exact_nuextract_models() -> None:
     # A near-miss substring is NOT treated as NuExtract.
     assert select_adapter("numind/NuExtract3-Turbo") == "generic"
     assert select_adapter("gpt-4o-mini") == "generic"
+    assert select_parsing_adapter(NUEXTRACT_MODEL) == "nuextract_markdown"
+    assert select_parsing_adapter("gpt-4o-mini") == "generic_markdown"
+
+
+def _parsing_request(
+    image_path: str,
+    *,
+    instructions: str = "",
+    reasoning_effort: ReasoningEffort | None = None,
+) -> ParsingRequest:
+    return ParsingRequest(
+        image=PreparedImage(
+            storage_path=image_path,
+            content_type="image/png",
+            page_number=1,
+        ),
+        instructions=instructions,
+        reasoning_effort=reasoning_effort,
+    )
+
+
+def test_nuextract_markdown_adapter_omits_template_and_json_schema(tmp_path) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    client, completions = _client_returning("<think>reason</think># Document<|im_end|>")
+    engine = OpenAIParsingEngine(
+        OpenAIEngineConfig(model=NUEXTRACT_MODEL, max_tokens=8192),
+        client=cast(OpenAI, client),
+    )
+
+    result = engine.parse_page(
+        _parsing_request(
+            str(image),
+            instructions="Preserve footnotes.",
+            reasoning_effort=ReasoningEffort.LOW,
+        )
+    )
+
+    assert result.content == "# Document"
+    (call,) = completions.calls
+    assert call["max_tokens"] == 8192
+    assert "response_format" not in call
+    assert call["messages"][0] == {"role": "system", "content": "Preserve footnotes."}
+    assert call["messages"][1]["role"] == "user"
+    assert call["messages"][1]["content"][0]["type"] == "image_url"
+    template_kwargs = call["extra_body"]["chat_template_kwargs"]
+    assert template_kwargs == {"mode": "markdown", "enable_thinking": True}
+    assert "template" not in template_kwargs
+
+
+def test_nuextract_markdown_adapter_omits_blank_system_message(tmp_path) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    client, completions = _client_returning("# Document")
+    engine = OpenAIParsingEngine(
+        OpenAIEngineConfig(model=NUEXTRACT_MODEL),
+        client=cast(OpenAI, client),
+    )
+
+    engine.parse_page(_parsing_request(str(image)))
+
+    (call,) = completions.calls
+    assert [message["role"] for message in call["messages"]] == ["user"]
+    assert call["extra_body"]["chat_template_kwargs"]["enable_thinking"] is False
+
+
+def test_generic_markdown_adapter_builds_vision_prompt_without_json(tmp_path) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    client, completions = _client_returning("# Generic document")
+    engine = OpenAIParsingEngine(
+        OpenAIEngineConfig(model="gpt-5-mini", max_tokens=4096),
+        client=cast(OpenAI, client),
+    )
+
+    result = engine.parse_page(
+        _parsing_request(
+            str(image),
+            instructions="Retain handwritten notes.",
+            reasoning_effort=ReasoningEffort.MEDIUM,
+        )
+    )
+
+    assert result.content == "# Generic document"
+    (call,) = completions.calls
+    assert call["max_completion_tokens"] == 4096
+    assert call["reasoning_effort"] == "medium"
+    assert "response_format" not in call
+    assert "extra_body" not in call
+    content = call["messages"][0]["content"]
+    assert content[0]["type"] == "text"
+    assert "Preserve reading order" in content[0]["text"]
+    assert "Retain handwritten notes." in content[0]["text"]
+    assert content[1]["type"] == "image_url"
+
+
+def test_parsing_adapter_records_operation_and_adapter_for_tracing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    recorded: list[dict[str, Any]] = []
+
+    @contextmanager
+    def fake_metadata_context(metadata: dict[str, Any]):
+        recorded.append(metadata)
+        yield
+
+    monkeypatch.setattr(
+        openai_engine_module.tracing,
+        "openai_metadata_context",
+        fake_metadata_context,
+    )
+    client, _completions = _client_returning("# Document")
+    engine = OpenAIParsingEngine(
+        OpenAIEngineConfig(model=NUEXTRACT_MODEL),
+        client=cast(OpenAI, client),
+    )
+
+    engine.parse_page(_parsing_request(str(image)))
+
+    assert recorded == [
+        {
+            "parsehawk.operation": "parse",
+            "parsehawk.model_adapter": "nuextract_markdown",
+        }
+    ]
+
+
+def test_parsing_cancellation_closes_stream(tmp_path) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    client, completions = _client_returning("# Document")
+    engine = OpenAIParsingEngine(
+        OpenAIEngineConfig(model=NUEXTRACT_MODEL),
+        client=cast(OpenAI, client),
+    )
+    checks = 0
+
+    def cancellation_check() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks > 1
+
+    with pytest.raises(ParsingCancelled):
+        engine.parse_page(
+            _parsing_request(str(image)),
+            cancellation_check=cancellation_check,
+        )
+
+    assert completions.streams[0].closed is True
 
 
 def test_nuextract_adapter_sends_chat_template_kwargs_in_extra_body() -> None:

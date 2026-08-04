@@ -62,7 +62,7 @@ parsehawk extractors update invoice_v1 \
   --provider openai_compatible_api \
   --model YOUR_MODEL_ID
 
-parsehawk jobs create invoice_v1 --text \
+parsehawk extraction-jobs create invoice_v1 --text \
   "Invoice A-204 · 14 July 2026 · Total EUR 128.40"
 ```
 

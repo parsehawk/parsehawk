@@ -9,6 +9,7 @@ import {
   CircleX,
   Clock3,
   Copy,
+  Download,
   Eye,
   FileJson,
   FileText,
@@ -28,20 +29,29 @@ import {
 
 import {
   configureProvider,
+  cancelParseJob,
   createExtractor,
-  createJob,
+  createExtractionJob,
+  createParseJob,
+  createParser,
   deleteExtractor,
+  deleteParseJob,
+  deleteParser,
   deleteFile,
-  deleteJob,
+  deleteExtractionJob,
   fileContentUrl,
-  getJob,
+  getExtractionJob,
+  getParseJob,
   listExtractors,
   listFiles,
-  listJobs,
+  listExtractionJobs,
+  listParseJobs,
+  listParsers,
   listProviderModels,
   listProviders,
   readFilePreview,
   updateExtractor,
+  updateParser,
   uploadFile,
   validateSchema
 } from "./api";
@@ -102,8 +112,10 @@ import type { SchemaField, ValidationPreset } from "./schemaBuilder";
 import type {
   Extractor,
   FileRecord,
-  Job,
+  ExtractionJob,
   JobStatus,
+  ParseJob,
+  Parser,
   Provider,
   ProviderName,
   ReasoningEffort,
@@ -117,6 +129,8 @@ const FILE_UPLOAD_CONCURRENCY = 3;
 type SchemaMode = "builder" | "json";
 type MainView = "run" | "editor";
 type RunInputMode = "file" | "text";
+type Workflow = "extract" | "parse";
+type ParseResultView = "document" | "pages" | "raw";
 type UploadProgressState = { total: number; completed: number; failed: number };
 
 // Fixed set of providers, in the order they are shown. Names come from the
@@ -168,6 +182,7 @@ const emptyInstructions = "";
 const emptySchema = schemaFromFields([]);
 
 export default function App() {
+  const [workflow, setWorkflow] = useState<Workflow>("extract");
   const [files, setFiles] = useState<FileRecord[]>([]);
   const [extractors, setExtractors] = useState<Extractor[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
@@ -207,8 +222,8 @@ export default function App() {
   const [runText, setRunText] = useState(
     "Corner Market\nReceipt #R-42\nDate: 2026-06-21\nTotal EUR 12.40"
   );
-  const [job, setJob] = useState<Job | null>(null);
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [job, setJob] = useState<ExtractionJob | null>(null);
+  const [jobs, setJobs] = useState<ExtractionJob[]>([]);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null);
   const [runProgress, setRunProgress] = useState<UploadProgressState | null>(null);
   const [, setMessage] = useState("");
@@ -305,11 +320,11 @@ export default function App() {
   useEffect(() => {
     if (!job) return;
     if (terminalStates.has(job.status)) {
-      setMessage(`Job ${job.status}`);
+      setMessage(`Extraction job ${job.status}`);
       return;
     }
     const timer = window.setInterval(() => {
-      getJob(job.id)
+      getExtractionJob(job.id)
         .then((nextJob) => {
           setJob(nextJob);
           setJobs((current) => upsertJob(current, nextJob));
@@ -351,7 +366,7 @@ export default function App() {
       return;
     }
     try {
-      const nextJobs = sortJobs(await listJobs(extractorId));
+      const nextJobs = sortJobs(await listExtractionJobs(extractorId));
       setJobs(nextJobs);
       setJob((current) => {
         if (current?.extractor_id === extractorId) {
@@ -501,10 +516,10 @@ export default function App() {
     if (runInputMode === "text") {
       try {
         setMessage("Starting extraction job...");
-        const created = await createJob(selectedExtractor.name, { text: runText });
+        const created = await createExtractionJob(selectedExtractor.name, { text: runText });
         setJob(created);
         setJobs((current) => upsertJob(current, created));
-        setMessage(`Job ${created.id} queued`);
+        setMessage(`Extraction job ${created.id} queued`);
         setErrorMessage("");
       } catch (error) {
         showError(error);
@@ -517,11 +532,11 @@ export default function App() {
       setMessage(fileIds.length === 1 ? "Starting extraction job..." : `Queuing ${fileIds.length} jobs...`);
       // Create jobs sequentially: the API persists to a single shared SQLite
       // connection, so firing the inserts concurrently races and drops one.
-      const created: Job[] = [];
+      const created: ExtractionJob[] = [];
       let firstError: unknown = null;
       for (const fileId of fileIds) {
         try {
-          const job = await createJob(selectedExtractor.name, { file_id: fileId });
+          const job = await createExtractionJob(selectedExtractor.name, { file_id: fileId });
           created.push(job);
         } catch (error) {
           firstError ??= error;
@@ -539,7 +554,7 @@ export default function App() {
         setMessage(`Queued ${created.length} of ${fileIds.length} jobs`);
         setErrorMessage(`${failed} job${failed === 1 ? "" : "s"} failed to start${detail}`);
       } else {
-        setMessage(created.length === 1 ? `Job ${created[0].id} queued` : `Queued ${created.length} jobs`);
+        setMessage(created.length === 1 ? `Extraction job ${created[0].id} queued` : `Queued ${created.length} extraction jobs`);
         setErrorMessage("");
       }
     } catch (error) {
@@ -551,18 +566,18 @@ export default function App() {
 
   async function onDeleteJob(jobId: string) {
     try {
-      await deleteJob(jobId);
+      await deleteExtractionJob(jobId);
       const nextJobs = jobs.filter((nextJob) => nextJob.id !== jobId);
       setJobs(nextJobs);
       setJob((current) => (current?.id === jobId ? (nextJobs[0] ?? null) : current));
-      setMessage("Job deleted");
+      setMessage("Extraction job deleted");
       setErrorMessage("");
     } catch (error) {
       showError(error);
     }
   }
 
-  function selectJob(nextJob: Job) {
+  function selectJob(nextJob: ExtractionJob) {
     setJob(nextJob);
   }
 
@@ -728,6 +743,16 @@ export default function App() {
               <img src={logo} alt="ParseHawk" className="h-12 w-auto dark:hidden" />
               <img src={logoDark} alt="ParseHawk" className="hidden h-12 w-auto dark:block" />
             </div>
+            <Tabs
+              value={workflow}
+              onValueChange={(value) => setWorkflow(value as Workflow)}
+              aria-label="Document workflow"
+            >
+              <TabsList>
+                <TabsTrigger value="extract">Extract</TabsTrigger>
+                <TabsTrigger value="parse">Parse</TabsTrigger>
+              </TabsList>
+            </Tabs>
             <div className="flex items-center gap-1">
               <ProvidersDialog />
               <HelpDialog />
@@ -736,6 +761,9 @@ export default function App() {
           </div>
         </header>
 
+        {workflow === "parse" ? (
+          <ParseWorkspace />
+        ) : (
         <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-5 px-5 py-6 lg:flex-row lg:items-start lg:gap-6 lg:px-8">
           {mainView === "editor" ? null : (
             <aside className="flex w-full shrink-0 flex-col gap-4 lg:sticky lg:top-21 lg:w-[340px]">
@@ -1145,7 +1173,7 @@ export default function App() {
                   </CardContent>
                 </Card>
 
-                <JobHistory
+                <ExtractionJobHistory
                   extractor={selectedExtractor}
                   jobs={jobs}
                   selectedJobId={job?.id ?? ""}
@@ -1158,7 +1186,7 @@ export default function App() {
                   <Card className="min-h-[680px]">
                     <CardHeader className="flex flex-row items-start justify-between gap-4">
                       <div className="grid gap-1">
-                        <CardTitle>Job result</CardTitle>
+                        <CardTitle>Extraction job result</CardTitle>
                         <CardDescription>{jobStatusCopy(job.status).description}</CardDescription>
                       </div>
                       <div className="flex shrink-0 gap-3">
@@ -1190,6 +1218,7 @@ export default function App() {
             )}
           </main>
         </div>
+        )}
       </div>
 
       <AlertDialog open={pendingLeave !== null} onOpenChange={(open) => (open ? null : setPendingLeave(null))}>
@@ -1263,6 +1292,640 @@ export default function App() {
         </AlertDialogContent>
       </AlertDialog>
     </TooltipProvider>
+  );
+}
+
+function ParseWorkspace() {
+  const [files, setFiles] = useState<FileRecord[]>([]);
+  const [parsers, setParsers] = useState<Parser[]>([]);
+  const [jobs, setJobs] = useState<ParseJob[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState("");
+  const [selectedParserId, setSelectedParserId] = useState("");
+  const [selectedJobId, setSelectedJobId] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null);
+  const [creatingJob, setCreatingJob] = useState(false);
+  const [error, setError] = useState("");
+  const [editingParserId, setEditingParserId] = useState<string | null>(null);
+  const [showParserEditor, setShowParserEditor] = useState(false);
+  const [parserName, setParserName] = useState("");
+  const [parserDisplayName, setParserDisplayName] = useState("");
+  const [parserInstructions, setParserInstructions] = useState("");
+  const [parserProvider, setParserProvider] = useState<ProviderName>(DEFAULT_PROVIDER_NAME);
+  const [parserModel, setParserModel] = useState("");
+  const [parserReasoning, setParserReasoning] = useState<ReasoningEffort | "">("");
+  const [parserModels, setParserModels] = useState<string[]>([]);
+  const [savingParser, setSavingParser] = useState(false);
+  const [resultView, setResultView] = useState<ParseResultView>("document");
+  const [selectedPage, setSelectedPage] = useState(1);
+
+  const parseFiles = useMemo(() => files.filter(isParseFile), [files]);
+  const selectedFile = useMemo(
+    () => files.find((file) => file.id === selectedFileId) ?? null,
+    [files, selectedFileId]
+  );
+  const selectedParser = useMemo(
+    () => parsers.find((parser) => parser.id === selectedParserId) ?? null,
+    [parsers, selectedParserId]
+  );
+  const editingParser = useMemo(
+    () => parsers.find((parser) => parser.id === editingParserId) ?? null,
+    [editingParserId, parsers]
+  );
+  const selectedJob = useMemo(
+    () => jobs.find((candidate) => candidate.id === selectedJobId) ?? jobs[0] ?? null,
+    [jobs, selectedJobId]
+  );
+  const selectedResultPage = selectedJob?.result?.pages.find(
+    (page) => page.page_number === selectedPage
+  );
+
+  useEffect(() => {
+    void refreshParseWorkspace();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedParserId) {
+      setJobs([]);
+      setSelectedJobId("");
+      return;
+    }
+    listParseJobs(selectedParserId)
+      .then((nextJobs) => {
+        const sorted = sortParseJobs(nextJobs);
+        setJobs(sorted);
+        setSelectedJobId((current) =>
+          sorted.some((candidate) => candidate.id === current) ? current : (sorted[0]?.id ?? "")
+        );
+      })
+      .catch(showParseError);
+  }, [selectedParserId]);
+
+  useEffect(() => {
+    const active = jobs.filter((candidate) => !terminalStates.has(candidate.status));
+    if (active.length === 0) return;
+    const timer = window.setInterval(() => {
+      Promise.all(active.map((candidate) => getParseJob(candidate.id)))
+        .then((updates) => {
+          setJobs((current) => sortParseJobs(updates.reduce(upsertParseJob, current)));
+        })
+        .catch(showParseError);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [jobs]);
+
+  useEffect(() => {
+    if (!showParserEditor) return;
+    listProviderModels(parserProvider)
+      .then(setParserModels)
+      .catch(() => setParserModels([]));
+  }, [parserProvider, showParserEditor]);
+
+  useEffect(() => {
+    setSelectedPage(selectedJob?.result?.pages[0]?.page_number ?? 1);
+    setResultView("document");
+  }, [selectedJob?.id]);
+
+  async function refreshParseWorkspace() {
+    try {
+      const [nextFiles, nextParsers] = await Promise.all([listFiles(), listParsers()]);
+      setFiles(nextFiles);
+      setParsers(nextParsers);
+      setSelectedFileId((current) =>
+        nextFiles.some((file) => file.id === current && isParseFile(file)) ? current : ""
+      );
+      setSelectedParserId((current) => {
+        if (nextParsers.some((parser) => parser.id === current)) return current;
+        return (
+          nextParsers.find((parser) => parser.name === "document-to-markdown")?.id ??
+          nextParsers[0]?.id ??
+          ""
+        );
+      });
+      setError("");
+    } catch (cause) {
+      showParseError(cause);
+    }
+  }
+
+  function showParseError(cause: unknown) {
+    setError(cause instanceof Error ? cause.message : "Could not complete the parsing request");
+  }
+
+  async function onUpload(filesToUpload: File[]) {
+    const supported = filesToUpload.filter((file) =>
+      /\.(pdf|jpe?g|png)$/i.test(file.name)
+    );
+    if (supported.length === 0) {
+      setError("Parsing supports PDF, JPG/JPEG, and PNG files.");
+      return;
+    }
+    setUploadProgress({ total: supported.length, completed: 0, failed: 0 });
+    try {
+      const result = await uploadFilesWithConcurrency(
+        supported,
+        FILE_UPLOAD_CONCURRENCY,
+        setUploadProgress
+      );
+      await refreshParseWorkspace();
+      if (result.uploaded[0]) setSelectedFileId(result.uploaded[0].id);
+      setError(result.failures.length ? uploadFailuresMessage(result.failures) : "");
+    } catch (cause) {
+      showParseError(cause);
+    } finally {
+      setUploadProgress(null);
+    }
+  }
+
+  async function onCreateParseJob() {
+    if (!selectedFile || !selectedParser) return;
+    setCreatingJob(true);
+    try {
+      const created = await createParseJob(selectedParser.name, selectedFile.id);
+      setJobs((current) => sortParseJobs(upsertParseJob(current, created)));
+      setSelectedJobId(created.id);
+      setError("");
+    } catch (cause) {
+      showParseError(cause);
+    } finally {
+      setCreatingJob(false);
+    }
+  }
+
+  function openNewParser() {
+    setEditingParserId(null);
+    setParserName("");
+    setParserDisplayName("");
+    setParserInstructions("");
+    setParserProvider(DEFAULT_PROVIDER_NAME);
+    setParserModel("");
+    setParserReasoning("");
+    setShowParserEditor(true);
+  }
+
+  function openParser(parser: Parser) {
+    setEditingParserId(parser.id);
+    setParserName(parser.name);
+    setParserDisplayName(parser.display_name);
+    setParserInstructions(parser.instructions);
+    setParserProvider(parser.provider_name ?? DEFAULT_PROVIDER_NAME);
+    setParserModel(parser.model ?? "");
+    setParserReasoning(parser.reasoning_effort ?? "");
+    setShowParserEditor(true);
+  }
+
+  async function onSaveParser() {
+    if (!parserDisplayName.trim()) return;
+    setSavingParser(true);
+    try {
+      const payload = {
+        display_name: parserDisplayName.trim(),
+        instructions: parserInstructions,
+        reasoning_effort: parserReasoning || null,
+        provider_name: parserProvider,
+        model: parserModel.trim() || null
+      };
+      const saved = editingParserId
+        ? await updateParser(editingParserId, payload)
+        : await createParser({
+            ...payload,
+            ...(parserName.trim() ? { name: parserName.trim() } : {})
+          });
+      await refreshParseWorkspace();
+      setSelectedParserId(saved.id);
+      setShowParserEditor(false);
+      setError("");
+    } catch (cause) {
+      showParseError(cause);
+    } finally {
+      setSavingParser(false);
+    }
+  }
+
+  async function onDeleteParser(parser: Parser) {
+    try {
+      await deleteParser(parser.id);
+      setShowParserEditor(false);
+      await refreshParseWorkspace();
+    } catch (cause) {
+      showParseError(cause);
+    }
+  }
+
+  async function onCancelJob(job: ParseJob) {
+    try {
+      const updated = await cancelParseJob(job.id);
+      setJobs((current) => sortParseJobs(upsertParseJob(current, updated)));
+    } catch (cause) {
+      showParseError(cause);
+    }
+  }
+
+  async function onDeleteJob(job: ParseJob) {
+    try {
+      await deleteParseJob(job.id);
+      const nextJobs = sortParseJobs(await listParseJobs(selectedParserId));
+      setJobs(nextJobs);
+      setSelectedJobId(nextJobs[0]?.id ?? "");
+    } catch (cause) {
+      showParseError(cause);
+    }
+  }
+
+  return (
+    <div className="mx-auto grid w-full max-w-[1500px] gap-5 px-5 py-6 lg:grid-cols-[360px_minmax(0,1fr)] lg:gap-6 lg:px-8">
+      <aside className="flex flex-col gap-4 lg:sticky lg:top-21 lg:self-start">
+        <Card>
+          <CardHeader>
+            <CardTitle>Parse files</CardTitle>
+            <CardDescription>Upload and select one PDF or image.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <UploadCard onUpload={onUpload} uploadProgress={uploadProgress} />
+            <Field>
+              <FieldLabel htmlFor="parse-file">File</FieldLabel>
+              <NativeSelect
+                id="parse-file"
+                value={selectedFileId}
+                onChange={(event) => setSelectedFileId(event.target.value)}
+              >
+                <NativeSelectOption value="">Select a PDF or image</NativeSelectOption>
+                {parseFiles.map((file) => (
+                  <NativeSelectOption key={file.id} value={file.id}>
+                    {file.file_name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+              {files.length > parseFiles.length ? (
+                <FieldDescription>Text and Markdown files remain available in Extract.</FieldDescription>
+              ) : null}
+            </Field>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Parsers</CardTitle>
+            <CardDescription>Choose a reusable Markdown parser.</CardDescription>
+            <CardAction>
+              <Button variant="outline" size="sm" onClick={openNewParser}>
+                <Plus data-icon="inline-start" />
+                New
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {parsers.map((parser) => (
+              <div
+                role="button"
+                tabIndex={0}
+                key={parser.id}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm",
+                  parser.id === selectedParserId && "border-primary bg-primary/10"
+                )}
+                onClick={() => setSelectedParserId(parser.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedParserId(parser.id);
+                  }
+                }}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{parser.display_name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{parser.name}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  {parser.is_prebuilt ? <Badge variant="secondary">Prebuilt</Badge> : null}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Edit ${parser.display_name}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openParser(parser);
+                    }}
+                  >
+                    <Pencil />
+                  </Button>
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </aside>
+
+      <main className="flex min-w-0 flex-col gap-5">
+        {error ? (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertTitle>Parsing needs attention</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {showParserEditor ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>{editingParserId ? "Parser settings" : "Create parser"}</CardTitle>
+              <CardDescription>
+                Model-specific adapters are selected automatically from the configured model.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="parser-display-name">Display name</FieldLabel>
+                <Input
+                  id="parser-display-name"
+                  value={parserDisplayName}
+                  disabled={Boolean(editingParser?.is_prebuilt)}
+                  onChange={(event) => setParserDisplayName(event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="parser-name">Name</FieldLabel>
+                <Input
+                  id="parser-name"
+                  value={parserName}
+                  placeholder="document-to-markdown"
+                  disabled={Boolean(editingParserId)}
+                  onChange={(event) => setParserName(event.target.value)}
+                />
+              </Field>
+              <Field className="md:col-span-2">
+                <FieldLabel htmlFor="parser-instructions">Instructions</FieldLabel>
+                <Textarea
+                  id="parser-instructions"
+                  value={parserInstructions}
+                  disabled={Boolean(editingParser?.is_prebuilt)}
+                  placeholder="Preserve page headers, footnotes, and section numbering."
+                  onChange={(event) => setParserInstructions(event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="parser-provider">Provider</FieldLabel>
+                <NativeSelect
+                  id="parser-provider"
+                  value={parserProvider}
+                  disabled={Boolean(editingParser?.is_prebuilt)}
+                  onChange={(event) => {
+                    setParserProvider(event.target.value as ProviderName);
+                    setParserModel("");
+                  }}
+                >
+                  {PROVIDERS.map((provider) => (
+                    <NativeSelectOption key={provider.name} value={provider.name}>
+                      {provider.label}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="parser-model">Model</FieldLabel>
+                <Input
+                  id="parser-model"
+                  list="parser-model-options"
+                  value={parserModel}
+                  disabled={Boolean(editingParser?.is_prebuilt)}
+                  placeholder={providerModelPlaceholder(parserProvider)}
+                  onChange={(event) => setParserModel(event.target.value)}
+                />
+                <datalist id="parser-model-options">
+                  {parserModels.map((modelName) => (
+                    <option key={modelName} value={modelName} />
+                  ))}
+                </datalist>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="parser-reasoning">Reasoning effort</FieldLabel>
+                <NativeSelect
+                  id="parser-reasoning"
+                  value={parserReasoning}
+                  disabled={Boolean(editingParser?.is_prebuilt)}
+                  onChange={(event) =>
+                    setParserReasoning(event.target.value as ReasoningEffort | "")
+                  }
+                >
+                  {REASONING_EFFORT_OPTIONS.map((option) => (
+                    <NativeSelectOption key={option.value} value={option.value}>
+                      {option.label}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="parser-output-tokens">Output token budget per page</FieldLabel>
+                <Input id="parser-output-tokens" value="8192" readOnly />
+                <FieldDescription>
+                  Server-controlled by PARSEHAWK_PARSING_MAX_TOKENS.
+                </FieldDescription>
+              </Field>
+              <div className="flex flex-wrap gap-2 md:col-span-2">
+                {editingParser?.is_prebuilt ? null : (
+                  <Button
+                    disabled={!parserDisplayName.trim() || savingParser}
+                    onClick={() => void onSaveParser()}
+                  >
+                    {savingParser ? "Saving..." : editingParserId ? "Save parser" : "Create parser"}
+                  </Button>
+                )}
+                <Button variant="secondary" onClick={() => setShowParserEditor(false)}>
+                  Close
+                </Button>
+                {editingParser && !editingParser.is_prebuilt ? (
+                  <Button variant="destructive" onClick={() => void onDeleteParser(editingParser)}>
+                    <Trash2 data-icon="inline-start" />
+                    Delete parser
+                  </Button>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Markdown parser</CardTitle>
+            <CardDescription>
+              {selectedParser
+                ? `Parse ${selectedFile?.file_name ?? "a selected file"} with ${selectedParser.display_name}.`
+                : "Select a parser and file to begin."}
+            </CardDescription>
+            <CardAction>
+              <Button
+                size="lg"
+                disabled={!selectedFile || !selectedParser || creatingJob}
+                onClick={() => void onCreateParseJob()}
+              >
+                <PlayCircle data-icon="inline-start" />
+                {creatingJob ? "Queueing..." : "Run parsing"}
+              </Button>
+            </CardAction>
+          </CardHeader>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Parse jobs</CardTitle>
+            <CardDescription>History for the selected parser.</CardDescription>
+            <CardAction>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Refresh parse jobs"
+                onClick={() =>
+                  selectedParserId &&
+                  listParseJobs(selectedParserId)
+                    .then((next) => setJobs(sortParseJobs(next)))
+                    .catch(showParseError)
+                }
+              >
+                <RefreshCw />
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {jobs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No parse jobs yet.</p>
+            ) : (
+              jobs.map((candidate) => (
+                <div
+                  key={candidate.id}
+                  className={cn(
+                    "flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2",
+                    candidate.id === selectedJob?.id && "border-primary bg-primary/5"
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => setSelectedJobId(candidate.id)}
+                  >
+                    <span className="block truncate text-sm font-medium">
+                      {files.find((file) => file.id === candidate.file_id)?.file_name ?? candidate.file_id}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDateTime(candidate.created_at)} · {candidate.status}
+                    </span>
+                  </button>
+                  {candidate.status === "queued" || candidate.status === "running" ? (
+                    <Button variant="outline" size="sm" onClick={() => void onCancelJob(candidate)}>
+                      Cancel
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Delete parse job ${candidate.id}`}
+                    onClick={() => void onDeleteJob(candidate)}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        {selectedJob ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Parse result</CardTitle>
+              <CardDescription>{jobStatusCopy(selectedJob.status).description}</CardDescription>
+              <CardAction className="flex gap-2">
+                <Badge variant="outline">{selectedJob.status}</Badge>
+                {selectedJob.result ? (
+                  <>
+                    <CopyTextButton value={selectedJob.result.content} label="Copy Markdown" />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        downloadText(
+                          `${selectedFile?.file_name.replace(/\.[^.]+$/, "") ?? "document"}.md`,
+                          selectedJob.result?.content ?? ""
+                        )
+                      }
+                    >
+                      <Download data-icon="inline-start" />
+                      Download
+                    </Button>
+                  </>
+                ) : null}
+              </CardAction>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-5">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <JobFact label="Provider" value={selectedJob.provider_name_used ?? "Pending"} />
+                <JobFact label="Model" value={selectedJob.model_used ?? "Pending"} />
+                <JobFact label="Adapter" value={selectedJob.model_adapter_used ?? "Pending"} />
+                <JobFact label="Duration" value={formatJobDuration(selectedJob)} />
+              </div>
+              {selectedJob.error ? (
+                <Alert variant="destructive">
+                  <CircleX />
+                  <AlertTitle>{selectedJob.error.code}</AlertTitle>
+                  <AlertDescription>{selectedJob.error.message}</AlertDescription>
+                </Alert>
+              ) : null}
+              {selectedJob.result ? (
+                <Tabs value={resultView} onValueChange={(value) => setResultView(value as ParseResultView)}>
+                  <TabsList>
+                    <TabsTrigger value="document">Document</TabsTrigger>
+                    <TabsTrigger value="pages">Per page ({selectedJob.result.page_count})</TabsTrigger>
+                    <TabsTrigger value="raw">Raw Markdown</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="document">
+                    <MarkdownPreview content={selectedJob.result.content} />
+                  </TabsContent>
+                  <TabsContent value="pages" className="flex flex-col gap-3">
+                    <NativeSelect
+                      aria-label="Parsed page"
+                      value={String(selectedPage)}
+                      onChange={(event) => setSelectedPage(Number(event.target.value))}
+                    >
+                      {selectedJob.result.pages.map((page) => (
+                        <NativeSelectOption key={page.page_number} value={String(page.page_number)}>
+                          Page {page.page_number}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                    <MarkdownPreview content={selectedResultPage?.content ?? ""} />
+                  </TabsContent>
+                  <TabsContent value="raw">
+                    <pre className="max-h-[640px] overflow-auto whitespace-pre-wrap rounded-xl border bg-muted/30 p-4 font-mono text-sm">
+                      {selectedJob.result.content}
+                    </pre>
+                  </TabsContent>
+                </Tabs>
+              ) : selectedJob.status === "queued" || selectedJob.status === "running" ? (
+                <div className="flex items-center gap-3 rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  ParseHawk is processing the document page by page.
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
+      </main>
+    </div>
+  );
+}
+
+function MarkdownPreview(props: { content: string }) {
+  return (
+    <article className="min-h-48 rounded-xl border bg-card p-5 text-sm leading-7">
+      {props.content.split("\n").map((line, index) => {
+        const key = `${index}-${line.slice(0, 16)}`;
+        if (line.startsWith("### ")) return <h3 key={key} className="mt-5 text-lg font-semibold">{line.slice(4)}</h3>;
+        if (line.startsWith("## ")) return <h2 key={key} className="mt-6 text-xl font-semibold">{line.slice(3)}</h2>;
+        if (line.startsWith("# ")) return <h1 key={key} className="mb-4 text-2xl font-semibold">{line.slice(2)}</h1>;
+        if (/^[-*] /.test(line)) return <div key={key} className="ml-4">• {line.slice(2)}</div>;
+        if (/^\d+\. /.test(line)) return <div key={key} className="ml-4">{line}</div>;
+        if (line === "<!-- page-break -->") return <Separator key={key} className="my-6" />;
+        return line ? <p key={key} className="whitespace-pre-wrap">{line}</p> : <br key={key} />;
+      })}
+    </article>
   );
 }
 
@@ -2264,13 +2927,13 @@ function ExtractorList(props: {
   );
 }
 
-function JobHistory(props: {
+function ExtractionJobHistory(props: {
   extractor: Extractor | null;
-  jobs: Job[];
+  jobs: ExtractionJob[];
   selectedJobId: string;
   onDelete: (jobId: string) => void;
   onRefresh: () => void;
-  onSelect: (job: Job) => void;
+  onSelect: (job: ExtractionJob) => void;
 }) {
   const [confirmJobId, setConfirmJobId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -2285,7 +2948,7 @@ function JobHistory(props: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Jobs</CardTitle>
+        <CardTitle>Extraction jobs</CardTitle>
         <CardDescription className="flex flex-wrap items-center gap-1.5">
           {props.extractor ? (
             <>
@@ -2461,7 +3124,7 @@ function TextInputSection(props: { text: string }) {
   );
 }
 
-function ResultSection(props: { job: Job }) {
+function ResultSection(props: { job: ExtractionJob }) {
   const data = props.job.result?.data ?? null;
   const showResultTabs = Boolean(props.job.result);
   return (
@@ -2492,7 +3155,7 @@ function ResultSection(props: { job: Job }) {
   );
 }
 
-function JobProgressPanel(props: { job: Job | null }) {
+function JobProgressPanel(props: { job: ExtractionJob | null }) {
   if (!props.job) {
     return (
       <EmptyState
@@ -2528,7 +3191,7 @@ function JobProgressPanel(props: { job: Job | null }) {
 
           <Field>
             <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Job progress</FieldLabel>
+              <FieldLabel>Extraction job progress</FieldLabel>
               <span className="text-sm text-muted-foreground">{status.progress}%</span>
             </div>
             <Progress value={status.progress} />
@@ -2921,6 +3584,16 @@ function isPdf(fileRecord: FileRecord) {
   return fileRecord.content_type === "application/pdf" || fileRecord.file_name.toLowerCase().endsWith(".pdf");
 }
 
+function isParseFile(fileRecord: FileRecord) {
+  const name = fileRecord.file_name.toLowerCase();
+  return (
+    isPdf(fileRecord) ||
+    fileRecord.content_type === "image/png" ||
+    fileRecord.content_type === "image/jpeg" ||
+    /\.(png|jpe?g)$/.test(name)
+  );
+}
+
 function formatResultValue(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (typeof value === "string") return value || "";
@@ -2938,7 +3611,7 @@ function jobStatusCopy(status: JobStatus): {
   if (status === "queued") {
     return {
       title: "Queued",
-      description: "Job is queued.",
+      description: "The job is queued.",
       progress: 20,
       tone: "default",
       icon: Clock3
@@ -2956,7 +3629,7 @@ function jobStatusCopy(status: JobStatus): {
   if (status === "completed") {
     return {
       title: "Completed",
-      description: "The structured result is ready to review.",
+      description: "The result is ready to review.",
       progress: 100,
       tone: "success",
       icon: CheckCircle2
@@ -2999,7 +3672,7 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
-function formatJobDuration(job: Job) {
+function formatJobDuration(job: ExtractionJob | ParseJob) {
   if (!job.completed_at) {
     return "In progress";
   }
@@ -3026,12 +3699,31 @@ function trimTrailingZero(value: string) {
   return value.endsWith(".0") ? value.slice(0, -2) : value;
 }
 
-function upsertJob(jobs: Job[], job: Job) {
+function upsertJob(jobs: ExtractionJob[], job: ExtractionJob) {
   return sortJobs([job, ...jobs.filter((current) => current.id !== job.id)]);
 }
 
-function sortJobs(jobs: Job[]) {
+function sortJobs(jobs: ExtractionJob[]) {
   return [...jobs].sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+}
+
+function upsertParseJob(jobs: ParseJob[], job: ParseJob) {
+  return sortParseJobs([job, ...jobs.filter((current) => current.id !== job.id)]);
+}
+
+function sortParseJobs(jobs: ParseJob[]) {
+  return [...jobs].sort(
+    (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at)
+  );
+}
+
+function downloadText(fileName: string, content: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: "text/markdown;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatFileType(contentType: string) {

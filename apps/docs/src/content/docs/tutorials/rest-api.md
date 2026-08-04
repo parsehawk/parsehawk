@@ -36,7 +36,7 @@ The API stores the file locally and returns a public ID beginning with `file_`.
 ```console
 JOB_ID=$(
   curl --fail --silent --show-error \
-    --request POST "$API/v1/jobs" \
+    --request POST "$API/v1/extraction-jobs" \
     --header "Content-Type: application/json" \
     --data "{\"extractor_name\":\"receipt\",\"file_id\":\"$FILE_ID\"}" |
     jq -r '.id'
@@ -52,7 +52,7 @@ has completed; it means the job was accepted.
 
 ```console
 while true; do
-  JOB=$(curl --fail --silent --show-error "$API/v1/jobs/$JOB_ID")
+  JOB=$(curl --fail --silent --show-error "$API/v1/extraction-jobs/$JOB_ID")
   STATUS=$(jq -r '.status' <<<"$JOB")
   printf 'status=%s\n' "$STATUS"
 
