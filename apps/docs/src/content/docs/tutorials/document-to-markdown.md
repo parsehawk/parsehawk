@@ -100,5 +100,5 @@ Open `http://127.0.0.1:5173`, select **Parse**, upload a PDF or image, keep
 - cancellation, deletion, and actionable errors
 
 Custom parsers can add instructions or choose another vision-capable configured
-model. The server-wide per-page generation budget defaults to 8,192 tokens and
+model. The server-wide per-page generation budget defaults to 4,096 tokens and
 is configured with `PARSEHAWK_PARSING_MAX_TOKENS`.

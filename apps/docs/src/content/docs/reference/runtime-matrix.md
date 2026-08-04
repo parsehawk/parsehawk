@@ -33,7 +33,7 @@ runtime is unavailable. Start with `parsehawk start -x runtime`.
 | ------------------------- | ------------------------------------------- |
 | Model                     | `numind/NuExtract3-W4A16`                   |
 | Extraction output tokens  | `2048`                                      |
-| Parsing tokens per page   | `8192`                                      |
+| Parsing tokens per page   | `4096`                                      |
 | Base maximum model length | `8192` before platform-profile adjustment   |
 | Base maximum sequences    | `1` before platform-profile adjustment      |
 | Linux vLLM package/image  | `vllm==0.23.0` / `vllm/vllm-openai:v0.23.0` |

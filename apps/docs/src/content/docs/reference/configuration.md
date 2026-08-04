@@ -27,7 +27,7 @@ Values are read when each process starts.
 | `PARSEHAWK_VLLM_BASE_URL` | string | `http://127.0.0.1:8080/v1` | OpenAI-compatible base URL for the local vLLM runtime. |
 | `PARSEHAWK_VLLM_MODEL` | string | `numind/NuExtract3-W4A16` | Model identifier served by the bundled vLLM runtime. |
 | `PARSEHAWK_VLLM_MAX_TOKENS` | integer | `2048` | Maximum generated tokens per extraction request. Constraint: minimum `1`. |
-| `PARSEHAWK_PARSING_MAX_TOKENS` | integer | `8192` | Maximum generated tokens for each parsed document page. Constraint: minimum `1`. |
+| `PARSEHAWK_PARSING_MAX_TOKENS` | integer | `4096` | Maximum generated tokens for each parsed document page. Keep this below the model context length so the page image and prompt still fit. Constraint: minimum `1`. |
 | `PARSEHAWK_VLLM_TEMPERATURE` | number | `0.2` | Sampling temperature for the bundled runtime. Constraint: minimum `0`. |
 | `PARSEHAWK_VLLM_TIMEOUT_SECONDS` | integer | `600` | Timeout for one model request in seconds. Constraint: minimum `1`. |
 | `PARSEHAWK_VLLM_MAX_MODEL_LEN` | integer | `8192` | Maximum vLLM context length in tokens. Constraint: minimum `1`. |
