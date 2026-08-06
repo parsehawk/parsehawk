@@ -9,7 +9,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
-    "cryptography>=49.0.0",
+    "cryptography>=50.0.0",
     "fastapi>=0.115.0",
     "jsonschema>=4.23.0",
     "openai>=2.44.0",
