@@ -10,20 +10,28 @@ overrides:
   # The packages below are transitive deps with open security advisories
   # (GHSA-frvp-7c67-39w9, GHSA-3jxr-9vmj-r5cp, GHSA-v2hh-gcrm-f6hx,
   # GHSA-hmw2-7cc7-3qxx, GHSA-w62v-xxxg-mg59, GHSA-52cp-r559-cp3m,
-  # GHSA-r28c-9q8g-f849); all reach us via dev tooling (shadcn CLI, vite,
-  # astro, and friends). The lockfile holds a single major of each, so a
-  # blanket floor at the first patched release is safe.
+  # GHSA-r28c-9q8g-f849, GHSA-rgw5-rvv9-x895, GHSA-7p8r-x3mc-p8w7,
+  # GHSA-8j4g-w8fx-2239, GHSA-mwp4-54f8-5fhr, GHSA-4xrf-jv44-h6hh,
+  # GHSA-22jq-vg5j-6vgg, GHSA-4cwx-7wf7-3272, GHSA-8xcm-r25x-g524,
+  # GHSA-v3r7-h72x-cjcm, GHSA-jr45-8vmc-qm54, GHSA-m8rv-5g2x-5cg5);
+  # all reach us via dev tooling (shadcn CLI, vite, astro, and friends)
+  # or, for ip-address, via express-rate-limit. The lockfile holds a
+  # single major of each, so a blanket floor at the first patched
+  # release is safe.
   # @hono/node-server 2.x is a major bump, but its dependent
   # (@modelcontextprotocol/sdk) accepts "^1.19.9 || ^2.0.5" as of 1.30.0.
-  # fast-uri and js-yaml use caret ranges to stay on the major their
-  # dependents (ajv and friends) actually declare.
+  # fast-uri, js-yaml, and undici use caret ranges to stay on the major
+  # their dependents (ajv, @dotenvx/dotenvx, and friends) actually
+  # declare.
   "@hono/node-server": ">=2.0.5"
-  brace-expansion: ">=5.0.7"
-  fast-uri: "^3.1.4"
+  brace-expansion: ">=5.0.9"
+  fast-uri: "^3.1.5"
   form-data: ">=4.0.6"
-  hono: ">=4.12.27"
+  hono: ">=4.12.34"
+  ip-address: ">=10.3.1"
   js-yaml: "^4.3.0"
   postcss: ">=8.5.18"
+  undici: "^7.29.0"
 
 # systeminformation is a transitive dep (shadcn -> @dotenvx/dotenvx) whose 5.31.8
 # release landed in our lockfile <24h after publish. Exempt only this reviewed
