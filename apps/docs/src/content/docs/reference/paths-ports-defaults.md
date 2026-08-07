@@ -43,8 +43,15 @@ service processes.
 | Plain text | `.txt`                  |
 | Markdown   | `.md`, `.markdown`      |
 
-PDFs render at 170 DPI and accept at most 25 pages by default. Override with
-`PARSEHAWK_PDF_RENDER_DPI` and `PARSEHAWK_PDF_MAX_PAGES`.
+Extraction accepts every file type above and also supports inline text. Parsing
+accepts only PDF, JPEG, and PNG. A standalone image is one page.
+
+PDFs in either workflow render at 170 DPI and accept at most 25 pages by default.
+Override with `PARSEHAWK_PDF_RENDER_DPI` and `PARSEHAWK_PDF_MAX_PAGES`.
+
+Extraction generates at most 2,048 tokens per model request by default through
+`PARSEHAWK_VLLM_MAX_TOKENS`. Parsing has a separate 4,096-token budget for each
+page through `PARSEHAWK_PARSING_MAX_TOKENS`; both values must be at least 1.
 
 ## Cross-cutting controls
 

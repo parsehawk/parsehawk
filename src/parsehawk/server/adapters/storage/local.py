@@ -11,6 +11,12 @@ from parsehawk.core.application.ports import PreparedDocument, PreparedImage
 from parsehawk.core.domain.errors import ValidationFailure
 from parsehawk.core.domain.models import File
 
+IMAGE_CONTENT_TYPES_BY_SUFFIX = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+}
+
 
 class LocalFileStorage:
     def __init__(
@@ -49,15 +55,17 @@ class LocalFileStorage:
         path = self.resolve_path(file.storage_path)
         storage_path = str(path)
         suffix = path.suffix.lower()
-        if file.content_type.startswith("image/") or suffix in {".jpg", ".jpeg", ".png"}:
+        if file.content_type.startswith("image/") or suffix in IMAGE_CONTENT_TYPES_BY_SUFFIX:
+            content_type = IMAGE_CONTENT_TYPES_BY_SUFFIX.get(suffix, file.content_type)
             return PreparedDocument(
                 text="",
                 storage_path=storage_path,
-                content_type=file.content_type,
+                content_type=content_type,
                 images=[
                     PreparedImage(
                         storage_path=storage_path,
-                        content_type=file.content_type,
+                        content_type=content_type,
+                        page_number=1,
                     )
                 ],
             )

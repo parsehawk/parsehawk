@@ -27,6 +27,7 @@ Values are read when each process starts.
 | `PARSEHAWK_VLLM_BASE_URL` | string | `http://127.0.0.1:8080/v1` | OpenAI-compatible base URL for the local vLLM runtime. |
 | `PARSEHAWK_VLLM_MODEL` | string | `numind/NuExtract3-W4A16` | Model identifier served by the bundled vLLM runtime. |
 | `PARSEHAWK_VLLM_MAX_TOKENS` | integer | `2048` | Maximum generated tokens per extraction request. Constraint: minimum `1`. |
+| `PARSEHAWK_PARSING_MAX_TOKENS` | integer | `4096` | Maximum generated tokens for each parsed document page. Keep this below the model context length so the page image and prompt still fit. Constraint: minimum `1`. |
 | `PARSEHAWK_VLLM_TEMPERATURE` | number | `0.2` | Sampling temperature for the bundled runtime. Constraint: minimum `0`. |
 | `PARSEHAWK_VLLM_TIMEOUT_SECONDS` | integer | `600` | Timeout for one model request in seconds. Constraint: minimum `1`. |
 | `PARSEHAWK_VLLM_MAX_MODEL_LEN` | integer | `8192` | Maximum vLLM context length in tokens. Constraint: minimum `1`. |
@@ -40,7 +41,7 @@ Values are read when each process starts.
 | `PARSEHAWK_VLLM_METAL_VERSION` | string | `0.3.0.dev20260708043308` | Pinned vLLM Metal release identifier. |
 | `PARSEHAWK_VLLM_METAL_VLLM_VERSION` | string | `0.24.0` | Upstream vLLM version matched by the vLLM Metal release. |
 | `PARSEHAWK_NUEXTRACT_KEEP_ALIVE_SECONDS` | integer | `300` | Seconds NuExtract model state remains warm between jobs. Constraint: minimum `0`. |
-| `PARSEHAWK_PDF_MAX_PAGES` | integer | `25` | Maximum number of PDF pages rendered for one extraction. Constraint: minimum `1`. |
+| `PARSEHAWK_PDF_MAX_PAGES` | integer | `25` | Maximum number of PDF pages rendered for one extraction or parse job. Constraint: minimum `1`. |
 | `PARSEHAWK_PDF_RENDER_DPI` | integer | `170` | DPI used when rendering PDF pages to images. Constraint: minimum `1`. |
 | `PARSEHAWK_TELEMETRY_DISABLED` | boolean | `false` | Disable anonymous usage analytics when true. |
 

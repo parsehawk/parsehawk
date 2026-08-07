@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Iterable, List, TypeVar
 
 from jsonschema import Draft202012Validator
@@ -15,6 +16,8 @@ from parsehawk.core.application.ports import (
     EngineFactory,
     ExtractionRequest,
     FileStorage,
+    ParsingEngineFactory,
+    ParsingRequest,
     PreparedDocument,
     UnitOfWork,
     UnitOfWorkFactory,
@@ -22,29 +25,41 @@ from parsehawk.core.application.ports import (
 from parsehawk.core.domain.errors import (
     ExtractionCancelled,
     NotFoundError,
+    ParsingCancelled,
     PersistenceBusyError,
+    ProviderRequestError,
     ValidationFailure,
 )
 from parsehawk.core.domain.ids import new_id
 from parsehawk.core.domain.models import (
     Example,
     ExampleInputKind,
+    ExtractionJob,
+    ExtractionResult,
     Extractor,
     ExtractorSource,
     File,
     FileSource,
-    Job,
-    JobResult,
     JobStatus,
+    ParseJob,
+    ParsePageResult,
+    Parser,
+    ParseResult,
+    ParserOutputFormat,
+    ParserSnapshot,
+    ParserSource,
     Provider,
     ProviderName,
     ReasoningEffort,
     ValidationIssue,
     extractor_name_suffix,
     normalize_provider_configuration,
+    parser_name_suffix,
     slugify_extractor_name,
+    slugify_parser_name,
     utc_now,
     validate_extractor_name,
+    validate_parser_name,
 )
 from parsehawk.core.domain.schemas import MODE_JSON_SCHEMA, validate_extraction_schema
 
@@ -69,7 +84,12 @@ class _NotProvided:
 NOT_PROVIDED = _NotProvided()
 
 
-class DeleteJobResult(StrEnum):
+class DeleteExtractionJobResult(StrEnum):
+    DELETED = "deleted"
+    ACCEPTED = "accepted"
+
+
+class DeleteParseJobResult(StrEnum):
     DELETED = "deleted"
     ACCEPTED = "accepted"
 
@@ -132,7 +152,7 @@ class FileService:
             file = self._get(uow, file_id)
             if file.is_example:
                 raise ValidationFailure("example files are read-only")
-            if uow.jobs.has_for_file(file_id):
+            if uow.extraction_jobs.has_for_file(file_id) or uow.parse_jobs.has_for_file(file_id):
                 raise ValidationFailure(
                     "file is referenced by jobs; delete those jobs before deleting the file"
                 )
@@ -355,7 +375,7 @@ class ExtractorService:
         with self._uow_factory(write=True) as uow:
             extractor = self._get_by_ref(uow, extractor_ref)
             self._ensure_mutable(extractor)
-            if uow.jobs.has_for_extractor(extractor.id):
+            if uow.extraction_jobs.has_for_extractor(extractor.id):
                 raise ValidationFailure(
                     "extractor is referenced by jobs; delete those jobs before deleting the extractor"
                 )
@@ -471,6 +491,250 @@ class ExtractorService:
         return parsed_examples
 
 
+class ParserService:
+    def __init__(
+        self,
+        uow_factory: UnitOfWorkFactory,
+        *,
+        default_model: str,
+        default_provider: ProviderName = DEFAULT_PROVIDER_NAME,
+    ) -> None:
+        self._uow_factory = uow_factory
+        self._default_model = default_model
+        self._default_provider = default_provider
+
+    def create(
+        self,
+        *,
+        display_name: str | None = None,
+        name: str | None = None,
+        output_format: ParserOutputFormat = ParserOutputFormat.MARKDOWN,
+        instructions: str = "",
+        reasoning_effort: ReasoningEffort | None = None,
+        provider_name: ProviderName | None = None,
+        model: str | None = None,
+        source: ParserSource = ParserSource.USER,
+        seed_key: str | None = None,
+        seed_version: int | None = None,
+    ) -> Parser:
+        with self._uow_factory(write=True) as uow:
+            parser = self._create(
+                uow,
+                display_name=display_name,
+                name=name,
+                output_format=output_format,
+                instructions=instructions,
+                reasoning_effort=reasoning_effort,
+                provider_name=provider_name,
+                model=model,
+                source=source,
+                seed_key=seed_key,
+                seed_version=seed_version,
+            )
+            uow.commit()
+            return parser
+
+    def _create(
+        self,
+        uow: UnitOfWork,
+        *,
+        display_name: str | None,
+        name: str | None,
+        output_format: ParserOutputFormat,
+        instructions: str,
+        reasoning_effort: ReasoningEffort | None,
+        provider_name: ProviderName | None,
+        model: str | None,
+        source: ParserSource,
+        seed_key: str | None,
+        seed_version: int | None,
+    ) -> Parser:
+        if display_name is None:
+            if name is None:
+                raise ValidationFailure("display_name is required")
+            display_name = name
+        self._validate_display_name(display_name)
+        parser_id = new_id("parser")
+        stable_name = name or self._unique_generated_name(uow, display_name, parser_id)
+        self._validate_new_name(uow, stable_name)
+        resolved_provider = provider_name or self._default_provider
+        parser = Parser(
+            id=parser_id,
+            name=stable_name,
+            display_name=display_name,
+            output_format=output_format,
+            instructions=instructions,
+            reasoning_effort=reasoning_effort,
+            provider_name=resolved_provider,
+            model=self._normalize_model(resolved_provider, model),
+            source=source,
+            seed_key=seed_key,
+            seed_version=seed_version,
+        )
+        uow.parsers.save(parser)
+        return parser
+
+    def list(self) -> List[Parser]:
+        with self._uow_factory() as uow:
+            return uow.parsers.list()
+
+    def get_by_ref(self, parser_ref: str) -> Parser:
+        with self._uow_factory() as uow:
+            return self._get_by_ref(uow, parser_ref)
+
+    def update(
+        self,
+        parser_ref: str,
+        *,
+        display_name: str | None = None,
+        output_format: ParserOutputFormat | None = None,
+        instructions: str | None = None,
+        reasoning_effort: ReasoningEffort | None | _NotProvided = NOT_PROVIDED,
+        provider_name: ProviderName | None = None,
+        model: str | None | _NotProvided = NOT_PROVIDED,
+    ) -> Parser:
+        with self._uow_factory(write=True) as uow:
+            current = self._get_by_ref(uow, parser_ref)
+            self._ensure_mutable(current)
+            updates: dict[str, Any] = {"updated_at": utc_now()}
+            if display_name is not None:
+                self._validate_display_name(display_name)
+                updates["display_name"] = display_name
+            if output_format is not None:
+                updates["output_format"] = output_format
+            if instructions is not None:
+                updates["instructions"] = instructions
+            if not isinstance(reasoning_effort, _NotProvided):
+                updates["reasoning_effort"] = reasoning_effort
+            resolved_provider = provider_name or current.provider_name or self._default_provider
+            if provider_name is not None:
+                updates["provider_name"] = provider_name
+            if not isinstance(model, _NotProvided):
+                updates["model"] = self._normalize_model(resolved_provider, model)
+            elif provider_name is not None:
+                self._normalize_model(resolved_provider, current.model)
+            updated = current.model_copy(update=updates)
+            uow.parsers.save(updated)
+            uow.commit()
+            return updated
+
+    def upsert(
+        self,
+        parser_ref: str,
+        *,
+        display_name: str,
+        body_name: str | None = None,
+        output_format: ParserOutputFormat = ParserOutputFormat.MARKDOWN,
+        instructions: str = "",
+        reasoning_effort: ReasoningEffort | None = None,
+        provider_name: ProviderName | None = None,
+        model: str | None = None,
+    ) -> Parser:
+        with self._uow_factory(write=True) as uow:
+            existing = self._resolve_ref(uow, parser_ref)
+            if existing is None:
+                self._validate_new_name(uow, parser_ref)
+                if body_name is not None and body_name != parser_ref:
+                    raise ValidationFailure("request body name must match the target parser name")
+                parser = self._create(
+                    uow,
+                    name=parser_ref,
+                    display_name=display_name,
+                    output_format=output_format,
+                    instructions=instructions,
+                    reasoning_effort=reasoning_effort,
+                    provider_name=provider_name,
+                    model=model,
+                    source=ParserSource.USER,
+                    seed_key=None,
+                    seed_version=None,
+                )
+            else:
+                self._ensure_mutable(existing)
+                if body_name is not None and body_name != existing.name:
+                    raise ValidationFailure("request body name must match the target parser name")
+                resolved_provider = provider_name or self._default_provider
+                self._validate_display_name(display_name)
+                parser = existing.model_copy(
+                    update={
+                        "display_name": display_name,
+                        "output_format": output_format,
+                        "instructions": instructions,
+                        "reasoning_effort": reasoning_effort,
+                        "provider_name": resolved_provider,
+                        "model": self._normalize_model(resolved_provider, model),
+                        "updated_at": utc_now(),
+                    }
+                )
+                uow.parsers.save(parser)
+            uow.commit()
+            return parser
+
+    def delete(self, parser_ref: str) -> None:
+        with self._uow_factory(write=True) as uow:
+            parser = self._get_by_ref(uow, parser_ref)
+            self._ensure_mutable(parser)
+            if uow.parse_jobs.has_for_parser(parser.id):
+                raise ValidationFailure(
+                    "parser is referenced by parse jobs; delete those jobs before deleting the parser"
+                )
+            uow.parsers.delete(parser.id)
+            uow.commit()
+
+    @staticmethod
+    def _resolve_ref(uow: UnitOfWork, parser_ref: str) -> Parser | None:
+        return uow.parsers.get(parser_ref) or uow.parsers.get_by_name(parser_ref)
+
+    @classmethod
+    def _get_by_ref(cls, uow: UnitOfWork, parser_ref: str) -> Parser:
+        parser = cls._resolve_ref(uow, parser_ref)
+        if parser is None:
+            raise NotFoundError("parser", parser_ref)
+        return parser
+
+    def _unique_generated_name(self, uow: UnitOfWork, display_name: str, parser_id: str) -> str:
+        base = slugify_parser_name(display_name)
+        if uow.parsers.get_by_name(base) is None:
+            return base
+        for suffix_length in (8, 10, 12, 16, 32):
+            suffix = parser_name_suffix(parser_id, suffix_length)
+            max_base_len = 64 - len(suffix) - 1
+            candidate = f"{base[:max_base_len].rstrip('-_')}-{suffix}"
+            if uow.parsers.get_by_name(candidate) is None:
+                return candidate
+        raise ValidationFailure("could not generate a unique parser name")
+
+    @staticmethod
+    def _validate_new_name(uow: UnitOfWork, name: str) -> None:
+        try:
+            validate_parser_name(name)
+        except ValueError as exc:
+            raise ValidationFailure(str(exc)) from exc
+        if uow.parsers.get_by_name(name) is not None:
+            raise ValidationFailure(f"parser name already exists: {name}")
+
+    @staticmethod
+    def _validate_display_name(display_name: str) -> None:
+        if not display_name.strip():
+            raise ValidationFailure("display_name is required")
+
+    @staticmethod
+    def _ensure_mutable(parser: Parser) -> None:
+        if parser.is_prebuilt:
+            raise ValidationFailure(
+                "prebuilt parsers are read-only; create your own parser instead"
+            )
+
+    @staticmethod
+    def _normalize_model(provider_name: ProviderName, model: str | None) -> str | None:
+        normalized = model.strip() if isinstance(model, str) else None
+        if provider_name == ProviderName.OPENAI_COMPATIBLE:
+            return normalized or None
+        if not normalized:
+            raise ValidationFailure(f"model is required for provider {provider_name.value}")
+        return normalized
+
+
 class ProviderService:
     """Read and configure the fixed set of model providers.
 
@@ -568,7 +832,7 @@ class ProviderService:
         return None
 
 
-class JobService:
+class ExtractionJobService:
     def __init__(
         self,
         uow_factory: UnitOfWorkFactory,
@@ -586,7 +850,7 @@ class JobService:
         extractor_name: str | None = None,
         file_id: str | None = None,
         text: str | None = None,
-    ) -> Job:
+    ) -> ExtractionJob:
         provided_extractors = [extractor_id is not None, extractor_name is not None]
         if provided_extractors.count(True) != 1:
             raise ValidationFailure("provide exactly one of extractor_id or extractor_name")
@@ -606,24 +870,26 @@ class JobService:
                 raise NotFoundError("extractor", extractor_id or extractor_name or "")
             if file_id is not None and uow.files.get(file_id) is None:
                 raise NotFoundError("file", file_id)
-            job = Job(
+            job = ExtractionJob(
                 id=new_id("job"),
                 extractor_id=extractor.id,
                 file_id=file_id,
                 source_text=text,
                 status=JobStatus.QUEUED,
             )
-            uow.jobs.save(job)
+            uow.extraction_jobs.save(job)
             uow.commit()
             return job
 
-    def list(self, extractor_id: str | None = None, extractor_name: str | None = None) -> List[Job]:
+    def list(
+        self, extractor_id: str | None = None, extractor_name: str | None = None
+    ) -> List[ExtractionJob]:
         provided_extractors = [extractor_id is not None, extractor_name is not None]
         if provided_extractors.count(True) > 1:
             raise ValidationFailure("provide only one of extractor_id or extractor_name")
         with self._uow_factory() as uow:
             if extractor_id is None and extractor_name is None:
-                return uow.jobs.list()
+                return uow.extraction_jobs.list()
             extractor = (
                 uow.extractors.get(extractor_id)
                 if extractor_id is not None
@@ -631,13 +897,13 @@ class JobService:
             )
             if extractor is None:
                 raise NotFoundError("extractor", extractor_id or extractor_name or "")
-            return uow.jobs.list(extractor_id=extractor.id)
+            return uow.extraction_jobs.list(extractor_id=extractor.id)
 
-    def get(self, job_id: str) -> Job:
+    def get(self, job_id: str) -> ExtractionJob:
         with self._uow_factory() as uow:
             return self._get(uow, job_id)
 
-    def cancel(self, job_id: str) -> Job:
+    def cancel(self, job_id: str) -> ExtractionJob:
         while True:
             with self._uow_factory(write=True) as uow:
                 job = self._get(uow, job_id)
@@ -649,12 +915,12 @@ class JobService:
                     expected = [JobStatus.RUNNING]
                 else:
                     raise ValidationFailure(f"cannot cancel job in '{job.status.value}' state")
-                saved = uow.jobs.save_if_status(next_job, expected)
+                saved = uow.extraction_jobs.save_if_status(next_job, expected)
                 if saved:
                     uow.commit()
                     return next_job
 
-    def delete(self, job_id: str) -> DeleteJobResult:
+    def delete(self, job_id: str) -> DeleteExtractionJobResult:
         while True:
             with self._uow_factory(write=True) as uow:
                 job = self._get(uow, job_id)
@@ -664,28 +930,28 @@ class JobService:
                     JobStatus.FAILED,
                     JobStatus.CANCELED,
                 }:
-                    changed = uow.jobs.delete_if_status(job_id, [job.status])
-                    result = DeleteJobResult.DELETED
+                    changed = uow.extraction_jobs.delete_if_status(job_id, [job.status])
+                    result = DeleteExtractionJobResult.DELETED
                 elif job.status in {JobStatus.RUNNING, JobStatus.CANCELING}:
-                    changed = uow.jobs.save_if_status(job.mark_deleting(), [job.status])
-                    result = DeleteJobResult.ACCEPTED
+                    changed = uow.extraction_jobs.save_if_status(job.mark_deleting(), [job.status])
+                    result = DeleteExtractionJobResult.ACCEPTED
                 elif job.status == JobStatus.DELETING:
-                    return DeleteJobResult.ACCEPTED
+                    return DeleteExtractionJobResult.ACCEPTED
                 else:  # pragma: no cover - JobStatus is exhaustively handled above
                     raise ValidationFailure(f"cannot delete job in '{job.status.value}' state")
                 if changed:
                     uow.commit()
                     return result
 
-    def run_next_queued(self) -> Job | None:
+    def run_next_queued(self) -> ExtractionJob | None:
         with self._uow_factory(write=True) as uow:
-            claimed = uow.jobs.claim_next_queued()
+            claimed = uow.extraction_jobs.claim_next_queued()
             uow.commit()
         if claimed is None:
             return None
         return self.run_claimed(claimed)
 
-    def run_claimed(self, job: Job) -> Job:
+    def run_claimed(self, job: ExtractionJob) -> ExtractionJob:
         running = job if job.status == JobStatus.RUNNING else job.mark_running()
         if job.status != JobStatus.RUNNING and not self._save_if_status(running, [job.status]):
             canceled = self._cancel_if_requested(running.id)
@@ -743,7 +1009,7 @@ class JobService:
                 cancellation_check=cancellation_requested,
             )
             validation_errors = self._validate_output(extractor.schema, response.data)
-            result = JobResult(data=response.data, validation_errors=validation_errors)
+            result = ExtractionResult(data=response.data, validation_errors=validation_errors)
             completed = (
                 running.mark_completed(result)
                 if result.valid
@@ -770,7 +1036,7 @@ class JobService:
             return self._record_failure(running, str(exc), check_cancellation=True)
 
     def _load_execution_state(
-        self, job: Job
+        self, job: ExtractionJob
     ) -> tuple[Extractor, File | None, dict[str, File], Provider | None, str | None]:
         def load() -> tuple[Extractor, File | None, dict[str, File], Provider | None, str | None]:
             with self._uow_factory() as uow:
@@ -798,7 +1064,9 @@ class JobService:
 
         return self._retry_persistence(load, job_id=job.id, phase="loading execution state")
 
-    def _record_failure(self, running: Job, message: str, *, check_cancellation: bool) -> Job:
+    def _record_failure(
+        self, running: ExtractionJob, message: str, *, check_cancellation: bool
+    ) -> ExtractionJob:
         failed = running.mark_failed(message)
         if self._save_if_status(failed, [JobStatus.RUNNING]):
             return failed
@@ -808,41 +1076,41 @@ class JobService:
                 return canceled
         return self._get_optional(running.id) or failed
 
-    def _cancel_if_requested(self, job_id: str) -> Job | None:
-        def cancel() -> Job | None:
+    def _cancel_if_requested(self, job_id: str) -> ExtractionJob | None:
+        def cancel() -> ExtractionJob | None:
             with self._uow_factory(write=True) as uow:
-                latest = uow.jobs.get(job_id)
+                latest = uow.extraction_jobs.get(job_id)
                 if latest is None:
                     return None
                 if latest.status == JobStatus.CANCELED:
                     return latest
                 if latest.status == JobStatus.DELETING:
-                    uow.jobs.delete(latest.id)
+                    uow.extraction_jobs.delete(latest.id)
                     uow.commit()
                     return latest
                 if latest.status != JobStatus.CANCELING:
                     return None
                 canceled = latest.mark_canceled()
-                if uow.jobs.save_if_status(canceled, [JobStatus.CANCELING]):
+                if uow.extraction_jobs.save_if_status(canceled, [JobStatus.CANCELING]):
                     uow.commit()
                     return canceled
             return self._get_optional(job_id) or canceled
 
         return self._retry_persistence(cancel, job_id=job_id, phase="applying cancellation")
 
-    def _save_if_status(self, job: Job, expected: Iterable[JobStatus]) -> bool:
+    def _save_if_status(self, job: ExtractionJob, expected: Iterable[JobStatus]) -> bool:
         def save() -> bool:
             with self._uow_factory(write=True) as uow:
-                saved = uow.jobs.save_if_status(job, expected)
+                saved = uow.extraction_jobs.save_if_status(job, expected)
                 uow.commit()
                 return saved
 
         return self._retry_persistence(save, job_id=job.id, phase="saving state")
 
-    def _get_optional(self, job_id: str) -> Job | None:
-        def get() -> Job | None:
+    def _get_optional(self, job_id: str) -> ExtractionJob | None:
+        def get() -> ExtractionJob | None:
             with self._uow_factory() as uow:
-                return uow.jobs.get(job_id)
+                return uow.extraction_jobs.get(job_id)
 
         return self._retry_persistence(get, job_id=job_id, phase="reading state")
 
@@ -861,8 +1129,8 @@ class JobService:
                 time.sleep(WORKER_PERSISTENCE_RETRY_DELAY_SECONDS)
 
     @staticmethod
-    def _get(uow: UnitOfWork, job_id: str) -> Job:
-        job = uow.jobs.get(job_id)
+    def _get(uow: UnitOfWork, job_id: str) -> ExtractionJob:
+        job = uow.extraction_jobs.get(job_id)
         if job is None:
             raise NotFoundError("job", job_id)
         return job
@@ -876,7 +1144,7 @@ class JobService:
             issues.append(ValidationIssue(path=path or "$", message=error.message))
         return issues
 
-    def _prepare_job_source(self, job: Job, file: File | None) -> PreparedDocument:
+    def _prepare_job_source(self, job: ExtractionJob, file: File | None) -> PreparedDocument:
         if job.file_id is not None:
             assert file is not None
             return self._storage.prepare_document(file)
@@ -916,3 +1184,337 @@ class JobService:
                 }
             resolved_examples.append({"input": example_input, "output": example.output})
         return resolved_examples
+
+
+class ParseJobService:
+    def __init__(
+        self,
+        uow_factory: UnitOfWorkFactory,
+        storage: FileStorage,
+        engine_factory: ParsingEngineFactory,
+    ) -> None:
+        self._uow_factory = uow_factory
+        self._storage = storage
+        self._engine_factory = engine_factory
+
+    def create(
+        self,
+        *,
+        parser_id: str | None = None,
+        parser_name: str | None = None,
+        file_id: str,
+    ) -> ParseJob:
+        selectors = [parser_id is not None, parser_name is not None]
+        if selectors.count(True) != 1:
+            raise ValidationFailure("provide exactly one of parser_id or parser_name")
+        with self._uow_factory(write=True) as uow:
+            parser = (
+                uow.parsers.get(parser_id)
+                if parser_id is not None
+                else uow.parsers.get_by_name(parser_name or "")
+            )
+            if parser is None:
+                raise NotFoundError("parser", parser_id or parser_name or "")
+            file = uow.files.get(file_id)
+            if file is None:
+                raise NotFoundError("file", file_id)
+            suffix = Path(file.file_name).suffix.lower()
+            if suffix not in {".pdf", ".jpg", ".jpeg", ".png"}:
+                raise ValidationFailure("parse jobs require a PDF, JPG/JPEG, or PNG file")
+            job = ParseJob(
+                id=new_id("parse_job"),
+                parser_id=parser.id,
+                file_id=file.id,
+                parser_snapshot=ParserSnapshot.from_parser(parser),
+                status=JobStatus.QUEUED,
+            )
+            uow.parse_jobs.save(job)
+            uow.commit()
+            return job
+
+    def list(
+        self,
+        parser_id: str | None = None,
+        parser_name: str | None = None,
+    ) -> List[ParseJob]:
+        selectors = [parser_id is not None, parser_name is not None]
+        if selectors.count(True) > 1:
+            raise ValidationFailure("provide only one of parser_id or parser_name")
+        with self._uow_factory() as uow:
+            if parser_id is None and parser_name is None:
+                return uow.parse_jobs.list()
+            parser = (
+                uow.parsers.get(parser_id)
+                if parser_id is not None
+                else uow.parsers.get_by_name(parser_name or "")
+            )
+            if parser is None:
+                raise NotFoundError("parser", parser_id or parser_name or "")
+            return uow.parse_jobs.list(parser_id=parser.id)
+
+    def get(self, job_id: str) -> ParseJob:
+        with self._uow_factory() as uow:
+            return self._get(uow, job_id)
+
+    def cancel(self, job_id: str) -> ParseJob:
+        while True:
+            with self._uow_factory(write=True) as uow:
+                job = self._get(uow, job_id)
+                if job.status == JobStatus.QUEUED:
+                    next_job = job.mark_canceled()
+                    expected = [JobStatus.QUEUED]
+                elif job.status == JobStatus.RUNNING:
+                    next_job = job.mark_canceling()
+                    expected = [JobStatus.RUNNING]
+                else:
+                    raise ValidationFailure(
+                        f"cannot cancel parse job in '{job.status.value}' state"
+                    )
+                if uow.parse_jobs.save_if_status(next_job, expected):
+                    uow.commit()
+                    return next_job
+
+    def delete(self, job_id: str) -> DeleteParseJobResult:
+        while True:
+            with self._uow_factory(write=True) as uow:
+                job = self._get(uow, job_id)
+                if job.status in {
+                    JobStatus.QUEUED,
+                    JobStatus.COMPLETED,
+                    JobStatus.FAILED,
+                    JobStatus.CANCELED,
+                }:
+                    changed = uow.parse_jobs.delete_if_status(job_id, [job.status])
+                    result = DeleteParseJobResult.DELETED
+                elif job.status in {JobStatus.RUNNING, JobStatus.CANCELING}:
+                    changed = uow.parse_jobs.save_if_status(job.mark_deleting(), [job.status])
+                    result = DeleteParseJobResult.ACCEPTED
+                elif job.status == JobStatus.DELETING:
+                    return DeleteParseJobResult.ACCEPTED
+                else:  # pragma: no cover
+                    raise ValidationFailure(
+                        f"cannot delete parse job in '{job.status.value}' state"
+                    )
+                if changed:
+                    uow.commit()
+                    return result
+
+    def run_next_queued(self) -> ParseJob | None:
+        with self._uow_factory(write=True) as uow:
+            claimed = uow.parse_jobs.claim_next_queued()
+            uow.commit()
+        if claimed is None:
+            return None
+        return self.run_claimed(claimed)
+
+    def run_claimed(self, job: ParseJob) -> ParseJob:
+        running = job if job.status == JobStatus.RUNNING else job.mark_running()
+        if job.status != JobStatus.RUNNING and not self._save_if_status(running, [job.status]):
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
+                return canceled
+            return self._get_optional(running.id) or running
+        try:
+            source_file, provider, api_key = self._load_execution_state(running)
+            resolved = self._engine_factory.resolve_parser_config(running.parser_snapshot)
+            running = running.with_execution_config(
+                provider_name=resolved.provider_name,
+                model=resolved.model,
+                reasoning_effort=resolved.reasoning_effort,
+                model_adapter=resolved.model_adapter,
+            )
+            if not self._save_if_status(running, [JobStatus.RUNNING]):
+                canceled = self._cancel_if_requested(running.id)
+                if canceled is not None:
+                    return canceled
+                return self._get_optional(running.id) or running
+
+            document = self._storage.prepare_document(source_file)
+            if not document.images:
+                raise ValidationFailure("parse jobs require rendered image pages")
+            engine = self._engine_factory.for_parser(
+                running.parser_snapshot,
+                provider=provider,
+                api_key=api_key,
+            )
+
+            def cancellation_requested() -> bool:
+                latest = self._get_optional(running.id)
+                return latest is not None and latest.status in {
+                    JobStatus.CANCELING,
+                    JobStatus.DELETING,
+                }
+
+            pages: list[ParsePageResult] = []
+            for index, image in enumerate(document.images, start=1):
+                canceled = self._cancel_if_requested(running.id)
+                if canceled is not None:
+                    return canceled
+                response = engine.parse_page(
+                    ParsingRequest(
+                        image=image,
+                        instructions=running.parser_snapshot.instructions,
+                        reasoning_effort=running.parser_snapshot.reasoning_effort,
+                    ),
+                    cancellation_check=cancellation_requested,
+                )
+                content = response.content.strip()
+                if not content:
+                    raise ValidationFailure(f"model returned empty Markdown for page {index}")
+                pages.append(
+                    ParsePageResult(
+                        page_number=image.page_number or index,
+                        content=content,
+                    )
+                )
+
+            completed = running.mark_completed(ParseResult(pages=pages))
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
+                return canceled
+            if self._save_if_status(completed, [JobStatus.RUNNING]):
+                return completed
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
+                return canceled
+            return self._get_optional(running.id) or completed
+        except ParsingCancelled as exc:
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
+                return canceled
+            return self._record_failure(running, str(exc), check_cancellation=False)
+        except ProviderRequestError as exc:
+            return self._record_failure(
+                running,
+                str(exc),
+                check_cancellation=True,
+                code=self._provider_failure_code(exc),
+            )
+        except ValidationFailure as exc:
+            return self._record_failure(
+                running,
+                str(exc),
+                check_cancellation=True,
+                code=self._validation_failure_code(exc),
+            )
+        except TimeoutError as exc:
+            return self._record_failure(
+                running,
+                str(exc),
+                check_cancellation=True,
+                code="parsing_timeout",
+            )
+        except Exception as exc:
+            return self._record_failure(running, str(exc), check_cancellation=True)
+
+    def _load_execution_state(self, job: ParseJob) -> tuple[File, Provider | None, str | None]:
+        def load() -> tuple[File, Provider | None, str | None]:
+            with self._uow_factory() as uow:
+                file = uow.files.get(job.file_id)
+                if file is None:
+                    raise NotFoundError("file", job.file_id)
+                resolved = self._engine_factory.resolve_parser_config(job.parser_snapshot)
+                provider = uow.providers.get(resolved.provider_name)
+                api_key = uow.secrets.get(resolved.provider_name)
+                return file, provider, api_key
+
+        return self._retry_persistence(load, job_id=job.id, phase="loading execution state")
+
+    def _record_failure(
+        self,
+        running: ParseJob,
+        message: str,
+        *,
+        check_cancellation: bool,
+        code: str = "parsing_failed",
+    ) -> ParseJob:
+        failed = running.mark_failed(message, code=code)
+        if self._save_if_status(failed, [JobStatus.RUNNING]):
+            return failed
+        if check_cancellation:
+            canceled = self._cancel_if_requested(running.id)
+            if canceled is not None:
+                return canceled
+        return self._get_optional(running.id) or failed
+
+    def _cancel_if_requested(self, job_id: str) -> ParseJob | None:
+        def cancel() -> ParseJob | None:
+            with self._uow_factory(write=True) as uow:
+                latest = uow.parse_jobs.get(job_id)
+                if latest is None:
+                    return None
+                if latest.status == JobStatus.CANCELED:
+                    return latest
+                if latest.status == JobStatus.DELETING:
+                    uow.parse_jobs.delete(latest.id)
+                    uow.commit()
+                    return latest
+                if latest.status != JobStatus.CANCELING:
+                    return None
+                canceled = latest.mark_canceled()
+                if uow.parse_jobs.save_if_status(canceled, [JobStatus.CANCELING]):
+                    uow.commit()
+                    return canceled
+            return self._get_optional(job_id) or canceled
+
+        return self._retry_persistence(cancel, job_id=job_id, phase="applying cancellation")
+
+    def _save_if_status(self, job: ParseJob, expected: Iterable[JobStatus]) -> bool:
+        def save() -> bool:
+            with self._uow_factory(write=True) as uow:
+                saved = uow.parse_jobs.save_if_status(job, expected)
+                uow.commit()
+                return saved
+
+        return self._retry_persistence(save, job_id=job.id, phase="saving state")
+
+    def _get_optional(self, job_id: str) -> ParseJob | None:
+        def get() -> ParseJob | None:
+            with self._uow_factory() as uow:
+                return uow.parse_jobs.get(job_id)
+
+        return self._retry_persistence(get, job_id=job_id, phase="reading state")
+
+    @staticmethod
+    def _retry_persistence(operation: Callable[[], ResultT], *, job_id: str, phase: str) -> ResultT:
+        while True:
+            try:
+                return operation()
+            except PersistenceBusyError:
+                logger.warning(
+                    "Persistence busy while %s for parse job %s; retrying in %.2f seconds",
+                    phase,
+                    job_id,
+                    WORKER_PERSISTENCE_RETRY_DELAY_SECONDS,
+                )
+                time.sleep(WORKER_PERSISTENCE_RETRY_DELAY_SECONDS)
+
+    @staticmethod
+    def _get(uow: UnitOfWork, job_id: str) -> ParseJob:
+        job = uow.parse_jobs.get(job_id)
+        if job is None:
+            raise NotFoundError("parse job", job_id)
+        return job
+
+    @staticmethod
+    def _validation_failure_code(exc: ValidationFailure) -> str:
+        message = str(exc).lower()
+        if "pdf has" in message and "page" in message and "limit" in message:
+            return "page_limit_exceeded"
+        if "model returned empty" in message or "parse result" in message:
+            return "invalid_model_output"
+        return "unsupported_input"
+
+    @staticmethod
+    def _provider_failure_code(exc: ProviderRequestError) -> str:
+        message = str(exc).lower()
+        if "timed out" in message or "timeout" in message:
+            return "parsing_timeout"
+        modality_markers = ("image input", "vision", "modality", "image_url")
+        if (
+            exc.status_code is not None
+            and 400 <= exc.status_code < 500
+            and any(marker in message for marker in modality_markers)
+        ):
+            return "model_modality_incompatible"
+        return "provider_error"

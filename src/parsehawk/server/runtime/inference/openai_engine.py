@@ -1,10 +1,10 @@
-"""OpenAI-compatible extraction engine driving every provider through one client.
+"""OpenAI-compatible extraction and parsing engines using one client transport.
 
 The same ``openai.OpenAI`` client talks to OpenAI, Microsoft Foundry's
 OpenAI-compatible endpoint, and any OpenAI-compatible server (the bundled vLLM,
 Ollama, …). The payload adapter is chosen by model: NuExtract3 variants keep
-their fine-tuned chat-template kwargs (sent via ``extra_body``), everything else
-uses the generic template + TYPES.md prompt.
+their fine-tuned chat-template kwargs (sent via ``extra_body``), while generic
+models receive workflow-specific extraction or Markdown prompts.
 """
 
 from __future__ import annotations
@@ -17,11 +17,20 @@ from time import monotonic
 from typing import Any, Callable
 
 import httpx
-from openai import APIConnectionError, APIStatusError, OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from parsehawk import tracing
-from parsehawk.core.application.ports import ExtractionRequest, ExtractionResponse
-from parsehawk.core.domain.errors import ExtractionCancelled, ProviderRequestError
+from parsehawk.core.application.ports import (
+    ExtractionRequest,
+    ExtractionResponse,
+    ParsingRequest,
+    ParsingResponse,
+)
+from parsehawk.core.domain.errors import (
+    ExtractionCancelled,
+    ParsingCancelled,
+    ProviderRequestError,
+)
 from parsehawk.core.domain.models import NUEXTRACT3_MODELS, ReasoningEffort
 from parsehawk.server.runtime.inference._response import (
     message_content_with_source,
@@ -33,6 +42,7 @@ from parsehawk.server.runtime.inference.generic import (
 )
 from parsehawk.server.runtime.inference.nuextract import (
     build_chat_completion_payload,
+    content_from_source,
     extract_json_object,
     strip_generation_control_tokens,
     strip_hidden_thinking,
@@ -42,6 +52,8 @@ logger = logging.getLogger("parsehawk.runtime")
 
 ADAPTER_NUEXTRACT = "nuextract"
 ADAPTER_GENERIC = "generic"
+PARSING_ADAPTER_NUEXTRACT = "nuextract_markdown"
+PARSING_ADAPTER_GENERIC = "generic_markdown"
 CANCELLATION_CHECK_INTERVAL_SECONDS = 1.0
 FOUNDRY_DEPLOYMENTS_API_VERSION = "v1"
 
@@ -77,6 +89,10 @@ _STANDARD_KEYS = frozenset(
 def select_adapter(model: str) -> str:
     """Pick the payload adapter for a model by exact NuExtract3 membership."""
     return ADAPTER_NUEXTRACT if model in NUEXTRACT3_MODELS else ADAPTER_GENERIC
+
+
+def select_parsing_adapter(model: str) -> str:
+    return PARSING_ADAPTER_NUEXTRACT if model in NUEXTRACT3_MODELS else PARSING_ADAPTER_GENERIC
 
 
 def reasoning_requested(reasoning_effort: str | None) -> bool:
@@ -152,6 +168,7 @@ class OpenAIExtractionEngine:
         extra_body: dict[str, Any],
         *,
         cancellation_check: Callable[[], None],
+        trace_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         call_kwargs = dict(standard)
         if self._legacy_max_tokens and "max_completion_tokens" in call_kwargs:
@@ -165,36 +182,41 @@ class OpenAIExtractionEngine:
                 tracing.openai_extra_body_context(extra_body) if extra_body else nullcontext()
             )
             with extra_body_context:
-                stream = self._client.chat.completions.create(**call_kwargs)
-                content_parts: list[str] = []
-                reasoning_parts: list[str] = []
-                next_cancellation_check_at = monotonic()
-                try:
-                    for chunk in stream:
-                        now = monotonic()
-                        if now >= next_cancellation_check_at:
-                            cancellation_check()
-                            next_cancellation_check_at = now + CANCELLATION_CHECK_INTERVAL_SECONDS
-                        chunk_data = chunk.model_dump()
-                        choice = (chunk_data.get("choices") or [{}])[0]
-                        delta = choice.get("delta") or {}
-                        content = delta.get("content")
-                        if isinstance(content, str):
-                            content_parts.append(content)
-                        for field in ("reasoning", "reasoning_content"):
-                            reasoning = delta.get(field)
-                            if isinstance(reasoning, str):
-                                reasoning_parts.append(reasoning)
-                finally:
-                    close = getattr(stream, "close", None)
-                    if close is not None:
-                        close()
+                with tracing.openai_metadata_context(trace_metadata or {}):
+                    stream = self._client.chat.completions.create(**call_kwargs)
+                    content_parts: list[str] = []
+                    reasoning_parts: list[str] = []
+                    next_cancellation_check_at = monotonic()
+                    try:
+                        for chunk in stream:
+                            now = monotonic()
+                            if now >= next_cancellation_check_at:
+                                cancellation_check()
+                                next_cancellation_check_at = (
+                                    now + CANCELLATION_CHECK_INTERVAL_SECONDS
+                                )
+                            chunk_data = chunk.model_dump()
+                            choice = (chunk_data.get("choices") or [{}])[0]
+                            delta = choice.get("delta") or {}
+                            content = delta.get("content")
+                            if isinstance(content, str):
+                                content_parts.append(content)
+                            for field in ("reasoning", "reasoning_content"):
+                                reasoning = delta.get(field)
+                                if isinstance(reasoning, str):
+                                    reasoning_parts.append(reasoning)
+                    finally:
+                        close = getattr(stream, "close", None)
+                        if close is not None:
+                            close()
         except APIStatusError as exc:
             message = getattr(exc, "message", str(exc))
             raise ProviderRequestError(
                 f"model provider returned HTTP {exc.status_code}: {message}",
                 status_code=exc.status_code,
             ) from exc
+        except APITimeoutError as exc:
+            raise ProviderRequestError("model provider request timed out") from exc
         except APIConnectionError as exc:
             raise ProviderRequestError(f"model provider is unreachable: {exc}") from exc
         message: dict[str, str] = {}
@@ -229,6 +251,103 @@ class OpenAIExtractionEngine:
         if not self._config.log_model_io or not logger.isEnabledFor(logging.DEBUG):
             return
         logger.debug(message, json.dumps(redact_model_io(payload), ensure_ascii=False))
+
+
+GENERIC_MARKDOWN_PROMPT = """Transcribe this document page to clean Markdown.
+Preserve reading order, headings, lists, tables, code, formulas, and meaningful visual descriptions.
+Do not summarize, omit source content, or add commentary."""
+
+
+class OpenAIParsingEngine(OpenAIExtractionEngine):
+    """Page-aware Markdown parsing over an OpenAI-compatible chat transport."""
+
+    def parse_page(
+        self,
+        request: ParsingRequest,
+        cancellation_check: Callable[[], bool] | None = None,
+    ) -> ParsingResponse:
+        def raise_if_cancelled() -> None:
+            if cancellation_check is not None and cancellation_check():
+                raise ParsingCancelled("parsing cancelled")
+
+        standard, extra_body = self._build_parsing_payload(request)
+        trace_metadata = {
+            "parsehawk.operation": "parse",
+            "parsehawk.model_adapter": select_parsing_adapter(self._config.model),
+        }
+        try:
+            raise_if_cancelled()
+            raw = self._post_chat(
+                standard,
+                extra_body,
+                cancellation_check=raise_if_cancelled,
+                trace_metadata=trace_metadata,
+            )
+        except ProviderRequestError as exc:
+            if self._legacy_max_tokens or not _requires_legacy_max_tokens(exc):
+                raise
+            raise_if_cancelled()
+            self._legacy_max_tokens = True
+            raw = self._post_chat(
+                standard,
+                extra_body,
+                cancellation_check=raise_if_cancelled,
+                trace_metadata=trace_metadata,
+            )
+
+        raise_if_cancelled()
+        self._debug_model_io("model parsing response: %s", raw)
+        content = strip_generation_control_tokens(message_content_with_source(raw).text)
+        if reasoning_requested(request.reasoning_effort):
+            content = strip_hidden_thinking(content)
+        return ParsingResponse(content=content)
+
+    def _build_parsing_payload(
+        self,
+        request: ParsingRequest,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        image_content = content_from_source(
+            text="",
+            storage_path=request.image.storage_path,
+            content_type=request.image.content_type,
+        )
+        if self._adapter == ADAPTER_NUEXTRACT:
+            messages: list[dict[str, Any]] = []
+            if request.instructions.strip():
+                messages.append({"role": "system", "content": request.instructions.strip()})
+            messages.append({"role": "user", "content": image_content})
+            return (
+                {
+                    "model": self._config.model,
+                    "messages": messages,
+                    "temperature": self._config.temperature,
+                    "max_tokens": self._config.max_tokens,
+                },
+                {
+                    "chat_template_kwargs": {
+                        "mode": "markdown",
+                        "enable_thinking": reasoning_requested(request.reasoning_effort),
+                    }
+                },
+            )
+
+        prompt = GENERIC_MARKDOWN_PROMPT
+        if request.instructions.strip():
+            prompt = f"{prompt}\n\nAdditional instructions:\n{request.instructions.strip()}"
+        messages = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}, *image_content],
+            }
+        ]
+        standard: dict[str, Any] = {
+            "model": self._config.model,
+            "messages": messages,
+            "max_completion_tokens": self._config.max_tokens,
+        }
+        if request.reasoning_effort is not None:
+            standard["reasoning_effort"] = request.reasoning_effort.value
+        return standard, {}
 
 
 def _split_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

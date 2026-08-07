@@ -14,7 +14,7 @@ from parsehawk.core.application.ports import (
     ExtractionResponse,
     ResolvedExecutionConfig,
 )
-from parsehawk.core.application.services import JobService
+from parsehawk.core.application.services import ExtractionJobService
 from parsehawk.core.domain.models import Extractor, JobStatus, ProviderName
 from parsehawk.server.api.fastapi.app import create_app, get_container
 from parsehawk.server.container import Container
@@ -176,7 +176,7 @@ def test_claimed_job_retries_temporary_finalization_contention_without_rerunning
     settings = Settings(data_dir=tmp_path, database_path=tmp_path / "parsehawk.db")
     container = Container(settings, sqlite_busy_timeout_ms=25)
     engine = BlockingEngine()
-    job_service = JobService(
+    extraction_job_service = ExtractionJobService(
         container.uow_factory,
         container.storage,
         BlockingEngineFactory(engine, settings.vllm_model),
@@ -187,10 +187,10 @@ def test_claimed_job_retries_temporary_finalization_contention_without_rerunning
             instructions="Extract value.",
             schema=_SCHEMA,
         )
-        created = job_service.create(extractor_id=extractor.id, text="value")
+        created = extraction_job_service.create(extractor_id=extractor.id, text="value")
 
         with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(job_service.run_next_queued)
+            future = executor.submit(extraction_job_service.run_next_queued)
             assert engine.started.wait(timeout=5)
             with container.uow_factory(write=True):
                 engine.release.set()
@@ -201,7 +201,7 @@ def test_claimed_job_retries_temporary_finalization_contention_without_rerunning
         assert completed.id == created.id
         assert completed.status == JobStatus.COMPLETED
         assert engine.calls == 1
-        assert job_service.get(created.id).status == JobStatus.COMPLETED
+        assert extraction_job_service.get(created.id).status == JobStatus.COMPLETED
     finally:
         engine.release.set()
         container.close()

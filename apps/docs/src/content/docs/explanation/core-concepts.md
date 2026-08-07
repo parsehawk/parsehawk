@@ -1,17 +1,27 @@
 ---
 title: Core concepts
-description: The files, extractors, schemas, examples, providers, and jobs in ParseHawk's resource model.
+description: Files, extractors, parsers, providers, extraction jobs, and parse jobs in ParseHawk's resource model.
 sidebar:
   order: 3
 ---
 
-ParseHawk turns document extraction into a small set of persistent resources.
+ParseHawk exposes two independent document workflows through a small set of
+persistent resources:
+
+- **extraction** turns a document or text into schema-valid JSON
+- **parsing** turns a PDF or image into page-aware Markdown
+
+Parsing is not a required preprocessing step for extraction. Use the original
+document directly when the extraction model benefits from layout or visual
+context.
 
 ## File
 
 A file is an uploaded source document. ParseHawk supports PDF, JPEG, PNG, plain
 text, and Markdown inputs. A public `file_...` ID separates storage from later
-jobs, so one upload can be processed by multiple extractors.
+jobs, so one upload can be processed by multiple extractors or parsers. Parse
+jobs accept PDF, JPEG, and PNG files; extraction jobs accept every supported
+file type and inline text.
 
 ## Extraction schema
 
@@ -45,17 +55,38 @@ the extractor definition and are sent to the selected model as demonstrations.
 
 Use examples to settle recurring ambiguity, not to hide a vague schema.
 
+## Parser
+
+A parser is a reusable document-to-Markdown definition. It has an immutable
+`parser_...` ID, stable name, display name, optional instructions and reasoning
+effort, and a provider/model selection. The output format is `markdown` in v0.3.
+
+A fresh installation includes the read-only `document-to-markdown` parser. It
+uses the bundled NuExtract3 runtime by default, while custom parsers can select
+another vision-capable model.
+
 ## Provider
 
 A provider stores connection state for a model service. ParseHawk has fixed
 slots for `openai_compatible_api`, `openai`, and `microsoft_foundry`. API keys
 are write-only at the API boundary and encrypted at rest.
 
-## Job
+## Extraction Job
 
-A job is one asynchronous attempt to apply an extractor to a file or text input.
-It records lifecycle state, execution metadata, an error when failed, or a
-schema-valid object under `result.data` when completed.
+An extraction job is one asynchronous attempt to apply an extractor to a file
+or inline text. It uses a legacy-compatible `job_...` ID and returns a
+schema-valid object under `result.data` when completed. Its canonical REST
+collection is `/v1/extraction-jobs`.
 
-Jobs preserve their outcomes even when the extractor definition changes later.
-Create a new job to evaluate an updated extractor.
+## Parse Job
+
+A parse job applies a parser to one uploaded PDF, JPEG, or PNG. Its
+`parse_job_...` record contains an immutable parser snapshot, resolved execution
+metadata, and—when completed—both whole-document and per-page Markdown.
+
+The ordered `result.pages` array is canonical. `result.content` is derived by
+joining page content with `\n\n<!-- page-break -->\n\n`, and `page_count` always
+matches the number of pages.
+
+Both job resources preserve their outcomes when the reusable definition changes.
+Create a new job to evaluate an updated extractor or parser.

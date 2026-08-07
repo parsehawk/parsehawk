@@ -22,7 +22,11 @@ from fastapi.responses import FileResponse as FastAPIFileResponse
 from fastapi.responses import JSONResponse
 
 from parsehawk import telemetry, tracing
-from parsehawk.core.application.services import NOT_PROVIDED, DeleteJobResult
+from parsehawk.core.application.services import (
+    NOT_PROVIDED,
+    DeleteExtractionJobResult,
+    DeleteParseJobResult,
+)
 from parsehawk.core.domain.errors import (
     NotFoundError,
     PersistenceBusyError,
@@ -41,18 +45,24 @@ from parsehawk.logging import configure_logging
 from parsehawk.server.api.fastapi.schemas import (
     ApiErrorResponse,
     ConfigureProviderRequest,
+    CreateExtractionJobRequest,
     CreateExtractorRequest,
-    CreateJobRequest,
+    CreateParseJobRequest,
+    CreateParserRequest,
+    ExtractionJobResponse,
     ExtractorResponse,
     FileResponse,
     HealthResponse,
-    JobResponse,
+    ParseJobResponse,
+    ParserResponse,
     ProviderModelsResponse,
     ProviderResponse,
     RootResponse,
     SchemaDiagnostic,
     UpdateExtractorRequest,
+    UpdateParserRequest,
     UpsertExtractorRequest,
+    UpsertParserRequest,
     ValidateSchemaRequest,
     ValidateSchemaResponse,
 )
@@ -75,7 +85,7 @@ def get_container(request: Request) -> Container:
 ContainerDep = Annotated[Container, Depends(get_container)]
 UploadFileDep = Annotated[
     UploadFile,
-    File(description="PDF, image, text, or Markdown document to store for extraction."),
+    File(description="PDF, image, text, or Markdown document to store and reuse."),
 ]
 
 OPENAPI_TAGS = [
@@ -96,12 +106,24 @@ OPENAPI_TAGS = [
         "description": "Reusable extraction instructions, schemas, examples, provider, and model choices.",
     },
     {
+        "name": "parsers",
+        "description": "Reusable document-to-Markdown parsing instructions, provider, and model choices.",
+    },
+    {
         "name": "providers",
         "description": "Configure local or hosted model providers without exposing stored secrets.",
     },
     {
-        "name": "jobs",
+        "name": "extraction-jobs",
         "description": "Create, inspect, cancel, and delete asynchronous extraction jobs.",
+    },
+    {
+        "name": "parse-jobs",
+        "description": "Create, inspect, cancel, and delete asynchronous document parsing jobs.",
+    },
+    {
+        "name": "jobs",
+        "description": "Deprecated v0.3 compatibility aliases for extraction jobs.",
     },
 ]
 
@@ -128,8 +150,11 @@ PERSISTENCE_BUSY_RESPONSE = {
 
 files_router = APIRouter(prefix="/files", tags=["files"])
 extractors_router = APIRouter(prefix="/extractors", tags=["extractors"])
+parsers_router = APIRouter(prefix="/parsers", tags=["parsers"])
 providers_router = APIRouter(prefix="/providers", tags=["providers"])
-jobs_router = APIRouter(prefix="/jobs", tags=["jobs"])
+extraction_jobs_router = APIRouter(prefix="/extraction-jobs", tags=["extraction-jobs"])
+parse_jobs_router = APIRouter(prefix="/parse-jobs", tags=["parse-jobs"])
+legacy_jobs_router = APIRouter(prefix="/jobs", tags=["jobs"])
 schemas_router = APIRouter(prefix="/schemas", tags=["schemas"])
 health_router = APIRouter(tags=["health"])
 
@@ -151,9 +176,9 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="ParseHawk API",
-        summary="Local-first document extraction API",
+        summary="Local-first document parsing and extraction API",
         description=(
-            "Turn PDFs, images, scans, Markdown, and text into validated JSON. "
+            "Turn PDFs and images into Markdown, or documents and text into validated JSON. "
             "ParseHawk is self-hosted and exposes the same local API used by its CLI and web UI."
         ),
         version=version("parsehawk"),
@@ -201,8 +226,11 @@ def create_app() -> FastAPI:
     api_router = APIRouter(prefix="/v1")
     api_router.include_router(files_router)
     api_router.include_router(extractors_router)
+    api_router.include_router(parsers_router)
     api_router.include_router(providers_router)
-    api_router.include_router(jobs_router)
+    api_router.include_router(extraction_jobs_router)
+    api_router.include_router(parse_jobs_router)
+    api_router.include_router(legacy_jobs_router)
     api_router.include_router(schemas_router)
     app.include_router(health_router)
     app.include_router(api_router)
@@ -514,6 +542,122 @@ def delete_extractor(
     container.extractor_service.delete(extractor_ref)
 
 
+@parsers_router.post(
+    "",
+    operation_id="createParser",
+    summary="Create a parser",
+    description="Create a reusable document-to-Markdown parser with an optional custom prompt.",
+    status_code=status.HTTP_201_CREATED,
+    responses={422: VALIDATION_ERROR_RESPONSE},
+)
+def create_parser(request: CreateParserRequest, container: ContainerDep) -> ParserResponse:
+    parser = container.parser_service.create(
+        name=request.name,
+        display_name=request.display_name,
+        output_format=request.output_format,
+        instructions=request.instructions,
+        reasoning_effort=request.reasoning_effort,
+        provider_name=request.provider_name,
+        model=request.model,
+    )
+    return ParserResponse.from_domain(parser)
+
+
+@parsers_router.get(
+    "",
+    operation_id="listParsers",
+    summary="List parsers",
+    description="List custom and built-in document parsers.",
+)
+def list_parsers(container: ContainerDep) -> list[ParserResponse]:
+    return [ParserResponse.from_domain(parser) for parser in container.parser_service.list()]
+
+
+@parsers_router.get(
+    "/{parser_ref}",
+    operation_id="getParser",
+    summary="Get a parser",
+    description="Retrieve a parser by immutable ID or stable name.",
+    responses={404: NOT_FOUND_RESPONSE},
+)
+def get_parser(
+    parser_ref: Annotated[str, Path(description="Parser ID or stable name.")],
+    container: ContainerDep,
+) -> ParserResponse:
+    return ParserResponse.from_domain(container.parser_service.get_by_ref(parser_ref))
+
+
+@parsers_router.patch(
+    "/{parser_ref}",
+    operation_id="updateParser",
+    summary="Update a parser",
+    description="Partially update a custom parser while preserving omitted fields.",
+    responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
+)
+def update_parser(
+    parser_ref: Annotated[str, Path(description="Parser ID or stable name.")],
+    request: UpdateParserRequest,
+    container: ContainerDep,
+) -> ParserResponse:
+    parser = container.parser_service.update(
+        parser_ref,
+        display_name=request.display_name,
+        output_format=request.output_format,
+        instructions=request.instructions,
+        reasoning_effort=(
+            request.reasoning_effort
+            if "reasoning_effort" in request.model_fields_set
+            else NOT_PROVIDED
+        ),
+        provider_name=request.provider_name,
+        model=request.model if "model" in request.model_fields_set else NOT_PROVIDED,
+    )
+    return ParserResponse.from_domain(parser)
+
+
+@parsers_router.put(
+    "/{parser_ref}",
+    operation_id="upsertParser",
+    summary="Create or replace a parser",
+    description="Create a named parser when absent or replace its complete definition when present.",
+    responses={422: VALIDATION_ERROR_RESPONSE},
+)
+def upsert_parser(
+    parser_ref: Annotated[str, Path(description="Stable parser name.")],
+    request: UpsertParserRequest,
+    container: ContainerDep,
+) -> ParserResponse:
+    parser = container.parser_service.upsert(
+        parser_ref,
+        body_name=request.name,
+        display_name=request.display_name,
+        output_format=request.output_format,
+        instructions=request.instructions,
+        reasoning_effort=request.reasoning_effort,
+        provider_name=request.provider_name,
+        model=request.model,
+    )
+    return ParserResponse.from_domain(parser)
+
+
+@parsers_router.delete(
+    "/{parser_ref}",
+    operation_id="deleteParser",
+    summary="Delete a parser",
+    description=(
+        "Delete a custom parser. Built-in parsers and parsers referenced by parse jobs "
+        "cannot be deleted."
+    ),
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
+)
+def delete_parser(
+    parser_ref: Annotated[str, Path(description="Parser ID or stable name.")],
+    container: ContainerDep,
+) -> None:
+    container.parser_service.delete(parser_ref)
+
+
 @providers_router.get(
     "",
     operation_id="listProviders",
@@ -598,10 +742,19 @@ def list_provider_models(
     return ProviderModelsResponse(models=models)
 
 
-@jobs_router.post(
+@legacy_jobs_router.post(
     "",
     operation_id="createJob",
-    summary="Create a job",
+    summary="Create an extraction job (deprecated)",
+    description="Deprecated alias for `POST /v1/extraction-jobs`; removed in v0.4.",
+    deprecated=True,
+    status_code=status.HTTP_201_CREATED,
+    responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
+)
+@extraction_jobs_router.post(
+    "",
+    operation_id="createExtractionJob",
+    summary="Create an extraction job",
     description="Enqueue extraction for one uploaded file or inline text input.",
     status_code=status.HTTP_201_CREATED,
     responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
@@ -612,15 +765,17 @@ def list_provider_models(
                 "label": "curl",
                 "source": """API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
 curl --fail --silent --show-error \\
-  --request POST "$API/v1/jobs" \\
+  --request POST "$API/v1/extraction-jobs" \\
   --header "Content-Type: application/json" \\
   --data '{"extractor_name":"receipt","file_id":"file_..."}' | jq .""",
             }
         ]
     },
 )
-def create_job(request: CreateJobRequest, container: ContainerDep) -> JobResponse:
-    job = container.job_service.create(
+def create_extraction_job(
+    request: CreateExtractionJobRequest, container: ContainerDep
+) -> ExtractionJobResponse:
+    job = container.extraction_job_service.create(
         extractor_id=request.extractor_id,
         extractor_name=request.extractor_name,
         file_id=request.file_id,
@@ -630,16 +785,23 @@ def create_job(request: CreateJobRequest, container: ContainerDep) -> JobRespons
         input_type="file" if request.file_id is not None else "text",
         data_dir=container.settings.data_dir,
     )
-    return JobResponse.from_domain(job)
+    return ExtractionJobResponse.from_domain(job)
 
 
-@jobs_router.get(
+@legacy_jobs_router.get(
     "",
     operation_id="listJobs",
-    summary="List jobs",
+    summary="List extraction jobs (deprecated)",
+    description="Deprecated alias for `GET /v1/extraction-jobs`; removed in v0.4.",
+    deprecated=True,
+)
+@extraction_jobs_router.get(
+    "",
+    operation_id="listExtractionJobs",
+    summary="List extraction jobs",
     description="List extraction jobs, optionally filtered by extractor ID or stable name.",
 )
-def list_jobs(
+def list_extraction_jobs(
     container: ContainerDep,
     extractor_id: Annotated[
         str | None,
@@ -649,20 +811,28 @@ def list_jobs(
         str | None,
         Query(description="Only return jobs for this stable extractor name."),
     ] = None,
-) -> list[JobResponse]:
+) -> list[ExtractionJobResponse]:
     return [
-        JobResponse.from_domain(job)
-        for job in container.job_service.list(
+        ExtractionJobResponse.from_domain(job)
+        for job in container.extraction_job_service.list(
             extractor_id=extractor_id,
             extractor_name=extractor_name,
         )
     ]
 
 
-@jobs_router.get(
+@legacy_jobs_router.get(
     "/{job_id}",
     operation_id="getJob",
-    summary="Get a job",
+    summary="Get an extraction job (deprecated)",
+    description="Deprecated alias for `GET /v1/extraction-jobs/{job_id}`; removed in v0.4.",
+    deprecated=True,
+    responses={404: NOT_FOUND_RESPONSE},
+)
+@extraction_jobs_router.get(
+    "/{job_id}",
+    operation_id="getExtractionJob",
+    summary="Get an extraction job",
     description="Retrieve the current state, result, or failure details for one extraction job.",
     responses={404: NOT_FOUND_RESPONSE},
     openapi_extra={
@@ -671,36 +841,58 @@ def list_jobs(
                 "lang": "bash",
                 "label": "curl",
                 "source": """API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
-curl --fail --silent --show-error "$API/v1/jobs/job_..." | jq .""",
+curl --fail --silent --show-error "$API/v1/extraction-jobs/job_..." | jq .""",
             }
         ]
     },
 )
-def get_job(
+def get_extraction_job(
     job_id: Annotated[str, Path(description="Immutable job identifier.")],
     container: ContainerDep,
-) -> JobResponse:
-    return JobResponse.from_domain(container.job_service.get(job_id))
+) -> ExtractionJobResponse:
+    return ExtractionJobResponse.from_domain(container.extraction_job_service.get(job_id))
 
 
-@jobs_router.post(
+@legacy_jobs_router.post(
     "/{job_id}/cancel",
     operation_id="cancelJob",
-    summary="Cancel a job",
+    summary="Cancel an extraction job (deprecated)",
+    description=(
+        "Deprecated alias for `POST /v1/extraction-jobs/{job_id}/cancel`; removed in v0.4."
+    ),
+    deprecated=True,
+    responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
+)
+@extraction_jobs_router.post(
+    "/{job_id}/cancel",
+    operation_id="cancelExtractionJob",
+    summary="Cancel an extraction job",
     description="Request cancellation and return the resulting job state.",
     responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
 )
-def cancel_job(
+def cancel_extraction_job(
     job_id: Annotated[str, Path(description="Immutable job identifier.")],
     container: ContainerDep,
-) -> JobResponse:
-    return JobResponse.from_domain(container.job_service.cancel(job_id))
+) -> ExtractionJobResponse:
+    return ExtractionJobResponse.from_domain(container.extraction_job_service.cancel(job_id))
 
 
-@jobs_router.delete(
+@legacy_jobs_router.delete(
     "/{job_id}",
     operation_id="deleteJob",
-    summary="Delete a job",
+    summary="Delete an extraction job (deprecated)",
+    description="Deprecated alias for `DELETE /v1/extraction-jobs/{job_id}`; removed in v0.4.",
+    deprecated=True,
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_202_ACCEPTED: {"description": "Cancellation and deletion accepted."},
+        404: NOT_FOUND_RESPONSE,
+    },
+)
+@extraction_jobs_router.delete(
+    "/{job_id}",
+    operation_id="deleteExtractionJob",
+    summary="Delete an extraction job",
     description=(
         "Delete a terminal job immediately, or return 202 while cancellation completes for a running job."
     ),
@@ -710,12 +902,141 @@ def cancel_job(
         404: NOT_FOUND_RESPONSE,
     },
 )
-def delete_job(
+def delete_extraction_job(
     job_id: Annotated[str, Path(description="Immutable job identifier.")],
     container: ContainerDep,
 ) -> Response:
-    result = container.job_service.delete(job_id)
-    if result == DeleteJobResult.ACCEPTED:
+    result = container.extraction_job_service.delete(job_id)
+    if result == DeleteExtractionJobResult.ACCEPTED:
+        return Response(status_code=status.HTTP_202_ACCEPTED)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@parse_jobs_router.post(
+    "",
+    operation_id="createParseJob",
+    summary="Create a parse job",
+    description=(
+        "Enqueue page-preserving Markdown parsing for one uploaded PDF, JPG/JPEG, or PNG file. "
+        "The parser configuration is snapshotted when the job is created."
+    ),
+    status_code=status.HTTP_201_CREATED,
+    responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
+    openapi_extra={
+        "x-codeSamples": [
+            {
+                "lang": "bash",
+                "label": "curl",
+                "source": """API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
+curl --fail --silent --show-error \\
+  --request POST "$API/v1/parse-jobs" \\
+  --header "Content-Type: application/json" \\
+  --data '{"parser_name":"document-to-markdown","file_id":"file_..."}' | jq .""",
+            }
+        ]
+    },
+)
+def create_parse_job(
+    request: CreateParseJobRequest,
+    container: ContainerDep,
+) -> ParseJobResponse:
+    job = container.parse_job_service.create(
+        parser_id=request.parser_id,
+        parser_name=request.parser_name,
+        file_id=request.file_id,
+    )
+    telemetry.track_run_started(
+        input_type="file",
+        workflow="parsing",
+        data_dir=container.settings.data_dir,
+    )
+    return ParseJobResponse.from_domain(job)
+
+
+@parse_jobs_router.get(
+    "",
+    operation_id="listParseJobs",
+    summary="List parse jobs",
+    description="List parse jobs, optionally filtered by parser ID or stable name.",
+)
+def list_parse_jobs(
+    container: ContainerDep,
+    parser_id: Annotated[
+        str | None,
+        Query(description="Only return jobs for this immutable parser ID."),
+    ] = None,
+    parser_name: Annotated[
+        str | None,
+        Query(description="Only return jobs for this stable parser name."),
+    ] = None,
+) -> list[ParseJobResponse]:
+    return [
+        ParseJobResponse.from_domain(job)
+        for job in container.parse_job_service.list(
+            parser_id=parser_id,
+            parser_name=parser_name,
+        )
+    ]
+
+
+@parse_jobs_router.get(
+    "/{job_id}",
+    operation_id="getParseJob",
+    summary="Get a parse job",
+    description="Retrieve the current state, Markdown result, or failure details for one parse job.",
+    responses={404: NOT_FOUND_RESPONSE},
+    openapi_extra={
+        "x-codeSamples": [
+            {
+                "lang": "bash",
+                "label": "curl",
+                "source": """API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
+curl --fail --silent --show-error "$API/v1/parse-jobs/parse_job_..." | jq .""",
+            }
+        ]
+    },
+)
+def get_parse_job(
+    job_id: Annotated[str, Path(description="Immutable parse job identifier.")],
+    container: ContainerDep,
+) -> ParseJobResponse:
+    return ParseJobResponse.from_domain(container.parse_job_service.get(job_id))
+
+
+@parse_jobs_router.post(
+    "/{job_id}/cancel",
+    operation_id="cancelParseJob",
+    summary="Cancel a parse job",
+    description="Request cancellation and return the resulting job state.",
+    responses={404: NOT_FOUND_RESPONSE, 422: VALIDATION_ERROR_RESPONSE},
+)
+def cancel_parse_job(
+    job_id: Annotated[str, Path(description="Immutable parse job identifier.")],
+    container: ContainerDep,
+) -> ParseJobResponse:
+    return ParseJobResponse.from_domain(container.parse_job_service.cancel(job_id))
+
+
+@parse_jobs_router.delete(
+    "/{job_id}",
+    operation_id="deleteParseJob",
+    summary="Delete a parse job",
+    description=(
+        "Delete a terminal job immediately, or return 202 while cancellation completes for a "
+        "running job."
+    ),
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_202_ACCEPTED: {"description": "Cancellation and deletion accepted."},
+        404: NOT_FOUND_RESPONSE,
+    },
+)
+def delete_parse_job(
+    job_id: Annotated[str, Path(description="Immutable parse job identifier.")],
+    container: ContainerDep,
+) -> Response:
+    result = container.parse_job_service.delete(job_id)
+    if result == DeleteParseJobResult.ACCEPTED:
         return Response(status_code=status.HTTP_202_ACCEPTED)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

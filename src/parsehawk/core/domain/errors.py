@@ -17,6 +17,10 @@ class ExtractionCancelled(ParseHawkError):
     """Raised when cooperative cancellation stops an extraction in progress."""
 
 
+class ParsingCancelled(ParseHawkError):
+    """Raised when cooperative cancellation stops parsing in progress."""
+
+
 class ProviderRequestError(ParseHawkError):
     """Raised when a model provider rejects a request (e.g. an unknown model).
 
