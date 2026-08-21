@@ -263,7 +263,7 @@ def test_jobs_create_posts_file_id(monkeypatch: pytest.MonkeyPatch, capsys) -> N
         (
             "http://api",
             "POST",
-            "/v1/jobs",
+            "/v1/extraction-jobs",
             {"extractor_id": "extractor_1", "file_id": "file_1"},
             {},
         )
@@ -306,7 +306,7 @@ def test_jobs_create_accepts_extractor_and_file_aliases(
         (
             "http://api",
             "POST",
-            "/v1/jobs",
+            "/v1/extraction-jobs",
             {"extractor_id": "extractor_1", "file_id": "file_1"},
             {},
         )
@@ -348,7 +348,7 @@ def test_jobs_create_posts_text_file(tmp_path, monkeypatch: pytest.MonkeyPatch, 
         (
             "http://api",
             "POST",
-            "/v1/jobs",
+            "/v1/extraction-jobs",
             {"extractor_id": "extractor_1", "text": "Inline input"},
             {},
         )
@@ -383,9 +383,9 @@ def test_extract_creates_ad_hoc_extractor_uploads_file_and_waits(
         calls.append((api_url, method, path, payload))
         if path == "/v1/extractors":
             return {"id": "extractor_1"}
-        if path == "/v1/jobs":
+        if path == "/v1/extraction-jobs":
             return {"id": "job_1", "status": "queued"}
-        if path == "/v1/jobs/job_1":
+        if path == "/v1/extraction-jobs/job_1":
             return {
                 "id": "job_1",
                 "status": "completed",
@@ -431,10 +431,10 @@ def test_extract_creates_ad_hoc_extractor_uploads_file_and_waits(
         (
             "http://api",
             "POST",
-            "/v1/jobs",
+            "/v1/extraction-jobs",
             {"extractor_id": "extractor_1", "file_id": "file_1"},
         ),
-        ("http://api", "GET", "/v1/jobs/job_1", None),
+        ("http://api", "GET", "/v1/extraction-jobs/job_1", None),
     ]
     assert json.loads(capsys.readouterr().out) == {"invoice_number": "A-123"}
 
@@ -454,9 +454,9 @@ def test_extract_reuses_extractor_with_text_and_writes_result(
         **kwargs: Any,
     ) -> dict[str, Any]:
         calls.append((api_url, method, path, payload))
-        if path == "/v1/jobs":
+        if path == "/v1/extraction-jobs":
             return {"id": "job_1", "status": "running"}
-        if path == "/v1/jobs/job_1":
+        if path == "/v1/extraction-jobs/job_1":
             return {
                 "id": "job_1",
                 "status": "completed",
@@ -487,10 +487,10 @@ def test_extract_reuses_extractor_with_text_and_writes_result(
         (
             "http://api",
             "POST",
-            "/v1/jobs",
+            "/v1/extraction-jobs",
             {"extractor_id": "extractor_1", "text": "Jane bought tea."},
         ),
-        ("http://api", "GET", "/v1/jobs/job_1", None),
+        ("http://api", "GET", "/v1/extraction-jobs/job_1", None),
     ]
     assert json.loads(output_path.read_text(encoding="utf-8")) == {"buyer": "Jane"}
     assert capsys.readouterr().out == f"Wrote extraction output: {output_path}\n"
@@ -499,6 +499,228 @@ def test_extract_reuses_extractor_with_text_and_writes_result(
 def test_extract_requires_exactly_one_input() -> None:
     with pytest.raises(SystemExit, match="Provide exactly one input"):
         cli.main(["extract", "document.pdf", "--file-id", "file_1", "--extractor", "extractor_1"])
+
+
+def test_parsers_create_and_update_use_parser_resource(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def api_request(
+        api_url: str,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, str]:
+        calls.append((method, path, payload))
+        return {"id": "parser_1"}
+
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    cli.main(
+        [
+            "parsers",
+            "create",
+            "--name",
+            "legal",
+            "--display-name",
+            "Legal",
+            "--instructions",
+            "Preserve numbering.",
+            "--reasoning-effort",
+            "low",
+            "--api-url",
+            "http://api",
+        ]
+    )
+    capsys.readouterr()
+    cli.main(
+        [
+            "parsers",
+            "update",
+            "legal",
+            "--instructions",
+            "Preserve footnotes.",
+            "--api-url",
+            "http://api",
+        ]
+    )
+
+    assert calls == [
+        (
+            "POST",
+            "/v1/parsers",
+            {
+                "name": "legal",
+                "display_name": "Legal",
+                "instructions": "Preserve numbering.",
+                "reasoning_effort": "low",
+            },
+        ),
+        (
+            "PATCH",
+            "/v1/parsers/legal",
+            {"instructions": "Preserve footnotes."},
+        ),
+    ]
+
+
+def test_parse_jobs_create_and_list_use_parser_selectors(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def api_request(
+        api_url: str,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        calls.append((method, path, payload))
+        return {"id": "parse_job_1"} if method == "POST" else []
+
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    cli.main(
+        [
+            "parse-jobs",
+            "create",
+            "document-to-markdown",
+            "--file-id",
+            "file_1",
+            "--api-url",
+            "http://api",
+        ]
+    )
+    capsys.readouterr()
+    cli.main(
+        [
+            "parse-jobs",
+            "list",
+            "--parser",
+            "parser_1",
+            "--api-url",
+            "http://api",
+        ]
+    )
+
+    assert calls == [
+        (
+            "POST",
+            "/v1/parse-jobs",
+            {"parser_name": "document-to-markdown", "file_id": "file_1"},
+        ),
+        ("GET", "/v1/parse-jobs?parser_id=parser_1", None),
+    ]
+
+
+def test_parse_uploads_waits_and_writes_complete_markdown(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    document_path = tmp_path / "document.pdf"
+    output_path = tmp_path / "document.md"
+    document_path.write_bytes(b"%PDF")
+    uploads: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def upload_file(api_url: str, path: str) -> dict[str, str]:
+        uploads.append((api_url, path))
+        return {"id": "file_1"}
+
+    def api_request(
+        api_url: str,
+        method: str,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        calls.append((method, path, payload))
+        if path == "/v1/parse-jobs":
+            return {"id": "parse_job_1", "status": "queued"}
+        return {
+            "id": "parse_job_1",
+            "status": "completed",
+            "result": {"content": "# First\n\n<!-- page-break -->\n\n## Second"},
+        }
+
+    monkeypatch.setattr(cli, "upload_file", upload_file)
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    cli.main(
+        [
+            "parse",
+            str(document_path),
+            "--wait",
+            "--poll-seconds",
+            "0",
+            "--output",
+            str(output_path),
+            "--api-url",
+            "http://api",
+        ]
+    )
+
+    assert uploads == [("http://api", str(document_path))]
+    assert calls == [
+        (
+            "POST",
+            "/v1/parse-jobs",
+            {"parser_name": "document-to-markdown", "file_id": "file_1"},
+        ),
+        ("GET", "/v1/parse-jobs/parse_job_1", None),
+    ]
+    assert output_path.read_text(encoding="utf-8") == (
+        "# First\n\n<!-- page-break -->\n\n## Second"
+    )
+    assert capsys.readouterr().out == f"Wrote Markdown output: {output_path}\n"
+
+
+def test_parse_returns_nonzero_for_failed_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    def api_request(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        path = str(args[2])
+        if path == "/v1/parse-jobs":
+            return {"id": "parse_job_1", "status": "queued"}
+        return {
+            "id": "parse_job_1",
+            "status": "failed",
+            "error": {"message": "model rejected image input"},
+        }
+
+    monkeypatch.setattr(cli, "api_request", api_request)
+
+    with pytest.raises(SystemExit, match="model rejected image input"):
+        cli.main(
+            [
+                "parse",
+                "--file-id",
+                "file_1",
+                "--wait",
+                "--poll-seconds",
+                "0",
+            ]
+        )
+
+
+def test_jobs_alias_emits_deprecation_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli, "api_request", lambda *args, **kwargs: [])
+
+    cli.main(["jobs", "list"])
+
+    captured = capsys.readouterr()
+    assert "deprecated" in captured.err
+    assert "extraction-jobs" in captured.err
 
 
 def test_dev_uses_settings_defaults_for_runtime_process(
@@ -1543,6 +1765,8 @@ def test_migrate_status_reports_applied_and_pending(
             "20260708133000_job_execution_model_metadata",
             "20260709090000_extractor_reasoning_effort",
             "20260721120000_restrict_job_parent_deletion",
+            "20260804070000_explicit_extraction_jobs",
+            "20260804071000_add_parsers_and_parse_jobs",
         ],
     }
 
@@ -1561,6 +1785,8 @@ def test_migrate_status_reports_applied_and_pending(
             "20260708133000_job_execution_model_metadata",
             "20260709090000_extractor_reasoning_effort",
             "20260721120000_restrict_job_parent_deletion",
+            "20260804070000_explicit_extraction_jobs",
+            "20260804071000_add_parsers_and_parse_jobs",
         ],
         "pending": [],
     }
@@ -1589,14 +1815,16 @@ def test_apply_migrations_at_start_applies_when_not_excluded(
 
     assert database_path.exists()
     assert (
-        "Applied 9 migration(s): 20260701092442_initial_schema, "
+        "Applied 11 migration(s): 20260701092442_initial_schema, "
         "20260701121138_add_providers, 20260702160000_extractor_display_names, "
         "20260708093000_provider_configuration, "
         "20260708112000_remove_foundry_api_version_config, "
         "20260708130000_inherit_openai_compatible_default_model, "
         "20260708133000_job_execution_model_metadata, "
         "20260709090000_extractor_reasoning_effort, "
-        "20260721120000_restrict_job_parent_deletion" in capsys.readouterr().out
+        "20260721120000_restrict_job_parent_deletion, "
+        "20260804070000_explicit_extraction_jobs, "
+        "20260804071000_add_parsers_and_parse_jobs" in capsys.readouterr().out
     )
 
 

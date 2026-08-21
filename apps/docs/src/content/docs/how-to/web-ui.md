@@ -1,6 +1,6 @@
 ---
 title: Use the Web UI
-description: Manage files, extractors, and extraction jobs in the browser without coupling docs to changing screen layouts.
+description: Run extraction and page-aware Markdown parsing in the browser using the same resources as the API and CLI.
 sidebar:
   order: 9
 ---
@@ -11,12 +11,13 @@ others.
 
 ## Run an extraction
 
-1. Open **Files** and upload a supported PDF, image, text, or Markdown file.
-2. Open **Extractors** and choose an existing extractor, or create one with
+1. Select the **Extract** workflow.
+2. Upload a supported PDF, image, text, or Markdown file.
+3. Choose an existing extractor, or create one with
    instructions and a schema.
-3. Start a run with the uploaded file.
-4. Open **Jobs** and inspect the lifecycle state.
-5. When the job is completed, review the structured fields and canonical JSON.
+4. Start a run with the uploaded file.
+5. Inspect **Extraction jobs** for lifecycle state, execution metadata, and the
+   structured result.
 
 The seeded `Receipt` extractor and
 `tests/fixtures/receipt/receipt.jpg` are a known-good first path.
@@ -33,6 +34,28 @@ The seeded `Receipt` extractor and
 
 The UI edits the same definition documented in [core concepts](/explanation/core-concepts/).
 
+## Parse a document to Markdown
+
+1. Select the **Parse** workflow.
+2. Upload or choose one PDF, JPEG, or PNG.
+3. Select the prebuilt **Document to Markdown** parser, or create a custom parser
+   with provider, model, reasoning effort, and additional instructions.
+4. Run parsing and follow the parse-job history.
+5. Review rendered whole-document Markdown, switch to a one-based page view, or
+   inspect the raw Markdown.
+6. Copy the complete result or download it as a `.md` file.
+
+The **Document** and **Per page** views render headings, emphasis, links, lists,
+code, page breaks, GitHub-style tables, and safe table HTML returned by parsing
+models. **Raw Markdown** always preserves the exact source text. Image references
+whose generated assets are not available are shown as labeled references instead
+of broken images.
+
+The result panel also shows the provider, model, internal adapter, duration, and
+actionable terminal error. Active parse jobs can be canceled, and completed jobs
+can be deleted. The parsing token budget is server-controlled through
+`PARSEHAWK_PARSING_MAX_TOKENS` and displayed in parser settings.
+
 ## Move between UI, CLI, and API
 
 Use the stable name shown for an extractor in CLI commands:
@@ -41,8 +64,9 @@ Use the stable name shown for an extractor in CLI commands:
 parsehawk extract document.pdf --extractor invoice_v1 --wait
 ```
 
-Use the `file_...`, `extractor_...`, and `job_...` IDs shown in the UI when an
-API operation requires a canonical resource ID.
+Use the `file_...`, `extractor_...`, `parser_...`, `job_...`, and
+`parse_job_...` IDs shown in the UI when an API operation requires a canonical
+resource ID.
 
 This page intentionally avoids step-by-step screenshots while the UI evolves.
 The resource names and outcomes are the stable contract; the generated

@@ -14,13 +14,16 @@ sidebar:
 Provider names are fixed. `PUT /v1/providers/{name}` updates connection state;
 providers cannot be created or deleted.
 
-## Extractor selection
+## Extractor and parser selection
 
-| Extractor field    | Behavior when omitted                                                       |
+| Definition field   | Behavior when omitted                                                       |
 | ------------------ | --------------------------------------------------------------------------- |
 | `provider_name`    | Uses `openai_compatible_api`                                                |
 | `model`            | Uses `PARSEHAWK_VLLM_MODEL`, currently `numind/NuExtract3-W4A16` by default |
 | `reasoning_effort` | Leaves the model at its provider-defined default                            |
+
+The inherited model behavior applies to the local OpenAI-compatible provider.
+OpenAI and Microsoft Foundry definitions require an explicit model.
 
 ## OpenAI-compatible extraction contract
 
@@ -31,6 +34,19 @@ rejects the modern field.
 
 Images and rendered PDF pages are sent as OpenAI `image_url` content parts using
 data URLs. The selected model and server must support that content shape.
+
+## OpenAI-compatible parsing contract
+
+Parsing sends one image page per streaming chat-completions request and uses the
+separate `PARSEHAWK_PARSING_MAX_TOKENS` budget. Exact supported NuExtract3 models
+receive `chat_template_kwargs.mode=markdown` and an `enable_thinking` flag. No
+extraction template or JSON Schema response format is sent.
+
+Other models receive a Markdown transcription prompt and must accept OpenAI
+`image_url` content. This generic vision path works through any provider slot
+whose endpoint and selected model support the request. Parser instructions are
+appended to the generic prompt; NuExtract3 receives non-empty instructions as a
+system message.
 
 ## Secret handling
 

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,10 +29,10 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123" && init?.method !== "POST") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123" && init?.method !== "POST") {
         return jsonResponse([]);
       }
-      if (url === "/v1/jobs" && init?.method === "POST") {
+      if (url === "/v1/extraction-jobs" && init?.method === "POST") {
         return jsonResponse({
           id: "job_123",
           extractor_id: "extractor_123",
@@ -56,9 +56,222 @@ describe("App run workflow", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Text" }));
     await userEvent.click(screen.getByRole("button", { name: "Run extraction" }));
 
-    expect(await screen.findByText("Job progress")).toBeInTheDocument();
+    expect(await screen.findByText("Extraction job progress")).toBeInTheDocument();
     expect(screen.getAllByText("Queued").length).toBeGreaterThan(0);
     expect(screen.queryByText("artifact_dir")).not.toBeInTheDocument();
+  });
+
+  it("renders document, per-page, and raw Markdown parse results", async () => {
+    const parser = {
+      id: "parser_123",
+      name: "document-to-markdown",
+      display_name: "Document to Markdown",
+      output_format: "markdown",
+      instructions: "",
+      reasoning_effort: null,
+      provider_name: null,
+      model: null,
+      source: "prebuilt",
+      is_prebuilt: true,
+      created_at: "2026-06-21T00:00:00Z",
+      updated_at: "2026-06-21T00:00:00Z"
+    };
+    const content = [
+      "# Invoice",
+      "",
+      "<figure><img src=\"img_1.png\" alt=\"Invoice logo\"></figure>",
+      "",
+      "**First page**",
+      "",
+      "[Open invoice](https://example.com/invoice)",
+      "",
+      "<table><tbody><tr><td>Service</td><td>€ 42</td></tr></tbody></table>",
+      "",
+      "<!-- page-break -->",
+      "",
+      "## Page two",
+      "",
+      "| Item | Total |",
+      "| --- | ---: |",
+      "| Support | € 7 |"
+    ].join("\n");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/files") {
+        return jsonResponse([
+          {
+            id: "file_123",
+            file_name: "invoice.pdf",
+            content_type: "application/pdf",
+            size_bytes: 42,
+            sha256: "abc",
+            created_at: "2026-06-21T00:00:00Z"
+          },
+          {
+            id: "file_other",
+            file_name: "currently-selected.png",
+            content_type: "image/png",
+            size_bytes: 24,
+            sha256: "def",
+            created_at: "2026-06-21T00:00:00Z"
+          }
+        ]);
+      }
+      if (url === "/v1/extractors") return jsonResponse([]);
+      if (url === "/v1/parsers") return jsonResponse([parser]);
+      if (url === "/v1/parse-jobs?parser_id=parser_123") {
+        return jsonResponse([
+          {
+            id: "parse_job_123",
+            parser_id: parser.id,
+            file_id: "file_123",
+            parser_snapshot: { ...parser, parser_id: parser.id },
+            provider_name_used: "openai_compatible_api",
+            model_used: "numind/NuExtract3-2B",
+            reasoning_effort_used: null,
+            model_adapter_used: "nuextract_markdown",
+            status: "completed",
+            result: {
+              format: "markdown",
+              content,
+              page_count: 2,
+              pages: [
+                {
+                  page_number: 1,
+                  content:
+                    "# Invoice\n\n**First page**\n\n[Open invoice](https://example.com/invoice)\n\n<table><tbody><tr><td>Service</td><td>€ 42</td></tr></tbody></table>"
+                },
+                {
+                  page_number: 2,
+                  content: "## Page two\n\n| Item | Total |\n| --- | ---: |\n| Support | € 7 |"
+                }
+              ]
+            },
+            error: null,
+            created_at: "2026-06-21T00:00:00Z",
+            started_at: "2026-06-21T00:00:01Z",
+            completed_at: "2026-06-21T00:00:03Z"
+          }
+        ]);
+      }
+      return jsonResponse({ detail: `unexpected request: ${url}` }, { status: 500 });
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByRole("tab", { name: "Parse" }));
+
+    await userEvent.selectOptions(
+      await screen.findByRole("combobox", { name: "File" }),
+      "file_other"
+    );
+    expect(await screen.findByRole("button", { name: "Download invoice.md" })).toBeInTheDocument();
+
+    const documentResult = within(await screen.findByRole("tabpanel", { name: "Document" }));
+    expect(documentResult.getByRole("heading", { name: "Invoice" })).toBeInTheDocument();
+    expect(documentResult.getByText("Invoice logo")).toBeInTheDocument();
+    expect(documentResult.queryByRole("img", { name: "Invoice logo" })).not.toBeInTheDocument();
+    expect(documentResult.getByText("First page").tagName).toBe("STRONG");
+    expect(documentResult.getByRole("link", { name: "Open invoice" })).toHaveAttribute(
+      "href",
+      "https://example.com/invoice"
+    );
+    expect(documentResult.getAllByRole("table")[0]).toHaveTextContent("Service€ 42");
+    expect(screen.getByText("nuextract_markdown")).toBeInTheDocument();
+    expect(screen.getByText("2s")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Per page (2)" }));
+    await userEvent.selectOptions(screen.getByLabelText("Parsed page"), "2");
+    const pageResult = within(screen.getByRole("tabpanel", { name: "Per page (2)" }));
+    expect(pageResult.getByRole("heading", { name: "Page two" })).toBeInTheDocument();
+    expect(pageResult.getByRole("table")).toHaveTextContent("Support€ 7");
+    expect(pageResult.queryByText("First page")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Raw Markdown" }));
+    expect(
+      screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent === content)
+    ).toBeInTheDocument();
+  });
+
+  it("keeps parse history scoped to the latest selected parser", async () => {
+    const parserAlpha = parserFixture("parser_alpha", "alpha", "Alpha parser");
+    const parserBeta = parserFixture("parser_beta", "beta", "Beta parser");
+    const fileAlpha = fileFixture("file_alpha", "alpha.png");
+    const fileBeta = fileFixture("file_beta", "beta.png");
+    const jobAlpha = parseJobFixture("job_alpha", parserAlpha, fileAlpha.id, "completed");
+    const jobBeta = parseJobFixture("job_beta", parserBeta, fileBeta.id, "completed");
+    let alphaListCalls = 0;
+    let resolveStaleAlphaJobs!: (response: Response) => void;
+    const staleAlphaJobs = new Promise<Response>((resolve) => {
+      resolveStaleAlphaJobs = resolve;
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/files") return jsonResponse([fileAlpha, fileBeta]);
+      if (url === "/v1/extractors") return jsonResponse([]);
+      if (url === "/v1/parsers") return jsonResponse([parserAlpha, parserBeta]);
+      if (url === "/v1/parse-jobs?parser_id=parser_alpha") {
+        alphaListCalls += 1;
+        return alphaListCalls === 1 ? jsonResponse([jobAlpha]) : staleAlphaJobs;
+      }
+      if (url === "/v1/parse-jobs?parser_id=parser_beta") return jsonResponse([jobBeta]);
+      return jsonResponse({ detail: `unexpected request: ${url}` }, { status: 500 });
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByRole("tab", { name: "Parse" }));
+
+    expect(await screen.findByLabelText("Delete parse job job_alpha")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("Refresh parse jobs"));
+    await waitFor(() => expect(alphaListCalls).toBe(2));
+
+    const betaParserCard = screen.getByText("Beta parser").closest<HTMLElement>("[role='button']");
+    expect(betaParserCard).not.toBeNull();
+    await userEvent.click(betaParserCard!);
+
+    expect(await screen.findByLabelText("Delete parse job job_beta")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Delete parse job job_alpha")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveStaleAlphaJobs(await jsonResponse([jobAlpha]));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByLabelText("Delete parse job job_beta")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Delete parse job job_alpha")).not.toBeInTheDocument();
+  });
+
+  it("removes a running parse job after deletion is accepted", async () => {
+    const parser = parserFixture("parser_123", "document-to-markdown", "Document to Markdown");
+    const file = fileFixture("file_123", "page.png");
+    let deleting = false;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/v1/files") return jsonResponse([file]);
+      if (url === "/v1/extractors") return jsonResponse([]);
+      if (url === "/v1/parsers") return jsonResponse([parser]);
+      if (url === "/v1/parse-jobs?parser_id=parser_123") {
+        return jsonResponse([
+          parseJobFixture("job_running", parser, file.id, deleting ? "deleting" : "running")
+        ]);
+      }
+      if (url === "/v1/parse-jobs/job_running" && init?.method === "DELETE") {
+        deleting = true;
+        return new Response(null, { status: 202 });
+      }
+      return jsonResponse({ detail: `unexpected request: ${url}` }, { status: 500 });
+    });
+
+    render(<App />);
+    await userEvent.click(screen.getByRole("tab", { name: "Parse" }));
+
+    await userEvent.click(await screen.findByLabelText("Delete parse job job_running"));
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Delete parse job job_running")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("Parsing needs attention")).not.toBeInTheDocument();
   });
 
   it("starts fresh extractor drafts empty when no extractors are saved", async () => {
@@ -403,7 +616,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
         return jsonResponse([]);
       }
       return jsonResponse({ detail: "unexpected request" }, { status: 500 });
@@ -459,7 +672,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_example") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_example") {
         return jsonResponse([]);
       }
       return jsonResponse({ detail: "unexpected request" }, { status: 500 });
@@ -497,7 +710,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
         return jsonResponse([
           {
             id: "job_123",
@@ -517,7 +730,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs/job_123" && method === "DELETE") {
+      if (url === "/v1/extraction-jobs/job_123" && method === "DELETE") {
         return new Response(null, { status: 204 });
       }
       return jsonResponse({ detail: "unexpected request" }, { status: 500 });
@@ -525,7 +738,7 @@ describe("App run workflow", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Jobs")).toBeInTheDocument();
+    expect(await screen.findByText("Extraction jobs")).toBeInTheDocument();
     expect(await screen.findByText("job_123")).toBeInTheDocument();
     expect((await screen.findAllByText("1s")).length).toBeGreaterThan(0);
     expect(screen.getByText("numind/NuExtract3-W4A16")).toBeInTheDocument();
@@ -538,7 +751,7 @@ describe("App run workflow", () => {
     await waitFor(() => {
       expect(screen.queryByText("job_123")).not.toBeInTheDocument();
     });
-    expect(requests).toContainEqual({ method: "DELETE", url: "/v1/jobs/job_123" });
+    expect(requests).toContainEqual({ method: "DELETE", url: "/v1/extraction-jobs/job_123" });
   });
 
   it("renders deleting jobs as active", async () => {
@@ -560,7 +773,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
         return jsonResponse([
           {
             id: "job_deleting",
@@ -622,7 +835,7 @@ describe("App run workflow", () => {
           }
         ]);
       }
-      if (url === "/v1/jobs?extractor_id=extractor_123") {
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
         return jsonResponse([
           {
             id: "job_file",
@@ -1000,4 +1213,64 @@ function jsonResponse(payload: unknown, init: ResponseInit = {}) {
       ...init
     })
   );
+}
+
+function parserFixture(id: string, name: string, displayName: string) {
+  return {
+    id,
+    name,
+    display_name: displayName,
+    output_format: "markdown",
+    instructions: "",
+    reasoning_effort: null,
+    provider_name: null,
+    model: null,
+    source: "user",
+    is_prebuilt: false,
+    created_at: "2026-06-21T00:00:00Z",
+    updated_at: "2026-06-21T00:00:00Z"
+  };
+}
+
+function fileFixture(id: string, fileName: string) {
+  return {
+    id,
+    file_name: fileName,
+    content_type: "image/png",
+    size_bytes: 42,
+    sha256: `${id}-sha`,
+    created_at: "2026-06-21T00:00:00Z"
+  };
+}
+
+function parseJobFixture(
+  id: string,
+  parser: ReturnType<typeof parserFixture>,
+  fileId: string,
+  status: "queued" | "running" | "canceling" | "deleting" | "canceled" | "completed" | "failed"
+) {
+  const completed = status === "completed";
+  return {
+    id,
+    parser_id: parser.id,
+    file_id: fileId,
+    parser_snapshot: { ...parser, parser_id: parser.id },
+    provider_name_used: completed ? "openai_compatible_api" : null,
+    model_used: completed ? "numind/NuExtract3-W4A16" : null,
+    reasoning_effort_used: null,
+    model_adapter_used: completed ? "nuextract_markdown" : null,
+    status,
+    result: completed
+      ? {
+          format: "markdown",
+          content: "# Parsed",
+          page_count: 1,
+          pages: [{ page_number: 1, content: "# Parsed" }]
+        }
+      : null,
+    error: null,
+    created_at: "2026-06-21T00:00:00Z",
+    started_at: status === "queued" ? null : "2026-06-21T00:00:01Z",
+    completed_at: completed ? "2026-06-21T00:00:02Z" : null
+  };
 }

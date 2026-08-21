@@ -11,6 +11,37 @@ from parsehawk.core.domain.models import File
 from parsehawk.server.adapters.storage.local import LocalFileStorage
 
 
+@pytest.mark.parametrize(
+    ("file_name", "expected_content_type"),
+    [
+        ("page.jpg", "image/jpeg"),
+        ("page.jpeg", "image/jpeg"),
+        ("page.png", "image/png"),
+    ],
+)
+def test_prepare_document_normalizes_image_content_type_from_suffix(
+    tmp_path: Path,
+    file_name: str,
+    expected_content_type: str,
+) -> None:
+    storage = LocalFileStorage(tmp_path)
+    storage_path = storage.write_file("file_image", file_name, b"image")
+    file = File(
+        id="file_image",
+        file_name=file_name,
+        content_type="application/octet-stream",
+        size_bytes=5,
+        sha256="hash",
+        storage_path=storage_path,
+    )
+
+    document = storage.prepare_document(file)
+
+    assert document.content_type == expected_content_type
+    assert len(document.images) == 1
+    assert document.images[0].content_type == expected_content_type
+
+
 def test_prepare_document_renders_pdf_pages(tmp_path: Path) -> None:
     storage = LocalFileStorage(tmp_path, pdf_max_pages=5, pdf_render_dpi=72)
     storage_path = storage.write_file("file_pdf", "document.pdf", pdf_bytes())

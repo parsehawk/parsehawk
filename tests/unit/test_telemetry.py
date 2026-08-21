@@ -70,6 +70,7 @@ def test_track_run_started_captures_event(monkeypatch: pytest.MonkeyPatch, tmp_p
     event = fake.events[0]
     assert event["event"] == "run_started"
     assert event["properties"]["input_type"] == "file"
+    assert event["properties"]["workflow"] == "extraction"
     assert "parsehawk_version" in event["properties"]
     assert "os" in event["properties"]
     # Person profiles are off; geo (from IP) is left enabled, so it is NOT disabled.

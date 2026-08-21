@@ -3,9 +3,9 @@
 openapi: 3.1.0
 info:
   title: ParseHawk API
-  summary: Local-first document extraction API
-  description: Turn PDFs, images, scans, Markdown, and text into validated JSON. ParseHawk is self-hosted
-    and exposes the same local API used by its CLI and web UI.
+  summary: Local-first document parsing and extraction API
+  description: Turn PDFs and images into Markdown, or documents and text into validated JSON. ParseHawk
+    is self-hosted and exposes the same local API used by its CLI and web UI.
   contact:
     name: ParseHawk support
     url: https://github.com/parsehawk/parsehawk/issues
@@ -538,6 +538,260 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
+  /v1/parsers:
+    get:
+      tags:
+      - parsers
+      summary: List parsers
+      description: List custom and built-in document parsers.
+      operationId: listParsers
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ParserResponse'
+                type: array
+                title: Response Listparsers
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+    post:
+      tags:
+      - parsers
+      summary: Create a parser
+      description: Create a reusable document-to-Markdown parser with an optional custom prompt.
+      operationId: createParser
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateParserRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParserResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: The request or domain input failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /v1/parsers/{parser_ref}:
+    get:
+      tags:
+      - parsers
+      summary: Get a parser
+      description: Retrieve a parser by immutable ID or stable name.
+      operationId: getParser
+      parameters:
+      - name: parser_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Parser ID or stable name.
+          title: Parser Ref
+        description: Parser ID or stable name.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParserResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - parsers
+      summary: Update a parser
+      description: Partially update a custom parser while preserving omitted fields.
+      operationId: updateParser
+      parameters:
+      - name: parser_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Parser ID or stable name.
+          title: Parser Ref
+        description: Parser ID or stable name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateParserRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParserResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: The request or domain input failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+    put:
+      tags:
+      - parsers
+      summary: Create or replace a parser
+      description: Create a named parser when absent or replace its complete definition when present.
+      operationId: upsertParser
+      parameters:
+      - name: parser_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Stable parser name.
+          title: Parser Ref
+        description: Stable parser name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertParserRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParserResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: The request or domain input failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+    delete:
+      tags:
+      - parsers
+      summary: Delete a parser
+      description: Delete a custom parser. Built-in parsers and parsers referenced by parse jobs cannot
+        be deleted.
+      operationId: deleteParser
+      parameters:
+      - name: parser_ref
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Parser ID or stable name.
+          title: Parser Ref
+        description: Parser ID or stable name.
+      responses:
+        '204':
+          description: Successful Response
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: The request or domain input failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
   /v1/providers:
     get:
       tags:
@@ -698,26 +952,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorResponse'
-  /v1/jobs:
+  /v1/extraction-jobs:
     post:
       tags:
-      - jobs
-      summary: Create a job
+      - extraction-jobs
+      summary: Create an extraction job
       description: Enqueue extraction for one uploaded file or inline text input.
-      operationId: createJob
+      operationId: createExtractionJob
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateJobRequest'
+              $ref: '#/components/schemas/CreateExtractionJobRequest'
       responses:
         '201':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobResponse'
+                $ref: '#/components/schemas/ExtractionJobResponse'
         '500':
           description: Unexpected server error.
           content:
@@ -746,14 +1000,14 @@ paths:
       - lang: bash
         label: curl
         source: "API=\"${PARSEHAWK_API_URL:-http://127.0.0.1:8000}\"\ncurl --fail --silent --show-error\
-          \ \\\n  --request POST \"$API/v1/jobs\" \\\n  --header \"Content-Type: application/json\" \\\
-          \n  --data '{\"extractor_name\":\"receipt\",\"file_id\":\"file_...\"}' | jq ."
+          \ \\\n  --request POST \"$API/v1/extraction-jobs\" \\\n  --header \"Content-Type: application/json\"\
+          \ \\\n  --data '{\"extractor_name\":\"receipt\",\"file_id\":\"file_...\"}' | jq ."
     get:
       tags:
-      - jobs
-      summary: List jobs
+      - extraction-jobs
+      summary: List extraction jobs
       description: List extraction jobs, optionally filtered by extractor ID or stable name.
-      operationId: listJobs
+      operationId: listExtractionJobs
       parameters:
       - name: extractor_id
         in: query
@@ -783,8 +1037,8 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/JobResponse'
-                title: Response Listjobs
+                  $ref: '#/components/schemas/ExtractionJobResponse'
+                title: Response Listextractionjobs
         '500':
           description: Unexpected server error.
           content:
@@ -803,13 +1057,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /v1/jobs/{job_id}:
+  /v1/extraction-jobs/{job_id}:
     get:
       tags:
-      - jobs
-      summary: Get a job
+      - extraction-jobs
+      summary: Get an extraction job
       description: Retrieve the current state, result, or failure details for one extraction job.
-      operationId: getJob
+      operationId: getExtractionJob
       parameters:
       - name: job_id
         in: path
@@ -825,7 +1079,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobResponse'
+                $ref: '#/components/schemas/ExtractionJobResponse'
         '500':
           description: Unexpected server error.
           content:
@@ -855,14 +1109,506 @@ paths:
         label: curl
         source: 'API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
 
-          curl --fail --silent --show-error "$API/v1/jobs/job_..." | jq .'
+          curl --fail --silent --show-error "$API/v1/extraction-jobs/job_..." | jq .'
+    delete:
+      tags:
+      - extraction-jobs
+      summary: Delete an extraction job
+      description: Delete a terminal job immediately, or return 202 while cancellation completes for a
+        running job.
+      operationId: deleteExtractionJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Immutable job identifier.
+          title: Job Id
+        description: Immutable job identifier.
+      responses:
+        '204':
+          description: Successful Response
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '202':
+          description: Cancellation and deletion accepted.
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/extraction-jobs/{job_id}/cancel:
+    post:
+      tags:
+      - extraction-jobs
+      summary: Cancel an extraction job
+      description: Request cancellation and return the resulting job state.
+      operationId: cancelExtractionJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Immutable job identifier.
+          title: Job Id
+        description: Immutable job identifier.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionJobResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: The request or domain input failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /v1/parse-jobs:
+    post:
+      tags:
+      - parse-jobs
+      summary: Create a parse job
+      description: Enqueue page-preserving Markdown parsing for one uploaded PDF, JPG/JPEG, or PNG file.
+        The parser configuration is snapshotted when the job is created.
+      operationId: createParseJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateParseJobRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseJobResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: The request or domain input failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+      x-codeSamples:
+      - lang: bash
+        label: curl
+        source: "API=\"${PARSEHAWK_API_URL:-http://127.0.0.1:8000}\"\ncurl --fail --silent --show-error\
+          \ \\\n  --request POST \"$API/v1/parse-jobs\" \\\n  --header \"Content-Type: application/json\"\
+          \ \\\n  --data '{\"parser_name\":\"document-to-markdown\",\"file_id\":\"file_...\"}' | jq ."
+    get:
+      tags:
+      - parse-jobs
+      summary: List parse jobs
+      description: List parse jobs, optionally filtered by parser ID or stable name.
+      operationId: listParseJobs
+      parameters:
+      - name: parser_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Only return jobs for this immutable parser ID.
+          title: Parser Id
+        description: Only return jobs for this immutable parser ID.
+      - name: parser_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Only return jobs for this stable parser name.
+          title: Parser Name
+        description: Only return jobs for this stable parser name.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ParseJobResponse'
+                title: Response Listparsejobs
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/parse-jobs/{job_id}:
+    get:
+      tags:
+      - parse-jobs
+      summary: Get a parse job
+      description: Retrieve the current state, Markdown result, or failure details for one parse job.
+      operationId: getParseJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Immutable parse job identifier.
+          title: Job Id
+        description: Immutable parse job identifier.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseJobResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      x-codeSamples:
+      - lang: bash
+        label: curl
+        source: 'API="${PARSEHAWK_API_URL:-http://127.0.0.1:8000}"
+
+          curl --fail --silent --show-error "$API/v1/parse-jobs/parse_job_..." | jq .'
+    delete:
+      tags:
+      - parse-jobs
+      summary: Delete a parse job
+      description: Delete a terminal job immediately, or return 202 while cancellation completes for a
+        running job.
+      operationId: deleteParseJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Immutable parse job identifier.
+          title: Job Id
+        description: Immutable parse job identifier.
+      responses:
+        '204':
+          description: Successful Response
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '202':
+          description: Cancellation and deletion accepted.
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/parse-jobs/{job_id}/cancel:
+    post:
+      tags:
+      - parse-jobs
+      summary: Cancel a parse job
+      description: Request cancellation and return the resulting job state.
+      operationId: cancelParseJob
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Immutable parse job identifier.
+          title: Job Id
+        description: Immutable parse job identifier.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseJobResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: The request or domain input failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+  /v1/jobs:
+    post:
+      tags:
+      - jobs
+      summary: Create an extraction job (deprecated)
+      description: Deprecated alias for `POST /v1/extraction-jobs`; removed in v0.4.
+      operationId: createJob
+      deprecated: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExtractionJobRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionJobResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: The request or domain input failed validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+    get:
+      tags:
+      - jobs
+      summary: List extraction jobs (deprecated)
+      description: Deprecated alias for `GET /v1/extraction-jobs`; removed in v0.4.
+      operationId: listJobs
+      deprecated: true
+      parameters:
+      - name: extractor_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Only return jobs for this immutable extractor ID.
+          title: Extractor Id
+        description: Only return jobs for this immutable extractor ID.
+      - name: extractor_name
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Only return jobs for this stable extractor name.
+          title: Extractor Name
+        description: Only return jobs for this stable extractor name.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExtractionJobResponse'
+                title: Response Listjobs
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/jobs/{job_id}:
+    get:
+      tags:
+      - jobs
+      summary: Get an extraction job (deprecated)
+      description: Deprecated alias for `GET /v1/extraction-jobs/{job_id}`; removed in v0.4.
+      operationId: getJob
+      deprecated: true
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Immutable job identifier.
+          title: Job Id
+        description: Immutable job identifier.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionJobResponse'
+        '500':
+          description: Unexpected server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '503':
+          description: Persistence is temporarily busy and the request can be retried.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '404':
+          description: The requested ParseHawk resource does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
       - jobs
-      summary: Delete a job
-      description: Delete a terminal job immediately, or return 202 while cancellation completes for a
-        running job.
+      summary: Delete an extraction job (deprecated)
+      description: Deprecated alias for `DELETE /v1/extraction-jobs/{job_id}`; removed in v0.4.
       operationId: deleteJob
+      deprecated: true
       parameters:
       - name: job_id
         in: path
@@ -905,9 +1651,10 @@ paths:
     post:
       tags:
       - jobs
-      summary: Cancel a job
-      description: Request cancellation and return the resulting job state.
+      summary: Cancel an extraction job (deprecated)
+      description: Deprecated alias for `POST /v1/extraction-jobs/{job_id}/cancel`; removed in v0.4.
       operationId: cancelJob
+      deprecated: true
       parameters:
       - name: job_id
         in: path
@@ -923,7 +1670,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobResponse'
+                $ref: '#/components/schemas/ExtractionJobResponse'
         '500':
           description: Unexpected server error.
           content:
@@ -1022,7 +1769,7 @@ components:
           type: string
           contentMediaType: application/octet-stream
           title: Upload
-          description: PDF, image, text, or Markdown document to store for extraction.
+          description: PDF, image, text, or Markdown document to store and reuse.
       type: object
       required:
       - upload
@@ -1063,6 +1810,44 @@ components:
       type: object
       title: ConfigureProviderRequest
       description: Write-only provider configuration. The API never returns the API key.
+    CreateExtractionJobRequest:
+      properties:
+        extractor_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Extractor Id
+          description: Immutable extractor identifier. Supply exactly one extractor selector.
+          examples:
+          - ext_01JZ6QK8M7
+        extractor_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Extractor Name
+          description: Stable extractor name. Supply exactly one extractor selector.
+          examples:
+          - invoice
+        file_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: File Id
+          description: Uploaded file identifier. Supply exactly one input source.
+          examples:
+          - file_01JZ6QK8M7
+        text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Text
+          description: Inline text to extract. Supply exactly one input source.
+          examples:
+          - Invoice INV-1001 from Acme GmbH for EUR 42.00.
+      additionalProperties: false
+      type: object
+      title: CreateExtractionJobRequest
+      description: Request to enqueue one extraction job.
     CreateExtractorRequest:
       properties:
         name:
@@ -1123,44 +1908,85 @@ components:
       - schema
       title: CreateExtractorRequest
       description: Definition used to create a reusable extractor.
-    CreateJobRequest:
+    CreateParseJobRequest:
       properties:
-        extractor_id:
+        parser_id:
           anyOf:
           - type: string
           - type: 'null'
-          title: Extractor Id
-          description: Immutable extractor identifier. Supply exactly one extractor selector.
+          title: Parser Id
+          description: Immutable parser identifier. Supply exactly one parser selector.
           examples:
-          - ext_01JZ6QK8M7
-        extractor_name:
+          - parser_01JZ6QK8M7
+        parser_name:
           anyOf:
           - type: string
           - type: 'null'
-          title: Extractor Name
-          description: Stable extractor name. Supply exactly one extractor selector.
+          title: Parser Name
+          description: Stable parser name. Supply exactly one parser selector.
           examples:
-          - invoice
+          - document-to-markdown
         file_id:
-          anyOf:
-          - type: string
-          - type: 'null'
+          type: string
           title: File Id
-          description: Uploaded file identifier. Supply exactly one input source.
+          description: Uploaded PDF, JPG/JPEG, or PNG file identifier.
           examples:
           - file_01JZ6QK8M7
-        text:
+      additionalProperties: false
+      type: object
+      required:
+      - file_id
+      title: CreateParseJobRequest
+      description: Request to enqueue one document parsing job.
+    CreateParserRequest:
+      properties:
+        name:
           anyOf:
           - type: string
           - type: 'null'
-          title: Text
-          description: Inline text to extract. Supply exactly one input source.
+          title: Name
+          description: Stable URL-safe parser name. Generated from display_name when omitted.
           examples:
-          - Invoice INV-1001 from Acme GmbH for EUR 42.00.
+          - document-to-markdown
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+          description: Human-readable parser label. Either this field or name is required.
+          examples:
+          - Document to Markdown
+        output_format:
+          $ref: '#/components/schemas/ParserOutputFormat'
+          description: Output format produced by the parser. Markdown is the v0.3 format.
+          default: markdown
+        instructions:
+          type: string
+          title: Instructions
+          description: Optional instructions appended to the document transcription prompt.
+          default: ''
+        reasoning_effort:
+          anyOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+          - type: 'null'
+          description: Optional reasoning effort passed to models that support it.
+        provider_name:
+          anyOf:
+          - $ref: '#/components/schemas/ProviderName'
+          - type: 'null'
+          description: Configured provider to use. The local OpenAI-compatible provider is the default.
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+          description: Provider model identifier. Required for hosted providers.
+          examples:
+          - gpt-5-mini
       additionalProperties: false
       type: object
-      title: CreateJobRequest
-      description: Request to enqueue one extraction job.
+      title: CreateParserRequest
+      description: Definition used to create a reusable document parser.
     ExampleInputKind:
       type: string
       enum:
@@ -1211,6 +2037,120 @@ components:
       - output
       title: ExampleRequest
       description: Few-shot example pairing representative input with expected structured output.
+    ExtractionErrorResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+          description: Human-readable failure message.
+        code:
+          type: string
+          title: Code
+          description: Stable machine-readable failure code.
+      additionalProperties: false
+      type: object
+      required:
+      - message
+      - code
+      title: ExtractionErrorResponse
+      description: Terminal extraction error stored with a failed job.
+    ExtractionJobResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Immutable job identifier.
+          examples:
+          - job_01JZ6QK8M7
+        extractor_id:
+          type: string
+          title: Extractor Id
+          description: Immutable extractor identifier used by the job.
+        file_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: File Id
+          description: Input file identifier for file-based jobs.
+        source_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source Text
+          description: Inline source text for text-based jobs.
+        provider_name_used:
+          anyOf:
+          - $ref: '#/components/schemas/ProviderName'
+          - type: 'null'
+          description: Provider selected when execution starts.
+        model_used:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Used
+          description: Model selected when execution starts.
+        status:
+          $ref: '#/components/schemas/JobStatus'
+          description: Current job lifecycle state.
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/ExtractionResultResponse'
+          - type: 'null'
+          description: Validated result for completed jobs.
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/ExtractionErrorResponse'
+          - type: 'null'
+          description: Failure details for failed jobs.
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: UTC creation time.
+        started_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Started At
+          description: UTC execution start time.
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+          description: UTC terminal-state time.
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - extractor_id
+      - file_id
+      - source_text
+      - provider_name_used
+      - model_used
+      - status
+      - result
+      - error
+      - created_at
+      - started_at
+      - completed_at
+      title: ExtractionJobResponse
+      description: Current state and eventual result of one extraction job.
+    ExtractionResultResponse:
+      properties:
+        data:
+          additionalProperties: true
+          type: object
+          title: Data
+          description: Result validated against the extractor schema.
+      additionalProperties: false
+      type: object
+      required:
+      - data
+      title: ExtractionResultResponse
+      description: Validated structured output produced by an extraction job.
     ExtractorResponse:
       properties:
         id:
@@ -1382,7 +2322,18 @@ components:
       - status
       title: HealthResponse
       description: Liveness status for the API process.
-    JobErrorResponse:
+    JobStatus:
+      type: string
+      enum:
+      - queued
+      - running
+      - completed
+      - failed
+      - canceling
+      - deleting
+      - canceled
+      title: JobStatus
+    ParseErrorResponse:
       properties:
         message:
           type: string
@@ -1397,32 +2348,25 @@ components:
       required:
       - message
       - code
-      title: JobErrorResponse
-      description: Terminal extraction error stored with a failed job.
-    JobResponse:
+      title: ParseErrorResponse
+      description: Terminal parsing error stored with a failed job.
+    ParseJobResponse:
       properties:
         id:
           type: string
           title: Id
-          description: Immutable job identifier.
-          examples:
-          - job_01JZ6QK8M7
-        extractor_id:
+          description: Immutable parse job identifier.
+        parser_id:
           type: string
-          title: Extractor Id
-          description: Immutable extractor identifier used by the job.
+          title: Parser Id
+          description: Immutable parser identifier used by the job.
         file_id:
-          anyOf:
-          - type: string
-          - type: 'null'
+          type: string
           title: File Id
-          description: Input file identifier for file-based jobs.
-        source_text:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Source Text
-          description: Inline source text for text-based jobs.
+          description: Input file identifier.
+        parser_snapshot:
+          $ref: '#/components/schemas/ParserSnapshotResponse'
+          description: Immutable parser configuration captured when the job was created.
         provider_name_used:
           anyOf:
           - $ref: '#/components/schemas/ProviderName'
@@ -1434,17 +2378,28 @@ components:
           - type: 'null'
           title: Model Used
           description: Model selected when execution starts.
+        reasoning_effort_used:
+          anyOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+          - type: 'null'
+          description: Reasoning effort selected when execution starts.
+        model_adapter_used:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model Adapter Used
+          description: Parsing request adapter selected when execution starts.
         status:
           $ref: '#/components/schemas/JobStatus'
           description: Current job lifecycle state.
         result:
           anyOf:
-          - $ref: '#/components/schemas/JobResultResponse'
+          - $ref: '#/components/schemas/ParseResultResponse'
           - type: 'null'
-          description: Validated result for completed jobs.
+          description: Markdown result for completed jobs.
         error:
           anyOf:
-          - $ref: '#/components/schemas/JobErrorResponse'
+          - $ref: '#/components/schemas/ParseErrorResponse'
           - type: 'null'
           description: Failure details for failed jobs.
         created_at:
@@ -1470,43 +2425,200 @@ components:
       type: object
       required:
       - id
-      - extractor_id
+      - parser_id
       - file_id
-      - source_text
+      - parser_snapshot
       - provider_name_used
       - model_used
+      - reasoning_effort_used
+      - model_adapter_used
       - status
       - result
       - error
       - created_at
       - started_at
       - completed_at
-      title: JobResponse
-      description: Current state and eventual result of one extraction job.
-    JobResultResponse:
+      title: ParseJobResponse
+      description: Current state and eventual Markdown result of one parse job.
+    ParsePageResultResponse:
       properties:
-        data:
-          additionalProperties: true
-          type: object
-          title: Data
-          description: Result validated against the extractor schema.
+        page_number:
+          type: integer
+          minimum: 1.0
+          title: Page Number
+          description: One-based source page number.
+        content:
+          type: string
+          title: Content
+          description: Markdown transcription for this page.
       additionalProperties: false
       type: object
       required:
-      - data
-      title: JobResultResponse
-      description: Validated structured output produced by an extraction job.
-    JobStatus:
+      - page_number
+      - content
+      title: ParsePageResultResponse
+      description: Markdown output for one source page.
+    ParseResultResponse:
+      properties:
+        format:
+          $ref: '#/components/schemas/ParserOutputFormat'
+          description: Result content format.
+        content:
+          type: string
+          title: Content
+          description: All page content joined by an HTML page-break comment.
+        page_count:
+          type: integer
+          minimum: 1.0
+          title: Page Count
+          description: Number of parsed source pages.
+        pages:
+          items:
+            $ref: '#/components/schemas/ParsePageResultResponse'
+          type: array
+          title: Pages
+          description: Canonical one-based per-page Markdown output.
+      additionalProperties: false
+      type: object
+      required:
+      - format
+      - content
+      - page_count
+      - pages
+      title: ParseResultResponse
+      description: Canonical Markdown result for a completed parse job.
+    ParserOutputFormat:
       type: string
       enum:
-      - queued
-      - running
-      - completed
-      - failed
-      - canceling
-      - deleting
-      - canceled
-      title: JobStatus
+      - markdown
+      title: ParserOutputFormat
+    ParserResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Immutable parser identifier.
+        name:
+          type: string
+          title: Name
+          description: Stable URL-safe parser name.
+        display_name:
+          type: string
+          title: Display Name
+          description: Human-readable parser label.
+        output_format:
+          $ref: '#/components/schemas/ParserOutputFormat'
+          description: Configured parser output format.
+        instructions:
+          type: string
+          title: Instructions
+          description: Document parsing instructions.
+        reasoning_effort:
+          anyOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+          - type: 'null'
+          description: Configured reasoning effort.
+        provider_name:
+          anyOf:
+          - $ref: '#/components/schemas/ProviderName'
+          - type: 'null'
+          description: Configured model provider.
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+          description: Configured provider model identifier.
+        source:
+          $ref: '#/components/schemas/ParserSource'
+          description: How the parser was created.
+        is_prebuilt:
+          type: boolean
+          title: Is Prebuilt
+          description: Whether ParseHawk ships this parser.
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+          description: UTC creation time.
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+          description: UTC last-update time.
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - name
+      - display_name
+      - output_format
+      - instructions
+      - reasoning_effort
+      - provider_name
+      - model
+      - source
+      - is_prebuilt
+      - created_at
+      - updated_at
+      title: ParserResponse
+      description: Public representation of a reusable parser.
+    ParserSnapshotResponse:
+      properties:
+        parser_id:
+          type: string
+          title: Parser Id
+          description: Immutable parser identifier.
+        name:
+          type: string
+          title: Name
+          description: Stable parser name at enqueue time.
+        display_name:
+          type: string
+          title: Display Name
+          description: Parser label at enqueue time.
+        output_format:
+          $ref: '#/components/schemas/ParserOutputFormat'
+          description: Output format at enqueue time.
+        instructions:
+          type: string
+          title: Instructions
+          description: Parsing instructions at enqueue time.
+        reasoning_effort:
+          anyOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+          - type: 'null'
+          description: Reasoning effort at enqueue time.
+        provider_name:
+          anyOf:
+          - $ref: '#/components/schemas/ProviderName'
+          - type: 'null'
+          description: Provider selection at enqueue time.
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+          description: Model selection at enqueue time.
+      additionalProperties: false
+      type: object
+      required:
+      - parser_id
+      - name
+      - display_name
+      - output_format
+      - instructions
+      - reasoning_effort
+      - provider_name
+      - model
+      title: ParserSnapshotResponse
+      description: Immutable parser configuration captured when a parse job is enqueued.
+    ParserSource:
+      type: string
+      enum:
+      - user
+      - prebuilt
+      title: ParserSource
     ProviderModelsResponse:
       properties:
         models:
@@ -1587,7 +2699,7 @@ components:
       - high
       - xhigh
       title: ReasoningEffort
-      description: 'Explicit reasoning effort for an extractor''s model.
+      description: 'Explicit reasoning effort for an extractor''s or parser''s model.
 
 
         The values mirror OpenAI''s ``reasoning_effort`` parameter. Extractors store
@@ -1684,6 +2796,45 @@ components:
       type: object
       title: UpdateExtractorRequest
       description: Partial update for an existing extractor.
+    UpdateParserRequest:
+      properties:
+        display_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Display Name
+          description: New human-readable label.
+        output_format:
+          anyOf:
+          - $ref: '#/components/schemas/ParserOutputFormat'
+          - type: 'null'
+          description: New parser output format.
+        instructions:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Instructions
+          description: New parsing instructions.
+        reasoning_effort:
+          anyOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+          - type: 'null'
+          description: New reasoning effort; explicit null restores the model default.
+        provider_name:
+          anyOf:
+          - $ref: '#/components/schemas/ProviderName'
+          - type: 'null'
+          description: New provider selection.
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+          description: New model selection; explicit null uses the local provider default.
+      additionalProperties: false
+      type: object
+      title: UpdateParserRequest
+      description: Partial update for an existing parser.
     UpsertExtractorRequest:
       properties:
         name:
@@ -1737,6 +2888,51 @@ components:
       - schema
       title: UpsertExtractorRequest
       description: Complete extractor definition used to create or replace an extractor by reference.
+    UpsertParserRequest:
+      properties:
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+          description: Optional body name. When supplied it must match the path reference.
+        display_name:
+          type: string
+          title: Display Name
+          description: Human-readable parser label.
+          examples:
+          - Document to Markdown
+        output_format:
+          $ref: '#/components/schemas/ParserOutputFormat'
+          description: Output format produced by the parser.
+          default: markdown
+        instructions:
+          type: string
+          title: Instructions
+          description: Document parsing instructions.
+          default: ''
+        reasoning_effort:
+          anyOf:
+          - $ref: '#/components/schemas/ReasoningEffort'
+          - type: 'null'
+          description: Optional reasoning effort passed to models that support it.
+        provider_name:
+          anyOf:
+          - $ref: '#/components/schemas/ProviderName'
+          - type: 'null'
+          description: Configured provider to use.
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+          description: Provider model identifier.
+      additionalProperties: false
+      type: object
+      required:
+      - display_name
+      title: UpsertParserRequest
+      description: Complete parser definition used to create or replace a parser by reference.
     ValidateSchemaRequest:
       properties:
         schema:
@@ -1837,8 +3033,14 @@ tags:
   description: Validate extraction schemas before attaching them to extractors.
 - name: extractors
   description: Reusable extraction instructions, schemas, examples, provider, and model choices.
+- name: parsers
+  description: Reusable document-to-Markdown parsing instructions, provider, and model choices.
 - name: providers
   description: Configure local or hosted model providers without exposing stored secrets.
-- name: jobs
+- name: extraction-jobs
   description: Create, inspect, cancel, and delete asynchronous extraction jobs.
+- name: parse-jobs
+  description: Create, inspect, cancel, and delete asynchronous document parsing jobs.
+- name: jobs
+  description: Deprecated v0.3 compatibility aliases for extraction jobs.
 security: []
