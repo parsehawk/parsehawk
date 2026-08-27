@@ -3275,7 +3275,7 @@ function ResultFields(props: { data: Record<string, unknown> }) {
       <div className="divide-y">
         {entries.map(([key, value]) => (
           <div className="grid gap-2 p-3 md:grid-cols-[180px_minmax(0,1fr)_auto] md:items-center" key={key}>
-            <span className="font-mono text-sm text-muted-foreground">{key}</span>
+            <span className="min-w-0 break-all font-mono text-sm text-muted-foreground">{key}</span>
             <strong className="min-w-0 whitespace-pre-wrap break-words text-sm font-medium">{formatResultValue(value)}</strong>
             <CopyButton value={formatResultValue(value)} label={`Copy ${key}`} />
           </div>
@@ -3334,11 +3334,11 @@ function JsonEditor(props: { value: string; readOnly?: boolean; onChange: (value
 
 function JsonBlock(props: { value: string }) {
   return (
-    <div className="relative">
+    <div data-testid="result-json-block" className="relative h-[520px] min-h-0 overflow-hidden xl:h-full">
       <div className="absolute right-3 top-3 z-10">
         <CopyButton value={props.value} label="Copy JSON" />
       </div>
-      <ScrollArea className="h-[520px] xl:h-full">
+      <ScrollArea className="h-full min-h-0">
         <pre className="whitespace-pre-wrap p-4 pr-16 font-mono text-sm leading-6">
           <JsonTokens value={props.value} />
         </pre>

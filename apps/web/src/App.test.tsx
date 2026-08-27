@@ -754,6 +754,62 @@ describe("App run workflow", () => {
     expect(requests).toContainEqual({ method: "DELETE", url: "/v1/extraction-jobs/job_123" });
   });
 
+  it("wraps long result keys and keeps large JSON results scrollable", async () => {
+    const longKey = "invoice_recipient_vat_identification_number";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/files") return jsonResponse([]);
+      if (url === "/v1/extractors") {
+        return jsonResponse([
+          {
+            id: "extractor_123",
+            name: "invoice_v1",
+            instructions: "Extract invoice fields.",
+            schema: { type: "object" },
+            examples: [],
+            created_at: "2026-06-21T00:00:00Z",
+            updated_at: "2026-06-21T00:00:00Z"
+          }
+        ]);
+      }
+      if (url === "/v1/extraction-jobs?extractor_id=extractor_123") {
+        return jsonResponse([
+          {
+            id: "job_123",
+            extractor_id: "extractor_123",
+            file_id: null,
+            source_text: "Invoice text",
+            provider_name_used: "openai_compatible_api",
+            model_used: "numind/NuExtract3-W4A16",
+            status: "completed",
+            result: {
+              data: {
+                [longKey]: "ATU73519427",
+                description: "A long result that must remain available in the JSON viewer."
+              }
+            },
+            error: null,
+            created_at: "2026-06-21T00:00:00Z",
+            started_at: "2026-06-21T00:00:01Z",
+            completed_at: "2026-06-21T00:00:02Z"
+          }
+        ]);
+      }
+      return jsonResponse({ detail: "unexpected request" }, { status: 500 });
+    });
+
+    render(<App />);
+
+    const fieldName = await screen.findByText(longKey);
+    expect(fieldName).toHaveClass("min-w-0", "break-all");
+
+    await userEvent.click(screen.getByRole("tab", { name: "json" }));
+
+    const jsonBlock = screen.getByTestId("result-json-block");
+    expect(jsonBlock).toHaveClass("h-[520px]", "min-h-0", "overflow-hidden", "xl:h-full");
+    expect(jsonBlock.querySelector('[data-slot="scroll-area"]')).toHaveClass("h-full", "min-h-0");
+  });
+
   it("renders deleting jobs as active", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
