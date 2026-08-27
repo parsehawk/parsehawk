@@ -76,5 +76,8 @@ You exercised the full path:
 document → uploaded file → extraction job → model → schema validation → JSON
 ```
 
-Continue with [build a reusable extractor](/tutorials/reusable-extractor/) to
-define your own output contract.
+Extraction selects a predefined set of fields and validates their types. It does
+not try to preserve the complete document. Compare it with
+[document-to-Markdown parsing](/tutorials/document-to-markdown/), or continue
+with [build a reusable extractor](/tutorials/reusable-extractor/) to define your
+own JSON contract.

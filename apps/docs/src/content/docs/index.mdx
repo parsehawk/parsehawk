@@ -1,32 +1,37 @@
 ---
 title: ParseHawk developer docs
-description: Build private structured-extraction and document-to-Markdown workflows with the ParseHawk UI, CLI, and REST API.
+description: Parse documents into page-aware Markdown or extract schema-valid JSON with the ParseHawk UI, CLI, and REST API.
 template: splash
 hero:
-  title: Private documents. Exact JSON.
-  tagline: Run structured extraction and document-to-Markdown parsing locally from the UI, CLI, or REST API.
+  title: Documents in. Markdown or JSON out.
+  tagline: Parse complete documents into page-aware Markdown, or extract the exact JSON fields your application needs. Run both workflows locally from the UI, CLI, or REST API.
   actions:
-    - text: Run your first extraction
-      link: /tutorials/first-extraction/
+    - text: Parse to Markdown
+      link: /tutorials/document-to-markdown/
       icon: right-arrow
       variant: primary
+    - text: Extract to JSON
+      link: /tutorials/first-extraction/
+      icon: right-arrow
+      variant: secondary
     - text: Explore the REST API
       link: /reference/api/
       icon: open-book
+      variant: minimal
 ---
 
-<p className="ph-kicker">Local-first document AI · Developer preview</p>
+<p className="ph-kicker">Local-first document processing · Developer preview</p>
 
 <div className="ph-grid">
   <div>
-    <span className="ph-stat">01 · Define</span>
-    <h3>Describe the JSON you need</h3>
-    <p>Combine focused instructions with a validated extraction schema.</p>
+    <span className="ph-stat">01 · Parse</span>
+    <h3>Keep the complete document</h3>
+    <p>Turn PDFs and images into ordered, page-aware Markdown.</p>
   </div>
   <div>
     <span className="ph-stat">02 · Extract</span>
-    <h3>Extract JSON or parse Markdown</h3>
-    <p>Keep page attribution while using the bundled runtime or a provider you choose.</p>
+    <h3>Return only the fields you need</h3>
+    <p>Define a JSON Schema and accept only results that satisfy it.</p>
   </div>
   <div>
     <span className="ph-stat">03 · Integrate</span>
@@ -41,9 +46,9 @@ hero:
   <span className="ph-path-number">01</span>
   <div>
     <h3>
-      <a href="/tutorials/first-extraction/">Learn ParseHawk by extracting a receipt</a>
+      <a href="/tutorials/document-to-markdown/">Parse a document to Markdown</a>
     </h3>
-    <p>Install the local stack, run a known fixture, and inspect validated JSON.</p>
+    <p>Use the prebuilt parser and inspect complete-document and per-page output.</p>
   </div>
 </div>
 
@@ -51,9 +56,9 @@ hero:
   <span className="ph-path-number">02</span>
   <div>
     <h3>
-      <a href="/tutorials/document-to-markdown/">Parse a document to Markdown</a>
+      <a href="/tutorials/first-extraction/">Extract a document to structured JSON</a>
     </h3>
-    <p>Use the prebuilt parser and consume complete-document or per-page Markdown.</p>
+    <p>Run a known receipt through a schema and inspect the validated result.</p>
   </div>
 </div>
 
@@ -63,10 +68,7 @@ hero:
     <h3>
       <a href="/how-to/providers/">Connect your model provider</a>
     </h3>
-    <p>
-      Use the bundled NuExtract3 runtime, OpenAI, Microsoft Foundry, Ollama, or another
-      OpenAI-compatible endpoint.
-    </p>
+    <p>{`Use the bundled NuExtract3 runtime, OpenAI, Microsoft Foundry, Ollama, or another OpenAI-compatible endpoint.`}</p>
   </div>
 </div>
 
@@ -81,12 +83,9 @@ hero:
 </div>
 
 <div className="ph-callout">
-  <h2>Start with a successful local run.</h2>
+  <h2>Two workflows. One local stack.</h2>
+  <p>{`Parsing preserves a document as Markdown. Extraction selects fields into JSON. You can use either workflow by itself or use both for the same source.`}</p>
   <p>
-    The first-extraction tutorial takes you from a fresh checkout to structured JSON with a bundled
-    receipt fixture.
-  </p>
-  <p>
-    <a href="/tutorials/first-extraction/">Run the tutorial →</a>
+    <a href="/explanation/parsing-and-extraction/">Choose the right workflow →</a>
   </p>
 </div>

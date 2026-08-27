@@ -15,7 +15,7 @@ export default defineConfig({
     starlight({
       title: 'ParseHawk Developer Docs',
       description:
-        'Build private, structured document extraction workflows with the ParseHawk UI, CLI, and REST API.',
+        'Parse documents into Markdown or extract structured JSON with the ParseHawk UI, CLI, and REST API.',
       logo: {
         src: './src/assets/logo-mark.svg',
         alt: 'ParseHawk',
@@ -81,9 +81,9 @@ export default defineConfig({
         starlightLlmsTxt({
           projectName: 'ParseHawk',
           description:
-            'ParseHawk is a local-first document extraction platform with a web UI, CLI, and OpenAPI 3.1 REST API.',
+            'ParseHawk is a local-first document parsing and structured extraction platform with a web UI, CLI, and OpenAPI 3.1 REST API.',
           details:
-            'Prefer the tutorials for a first successful extraction, how-to guides for specific tasks, and generated reference pages for exact contracts.',
+            'Use the tutorials for a first successful Markdown parse or JSON extraction, how-to guides for specific tasks, and reference pages for exact contracts.',
           customSets: [
             {
               label: 'Tutorials',
@@ -115,6 +115,7 @@ export default defineConfig({
           label: 'Tutorials',
           items: [
             { slug: 'tutorials/first-extraction' },
+            { slug: 'tutorials/document-to-markdown' },
             { slug: 'tutorials/reusable-extractor' },
             { slug: 'tutorials/rest-api' },
           ],
@@ -131,6 +132,7 @@ export default defineConfig({
             { slug: 'how-to/microsoft-foundry' },
             { slug: 'how-to/openai-compatible' },
             { slug: 'how-to/schemas' },
+            { slug: 'how-to/customize-parsing' },
             { slug: 'how-to/manage-resources' },
             { slug: 'how-to/jobs' },
             { slug: 'how-to/web-ui' },
@@ -144,6 +146,7 @@ export default defineConfig({
           items: [
             { slug: 'explanation/architecture' },
             { slug: 'explanation/local-first' },
+            { slug: 'explanation/parsing-and-extraction' },
             { slug: 'explanation/core-concepts' },
             { slug: 'explanation/schema-semantics' },
             { slug: 'explanation/providers-models' },
@@ -159,6 +162,7 @@ export default defineConfig({
             { slug: 'reference/cli' },
             { slug: 'reference/configuration' },
             { slug: 'reference/extraction-schema' },
+            { slug: 'reference/parsing' },
             { slug: 'reference/provider-matrix' },
             { slug: 'reference/runtime-matrix' },
             { slug: 'reference/errors-and-job-states' },

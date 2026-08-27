@@ -56,6 +56,26 @@ Check that the worker is healthy and is using the same database and data
 directory as the API. A healthy API alone cannot process a job. Review
 `data/logs/worker.log` for a provider connection or credential error.
 
+## A parse job fails
+
+Check the job's stable `error.code` before you retry:
+
+```console
+parsehawk parse-jobs get parse_job_...
+```
+
+- `unsupported_input` means parsing did not receive a supported PDF, JPEG, or
+  PNG source.
+- `page_limit_exceeded` means the PDF is larger than
+  `PARSEHAWK_PDF_MAX_PAGES`.
+- `model_modality_incompatible` means the selected model does not accept image
+  content.
+- `invalid_model_output` means one page returned empty or invalid Markdown.
+- `parsing_timeout` means one page request exceeded the model timeout.
+
+A failure on one page fails the complete parse job. ParseHawk does not return a
+partial document in the current developer preview.
+
 ## An external provider is unreachable
 
 ```console

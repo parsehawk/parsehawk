@@ -11,16 +11,19 @@ the general contract.
 
 ## Compatibility requirements
 
-For extraction, the server must support:
+For both workflows, the server must support:
 
 - `POST /v1/chat/completions` with streaming responses
 - text chat messages and the selected model ID
 - `max_completion_tokens`, or the legacy `max_tokens` fallback
-- `response_format` with `type: json_schema`
 - OpenAI `image_url` message parts when processing images or PDFs
 
+Generic structured extraction also requires `response_format` with
+`type: json_schema`. Parsing does not send a JSON response format, but its model
+must accept image content because every source page is sent as an image.
+
 `GET /v1/models` is needed for `parsehawk providers models` and the Web UI's
-model list. A server can still extract without model discovery when you enter a
+model list. A server can still run jobs without model discovery when you enter a
 known model ID directly.
 
 ## Configure a local server
@@ -53,7 +56,7 @@ parsehawk providers configure openai_compatible_api \
   --api-key-env MODEL_API_KEY
 ```
 
-## Assign and test a model
+## Test structured extraction
 
 ```console
 parsehawk providers models openai_compatible_api
@@ -70,9 +73,33 @@ Inspect the returned job and the Phoenix model trace. A successful HTTP response
 is not sufficient: the extracted object must also validate against the
 extractor schema.
 
+## Test Markdown parsing
+
+Create a custom parser that uses a vision-capable model:
+
+```console
+parsehawk parsers put compatible-markdown \
+  --display-name "Compatible API Markdown" \
+  --instructions "Preserve section numbers and table footnotes." \
+  --provider openai_compatible_api \
+  --model YOUR_VISION_MODEL_ID
+
+parsehawk parse tests/fixtures/receipt/receipt.pdf \
+  --parser compatible-markdown \
+  --wait \
+  --output receipt.md
+```
+
+Inspect the Markdown and the parse job's execution metadata. Provider
+compatibility alone does not prove that a selected model accepts images or
+produces useful document transcription.
+
 ## Understand model adapters
 
 Exact NuExtract3 model variants receive their fine-tuned template and runtime
-arguments. All other model IDs receive a standard chat request containing the
-extractor instructions, schema-derived template, and ParseHawk semantic-type
-reference.
+arguments for extraction. Their parsing path uses NuExtract3 Markdown mode
+without an extraction template or JSON response format.
+
+All other models use standard chat requests. Extraction includes the
+instructions, schema-derived template, semantic-type reference, and JSON Schema
+constraint. Parsing includes one page image and a Markdown transcription prompt.

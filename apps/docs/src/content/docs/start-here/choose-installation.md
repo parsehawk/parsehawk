@@ -6,7 +6,7 @@ sidebar:
 ---
 
 ParseHawk has two supported bundled-runtime paths. Both expose the same Web UI,
-CLI, and REST API.
+CLI, and REST API for document-to-Markdown parsing and structured extraction.
 
 | Host                              | Bundled model runtime  | Recommended hardware                                            | Setup guide                                       |
 | --------------------------------- | ---------------------- | --------------------------------------------------------------- | ------------------------------------------------- |
@@ -42,6 +42,14 @@ A default `parsehawk start` exposes four services on loopback:
 Run `parsehawk doctor` after installation to check the host prerequisites and
 service health.
 
-## Next step
+## Choose your first workflow
 
-Once the stack is healthy, continue to [your first extraction](/tutorials/first-extraction/).
+Once the stack is healthy:
+
+- [parse a document to Markdown](/tutorials/document-to-markdown/) to preserve
+  its complete, page-aware content
+- [extract a document to JSON](/tutorials/first-extraction/) to return a fixed,
+  validated set of fields
+
+See [parsing and extraction](/explanation/parsing-and-extraction/) if you are not
+sure which output fits your application.

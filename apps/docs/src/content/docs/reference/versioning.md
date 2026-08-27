@@ -1,6 +1,6 @@
 ---
 title: Versioning reference
-description: ParseHawk release, REST path, OpenAPI, CLI, and extractor-schema versioning rules.
+description: ParseHawk release, REST path, OpenAPI, CLI, extraction-schema, and parser-definition versioning rules.
 sidebar:
   order: 9
 ---
@@ -12,6 +12,8 @@ sidebar:
 | OpenAPI            | Generated from the app and committed per release | Generate clients from the artifact matching the deployed version                |
 | CLI                | Ships with the ParseHawk Python package          | Keep CLI and server on the same release where possible                          |
 | Extractor output   | Defined by each extractor schema                 | Use a new stable name for a breaking output shape                               |
+| Parser behavior    | Defined by parser instructions and model choice  | Use a new stable name for a material behavior change                            |
+| Parsing result     | Defined by the REST response schema              | Pin the ParseHawk release and review OpenAPI changes                            |
 
 ## v0.3 to v0.4 extraction-job migration
 
@@ -30,6 +32,7 @@ not rewritten. New parsing work is separate at `/v1/parse-jobs` and uses
 - Human REST reference: [`/reference/api/`](/reference/api/)
 - OpenAPI 3.1 YAML: [`/openapi.yaml`](/openapi.yaml)
 - Extraction meta-schema: [`/schemas/parsehawk-extraction-schema.schema.json`](/schemas/parsehawk-extraction-schema.schema.json)
+- Parsing result reference: [`/reference/parsing/`](/reference/parsing/)
 - CLI reference: [`/reference/cli/`](/reference/cli/)
 - Configuration reference: [`/reference/configuration/`](/reference/configuration/)
 

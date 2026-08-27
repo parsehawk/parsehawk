@@ -56,12 +56,21 @@ actionable terminal error. Active parse jobs can be canceled, and completed jobs
 can be deleted. The parsing token budget is server-controlled through
 `PARSEHAWK_PARSING_MAX_TOKENS` and displayed in parser settings.
 
+For reusable parser design and model selection, see
+[customize Markdown parsing](/how-to/customize-parsing/).
+
 ## Move between UI, CLI, and API
 
 Use the stable name shown for an extractor in CLI commands:
 
 ```console
 parsehawk extract document.pdf --extractor invoice_v1 --wait
+```
+
+Use the stable parser name in the same way:
+
+```console
+parsehawk parse document.pdf --parser technical-markdown --wait
 ```
 
 Use the `file_...`, `extractor_...`, `parser_...`, `job_...`, and

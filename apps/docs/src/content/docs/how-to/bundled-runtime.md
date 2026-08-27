@@ -7,7 +7,8 @@ sidebar:
 
 The bundled runtime is ParseHawk's zero-configuration provider path. It serves
 `numind/NuExtract3-W4A16` through an OpenAI-compatible API and keeps document
-content on the local machine.
+content on the local machine. It supports both structured extraction and
+document-to-Markdown parsing.
 
 ## Start the default stack
 
@@ -32,19 +33,27 @@ The runtime API listens on `http://127.0.0.1:8080/v1` by default. The first
 start downloads model artifacts and warms the engine, so readiness takes longer
 than on later starts.
 
-## Assign an extractor
+## Assign an extractor or parser
 
-New extractors default to the `openai_compatible_api` provider. Leave the model
-unset to inherit the active bundled model, or set it explicitly:
+New extractors and parsers default to the `openai_compatible_api` provider.
+Leave the model unset to inherit the active bundled model, or set it explicitly:
 
 ```console
 parsehawk extractors update invoice_v1 \
   --provider openai_compatible_api \
   --model numind/NuExtract3-W4A16
+
+parsehawk parsers put technical-markdown \
+  --display-name "Technical document Markdown" \
+  --instructions "Preserve section numbers." \
+  --provider openai_compatible_api \
+  --model numind/NuExtract3-W4A16
 ```
 
-Exact NuExtract3 variants receive the fine-tuned NuExtract chat template. Other
-model names use ParseHawk's generic structured-extraction prompt.
+The built-in `receipt` extractor and `document-to-markdown` parser already use
+these defaults. Exact NuExtract3 variants use a fine-tuned structured template
+for extraction and a separate Markdown mode for parsing. Other model names use
+ParseHawk's generic workflow-specific prompts.
 
 ## Change runtime resources
 
@@ -56,7 +65,8 @@ parsehawk restart
 
 Context length and concurrency consume more unified memory or VRAM. See
 [deployment and hardware](/explanation/deployment-hardware/) before raising
-defaults on a constrained machine.
+defaults on a constrained machine. Parsing also has a separate per-page output
+budget through `PARSEHAWK_PARSING_MAX_TOKENS`.
 
 ## Return after using another compatible server
 

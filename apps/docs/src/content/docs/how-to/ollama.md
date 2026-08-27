@@ -1,21 +1,21 @@
 ---
 title: Use Ollama locally
-description: Run text and multimodal ParseHawk extractors through Ollama's OpenAI-compatible API.
+description: Run structured extraction and document-to-Markdown parsing through Ollama's OpenAI-compatible API.
 sidebar:
   order: 4
 ---
 
 ParseHawk can use Ollama through the existing `openai_compatible_api` provider.
-No separate provider adapter is required: ParseHawk sends chat-completions
-requests with JSON Schema response constraints and OpenAI-compatible image
-inputs.
+No separate provider adapter is required. Extraction sends chat-completions
+requests with JSON Schema response constraints. Parsing sends one image page at
+a time and requests Markdown.
 
 :::note[Verified compatibility]
 This path was verified on Apple Silicon with Ollama 0.32.0 on 14 July 2026.
 `qwen3:0.6b` produced schema-valid text extraction, and
 `qwen3-vl:2b-instruct` matched every field in ParseHawk's receipt image ground
-truth. Treat these small models as compatibility checks, not production
-accuracy recommendations.
+truth. That check covered extraction, not Markdown parsing. Treat these small
+models as compatibility checks, not production accuracy recommendations.
 :::
 
 ## 1. Start Ollama and pull a small model
@@ -105,6 +105,27 @@ parsehawk extract tests/fixtures/receipt/receipt.jpg \
 PDFs use the same multimodal path: ParseHawk renders pages to images before
 calling the model. The default limit is 25 pages at 170 DPI.
 
+## 5. Test Markdown parsing
+
+Create a custom parser with the same vision-language model:
+
+```console
+parsehawk parsers put ollama-markdown \
+  --display-name "Ollama Markdown" \
+  --instructions "Preserve section numbers and table structure." \
+  --provider openai_compatible_api \
+  --model qwen3-vl:2b-instruct
+
+parsehawk parse tests/fixtures/receipt/receipt.pdf \
+  --parser ollama-markdown \
+  --wait \
+  --output receipt.md
+```
+
+Inspect `receipt.md` and the parse job before using the model in production.
+Parsing compatibility and transcription quality depend on the selected Ollama
+model and version.
+
 ## Troubleshoot the connection
 
 - If `/v1/models` fails on the host, Ollama is not listening yet. Open the app
@@ -112,7 +133,8 @@ calling the model. The default limit is 25 pages at 170 DPI.
 - If the host request works but ParseHawk cannot connect, verify that the stored
   base URL uses `host.docker.internal` for the Docker stack.
 - If a model returns free-form prose instead of JSON, try its instruction-tuned
-  variant and inspect the model trace in Phoenix.
+  variant and inspect the model trace in Phoenix. This response-format check
+  applies to extraction.
 - If a vision job fails immediately, confirm that the selected model supports
   images; a text-only model cannot process image or PDF inputs.
 - Small models are useful for compatibility checks, not an accuracy baseline.
