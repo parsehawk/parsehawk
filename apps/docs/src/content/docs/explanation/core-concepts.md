@@ -13,7 +13,8 @@ persistent resources:
 
 Parsing is not a required preprocessing step for extraction. Use the original
 document directly when the extraction model benefits from layout or visual
-context.
+context. See [parsing and extraction](/explanation/parsing-and-extraction/) for
+guidance on choosing or combining the workflows.
 
 ## File
 
@@ -71,14 +72,14 @@ A provider stores connection state for a model service. ParseHawk has fixed
 slots for `openai_compatible_api`, `openai`, and `microsoft_foundry`. API keys
 are write-only at the API boundary and encrypted at rest.
 
-## Extraction Job
+## Extraction job
 
 An extraction job is one asynchronous attempt to apply an extractor to a file
 or inline text. It uses a legacy-compatible `job_...` ID and returns a
 schema-valid object under `result.data` when completed. Its canonical REST
 collection is `/v1/extraction-jobs`.
 
-## Parse Job
+## Parse job
 
 A parse job applies a parser to one uploaded PDF, JPEG, or PNG. Its
 `parse_job_...` record contains an immutable parser snapshot, resolved execution

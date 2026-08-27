@@ -55,6 +55,12 @@ Use stable extractor names for compatible evolution. Create a new versioned
 name, such as `invoice_v2`, when consumers need to adopt a breaking output shape
 on their own schedule.
 
+Parser definitions do not define a custom JSON shape. The parse-job response
+contract is part of the ParseHawk REST API, while the Markdown text depends on
+the parser instructions, provider, model, and source document. Use a new stable
+parser name when consumers must adopt a material parsing behavior change on
+their own schedule.
+
 ## Recommended client posture
 
 - Pin a ParseHawk release or deployment version.
@@ -62,4 +68,5 @@ on their own schedule.
 - Preserve unknown response fields when your language allows it.
 - Handle documented non-2xx responses and every terminal job state.
 - Contract-test the extractor schemas your application relies on.
+- Store and test the custom parser definitions your application relies on.
 - Review the OpenAPI diff and release notes before upgrading.

@@ -1,18 +1,30 @@
 ---
-title: Parse a document to Markdown
-description: Parse a PDF or image with the bundled NuExtract3 parser and consume whole-document and per-page Markdown.
+title: Parse your first document
+description: Start ParseHawk and turn the bundled receipt PDF into complete-document and per-page Markdown.
 sidebar:
-  order: 4
+  order: 2
 ---
 
-This tutorial uses the read-only `document-to-markdown` parser that ships with a
-fresh ParseHawk installation. Parsing is a separate workflow from structured
-extraction: it produces source-faithful Markdown for LLM prompts, citations, and
-vector-database ingestion.
+In this tutorial you will parse a known PDF with the prebuilt
+`document-to-markdown` parser, inspect its Markdown, and find the same run in the
+Web UI.
 
-## Run the one-shot CLI workflow
+## Before you begin
 
-Start ParseHawk, then run:
+Use a supported [macOS or Linux installation](/start-here/choose-installation/).
+This tutorial runs from a ParseHawk repository checkout because it uses the
+bundled receipt fixture.
+
+## 1. Start ParseHawk
+
+```console
+parsehawk start
+```
+
+Wait for the services to become ready. If startup fails, run `parsehawk doctor`
+and follow the reported fix.
+
+## 2. Parse the bundled receipt
 
 ```console
 parsehawk parse tests/fixtures/receipt/receipt.pdf \
@@ -20,85 +32,61 @@ parsehawk parse tests/fixtures/receipt/receipt.pdf \
   --output receipt.md
 ```
 
-The command uploads the file, creates a parse job, polls with a bounded timeout,
-and writes complete-document Markdown. `document-to-markdown` is selected when
-`--parser` is omitted. Use `--timeout-seconds` to change the 600-second client
-deadline, or omit `--output` to print Markdown to stdout.
+The command uploads the PDF, creates a parse job, waits for it with a 600-second
+client deadline, and writes the complete-document Markdown. It selects the
+read-only `document-to-markdown` parser because `--parser` is omitted.
 
-## Run the same workflow over HTTP
+The final line should confirm:
+
+```text
+Wrote Markdown output: receipt.md
+```
+
+## 3. Inspect the Markdown
+
+Confirm that the output is not empty, then print its first lines:
 
 ```console
-API=http://127.0.0.1:8000
-
-FILE_ID=$(
-  curl --fail --silent --show-error \
-    --request POST "$API/v1/files" \
-    --form "upload=@tests/fixtures/receipt/receipt.pdf;type=application/pdf" |
-    jq -r '.id'
-)
-
-PARSE_JOB_ID=$(
-  curl --fail --silent --show-error \
-    --request POST "$API/v1/parse-jobs" \
-    --header "Content-Type: application/json" \
-    --data "{\"parser_name\":\"document-to-markdown\",\"file_id\":\"$FILE_ID\"}" |
-    jq -r '.id'
-)
+test -s receipt.md
+sed -n '1,40p' receipt.md
 ```
 
-Poll the top-level parse-job resource:
+The text and exact Markdown can vary with the model. You should see the receipt
+content in readable Markdown instead of a fixed JSON object.
+
+List the job that produced it:
 
 ```console
-while true; do
-  PARSE_JOB=$(curl --fail --silent --show-error "$API/v1/parse-jobs/$PARSE_JOB_ID")
-  STATUS=$(jq -r '.status' <<<"$PARSE_JOB")
-  case "$STATUS" in
-    completed|failed|canceled) break ;;
-  esac
-  sleep 1
-done
-
-jq -r '.result.content' <<<"$PARSE_JOB" > receipt.md
+parsehawk parse-jobs list --parser document-to-markdown
 ```
 
-Production clients should add backoff and a deadline and handle every terminal
-state.
+The completed job contains both `result.content` for the complete document and
+`result.pages` for one-based source pages. ParseHawk joins multiple pages with
+an HTML `page-break` comment.
 
-## Understand the result
+## 4. Inspect the same run in the Web UI
 
-For a two-page document, the completed result has this shape:
+Open `http://127.0.0.1:5173`, select **Parse**, and open the newest parse job.
+You can switch between these result views:
 
-```json
-{
-  "format": "markdown",
-  "content": "# First page\n\n...\n\n<!-- page-break -->\n\n## Second page\n\n...",
-  "page_count": 2,
-  "pages": [
-    { "page_number": 1, "content": "# First page\n\n..." },
-    { "page_number": 2, "content": "## Second page\n\n..." }
-  ]
-}
-```
-
-`pages` is canonical and strictly one-based. ParseHawk derives `content` by
-joining ordered pages with `\n\n<!-- page-break -->\n\n`; `page_count` always
-equals the array length. A JPEG or PNG has one page. Every page must succeed, so
-the MVP never returns a partial document.
-
-Store `pages[].page_number` beside vector chunks when downstream retrieval needs
-page citations. Use `content` when an LLM or tool expects one Markdown document.
-
-## Use the Web UI
-
-Open `http://127.0.0.1:5173`, select **Parse**, upload a PDF or image, keep
-**Document to Markdown** selected, and run parsing. The result panel offers:
-
-- rendered whole-document and per-page views
+- rendered complete-document Markdown
+- rendered Markdown for one source page
 - raw Markdown
-- copy and download actions
-- provider, model, adapter, and duration metadata
-- cancellation, deletion, and actionable errors
 
-Custom parsers can add instructions or choose another vision-capable configured
-model. The server-wide per-page generation budget defaults to 4,096 tokens and
-is configured with `PARSEHAWK_PARSING_MAX_TOKENS`.
+The result panel also shows the provider, model, internal adapter, duration, and
+job state. You can copy or download the Markdown from the same page.
+
+## What you built
+
+You exercised the complete parsing path:
+
+```text
+document → uploaded file → parse job → page images → Markdown
+```
+
+Parsing keeps the document's content and page structure. It does not select a
+predefined set of business fields. Compare the two output models in
+[parsing and extraction](/explanation/parsing-and-extraction/).
+
+Next, [customize Markdown parsing](/how-to/customize-parsing/) or run
+[parsing and extraction through the REST API](/tutorials/rest-api/).

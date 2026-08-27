@@ -2,7 +2,7 @@
 title: Build a reusable extractor
 description: Create a stable invoice extractor from instructions and a JSON Schema.
 sidebar:
-  order: 2
+  order: 3
 ---
 
 This tutorial turns a one-off extraction into a reusable contract named
@@ -95,4 +95,5 @@ Edit the schema or instructions and run the same `extractors put` command. New
 jobs use the updated definition; existing job records retain the result they
 already produced.
 
-Next, learn how to [call the same workflow over HTTP](/tutorials/rest-api/).
+Next, use one uploaded document for
+[both parsing and extraction over HTTP](/tutorials/rest-api/).

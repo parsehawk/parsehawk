@@ -72,6 +72,9 @@ GPU memory. Wait for readiness before treating a slow first start as a failure.
 The Web UI is available at `http://127.0.0.1:5173` and the API at
 `http://127.0.0.1:8000`.
 
+Continue to [your first Markdown parse](/tutorials/document-to-markdown/) or
+[your first JSON extraction](/tutorials/first-extraction/).
+
 ## Tune the runtime
 
 The automatic profile favors reliable startup. Larger GPUs can opt into more
@@ -84,6 +87,6 @@ PARSEHAWK_VLLM_GPU_MEMORY_UTILIZATION=0.6 \
 parsehawk restart
 ```
 
-Change one dimension at a time and run a representative extraction after each
-change. More context, concurrent sequences, and image pages all increase memory
-pressure.
+Change one dimension at a time and run a representative extraction or parse job
+after each change. More context, concurrent sequences, and image pages all
+increase memory pressure.

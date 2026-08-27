@@ -166,7 +166,7 @@ def create_app() -> FastAPI:
         container = build_container()
         # Not every deployment starts through the CLI (Docker runs uvicorn
         # directly), so the API guarantees the fixed providers and prebuilt
-        # extractors itself. Idempotent: existing operator config survives.
+        # definitions itself. Idempotent: existing operator config survives.
         seed_prebuilt_data_in_container(container)
         app.state.container = container
         try:
@@ -306,7 +306,7 @@ def validate_schema(request: ValidateSchemaRequest) -> ValidateSchemaResponse:
     "",
     operation_id="uploadFile",
     summary="Upload a file",
-    description="Store a document locally and return metadata for use in extraction jobs.",
+    description="Store a document locally and return metadata for parsing or extraction jobs.",
     status_code=status.HTTP_201_CREATED,
     responses={422: VALIDATION_ERROR_RESPONSE},
     openapi_extra={

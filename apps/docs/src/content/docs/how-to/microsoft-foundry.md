@@ -36,17 +36,23 @@ parsehawk providers models microsoft_foundry
 
 ## Assign the deployment
 
-The extractor's `model` is the chat-completions deployment name, not necessarily
-the underlying catalog model name:
+The definition's `model` is the chat-completions deployment name, not
+necessarily the underlying catalog model name. The parser command below assumes
+that you already [created the custom parser](/how-to/customize-parsing/):
 
 ```console
 parsehawk extractors update invoice_v1 \
   --provider microsoft_foundry \
   --model my-chat-deployment
+
+parsehawk parsers update technical-markdown \
+  --provider microsoft_foundry \
+  --model my-vision-deployment
 ```
 
-Choose a deployment that supports structured chat completions. Image and PDF
-inputs also require image capability.
+Choose a deployment that supports structured chat completions for extraction.
+Parser deployments must accept image content. Image and PDF extraction inputs
+also require image capability.
 
 ## Start without the bundled runtime
 

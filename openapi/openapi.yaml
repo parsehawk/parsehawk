@@ -102,7 +102,7 @@ paths:
       tags:
       - files
       summary: Upload a file
-      description: Store a document locally and return metadata for use in extraction jobs.
+      description: Store a document locally and return metadata for parsing or extraction jobs.
       operationId: uploadFile
       requestBody:
         content:

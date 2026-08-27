@@ -92,7 +92,7 @@ body; connection failures include the target API URL.
 
 ## parsehawk
 
-Run and operate the local-first ParseHawk document extraction platform.
+Run and operate ParseHawk for local-first document parsing and extraction.
 
 ```console
 $ parsehawk [-h] {start,dev,restart,stop,status,migrate,doctor,config,runtime,extract,parse,files,schemas,extractors,parsers,providers,extraction-jobs,jobs,parse-jobs} ...

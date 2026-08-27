@@ -69,7 +69,8 @@ parsehawk doctor
 ```
 
 Then open `http://127.0.0.1:5173` or continue to
-[your first extraction](/tutorials/first-extraction/).
+[your first Markdown parse](/tutorials/document-to-markdown/) or
+[your first JSON extraction](/tutorials/first-extraction/).
 
 ## Tune for available memory
 

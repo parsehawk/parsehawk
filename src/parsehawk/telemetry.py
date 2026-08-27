@@ -11,7 +11,8 @@ What we collect:
 
 Both events carry coarse, non-identifying properties (ParseHawk version, OS, and an
 approximate location that PostHog derives from the request IP at ingestion). We never
-send file contents, file names, extractor instructions, schemas, or extracted data.
+send file contents, file names, extractor or parser instructions, schemas, extracted
+data, or parsed Markdown.
 
 The ``distinct_id`` is a random per-install UUID, not a person or machine
 fingerprint; it lets us count distinct installs and runs. Person-profile creation is

@@ -5,8 +5,8 @@ sidebar:
   order: 3
 ---
 
-Every extractor selects a `provider` and `model`. Start with the path that
-matches where you want inference to run:
+Every extractor and parser selects a `provider` and `model`. Start with the path
+that matches where you want inference to run:
 
 | Path                  | Best when                                                                | Setup                                                      |
 | --------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------- |
@@ -18,8 +18,9 @@ matches where you want inference to run:
 
 The bundled runtime, Ollama, and generic servers share the
 `openai_compatible_api` provider slot. Changing that slot changes the endpoint
-for every extractor assigned to it. Use separate ParseHawk installations when
-you must target multiple compatible endpoints at the same time.
+for every extractor and parser assigned to it. Use separate ParseHawk
+installations when you must target multiple compatible endpoints at the same
+time.
 
 ## Inspect current configuration
 
@@ -33,7 +34,8 @@ API keys are encrypted at rest and are never returned by the API.
 
 ## Skip the bundled runtime
 
-If every active extractor uses a separate endpoint, avoid loading NuExtract3:
+If every active extractor and parser uses a separate endpoint, avoid loading
+NuExtract3:
 
 ```console
 parsehawk start -x runtime
@@ -42,17 +44,20 @@ parsehawk start -x runtime
 Use this for every provider path except the bundled runtime. The API, worker,
 Web UI, and Phoenix still start normally.
 
-## Assign a provider per extractor
+## Assign a provider and model
 
-Provider configuration stores connection details. The extractor stores which
-slot and model it should use:
+Provider configuration stores connection details. Each extractor or parser
+stores which slot and model it should use:
 
 ```console
 parsehawk extractors update invoice_v1 \
   --provider openai_compatible_api \
   --model my-model
+
+parsehawk parsers update technical-markdown \
+  --provider openai_compatible_api \
+  --model my-vision-model
 ```
 
-Existing extraction jobs retain their recorded execution metadata. New jobs use
-the extractor's current provider and model. Parsers select providers and models
-the same way, but parse jobs snapshot parser configuration at creation time.
+New jobs use the current definition. Parse jobs snapshot parser configuration at
+creation time. Each job records the provider and model that execution resolved.

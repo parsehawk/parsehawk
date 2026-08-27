@@ -448,7 +448,7 @@ def _command_parser(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="parsehawk",
-        description="Run and operate the local-first ParseHawk document extraction platform.",
+        description="Run and operate ParseHawk for local-first document parsing and extraction.",
         formatter_class=_ParseHawkHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

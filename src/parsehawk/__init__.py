@@ -1,1 +1,1 @@
-"""ParseHawk local document extraction."""
+"""ParseHawk local document parsing and structured extraction."""

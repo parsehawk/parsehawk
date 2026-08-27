@@ -39,7 +39,8 @@ PDF page count and render DPI also affect multimodal input size. ParseHawk
 defaults to 25 pages at 170 DPI.
 
 Automatic platform profiles favor reliable startup over maximum throughput.
-Tune one variable at a time with representative documents.
+Tune one variable at a time with representative parsing and extraction
+documents.
 
 ## Network exposure
 

@@ -91,5 +91,6 @@ The seeded `document-to-markdown` parser is read-only. Parser edits affect only
 new jobs because every parse job stores a configuration snapshot. A parser or
 file referenced by a parse job cannot be deleted until the job is removed.
 
-See [operate asynchronous jobs](/how-to/jobs/) for execution and retention
-behavior after resources exist.
+See [customize Markdown parsing](/how-to/customize-parsing/) for instruction and
+model guidance. See [operate asynchronous jobs](/how-to/jobs/) for execution and
+retention behavior after resources exist.

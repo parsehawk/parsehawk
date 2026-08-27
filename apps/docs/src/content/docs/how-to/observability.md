@@ -1,5 +1,5 @@
 ---
-title: Inspect extraction traces
+title: Inspect model traces
 description: Use bundled Phoenix or an external OTLP collector to understand model behavior.
 sidebar:
   order: 8
@@ -11,10 +11,13 @@ OTLP. The default stack includes a local Phoenix instance at
 
 ## Inspect the bundled trace
 
-1. Run an extraction.
+1. Run an extraction job or parse job.
 2. Open Phoenix at `http://127.0.0.1:6006`.
 3. Select the `parsehawk` project and open the API or worker span.
 4. Compare the prompt, model response, latency, and validation outcome.
+
+Extraction traces show the structured response and schema-validation path.
+Parsing traces show a separate model request for each source page.
 
 Phoenix stores its SQLite data under `data/phoenix/`, so traces survive normal
 restarts.
@@ -50,8 +53,9 @@ PARSEHAWK_LOG_MODEL_IO=true \
 parsehawk restart
 ```
 
-Model I/O can contain sensitive document text and extracted values. Prefer
-Phoenix's local access controls and turn verbose logging off after diagnosis.
+Model I/O can contain sensitive document text, extracted values, and parsed
+Markdown. Prefer Phoenix's local access controls and turn verbose logging off
+after diagnosis.
 
 ## Separate anonymous telemetry from tracing
 
@@ -63,5 +67,6 @@ export PARSEHAWK_TELEMETRY_DISABLED=1
 export DO_NOT_TRACK=1
 ```
 
-ParseHawk does not send document contents, filenames, extractor instructions,
-schemas, or results in anonymous telemetry.
+ParseHawk does not send document contents, filenames, extractor or parser
+instructions, schemas, extracted JSON, or parsed Markdown in anonymous
+telemetry.

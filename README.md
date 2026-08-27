@@ -8,14 +8,14 @@
 </p>
 
 <p align="center">
-  <strong>Turn documents into structured JSON with local-first document AI.</strong>
+  <strong>Turn documents into Markdown or structured JSON with local-first document AI.</strong>
   <br>
   <strong>Run 100% locally by default, with API, CLI, and Web UI.</strong>
 </p>
 
 <p align="center">
   <a href="https://docs.parsehawk.com"><strong>Developer docs</strong></a> ·
-  <a href="https://docs.parsehawk.com/tutorials/first-extraction/">Quickstart tutorial</a> ·
+  <a href="https://docs.parsehawk.com/start-here/choose-installation/">Get started</a> ·
   <a href="https://docs.parsehawk.com/reference/api/">API reference</a> ·
   <a href="#community">Community</a>
 </p>
@@ -29,14 +29,15 @@
   <a href="https://github.com/parsehawk/parsehawk/stargazers"><img src="https://img.shields.io/github/stars/parsehawk/parsehawk?style=social" alt="GitHub stars"></a>
 </p>
 
-ParseHawk turns PDFs, scans, images, text, and Markdown into validated JSON, and
-parses PDFs and images into page-aware Markdown. It is built for private
-document workflows where you want to define the output contract and keep
-control of files, models, and infrastructure.
+ParseHawk parses PDFs and images into page-aware Markdown, and turns PDFs,
+scans, images, text, and Markdown into validated JSON. It is built for private
+document workflows where you want to preserve complete content or define a
+strict output contract while you keep control of files, models, and
+infrastructure.
 
 The default setup runs locally with NuExtract3 through vLLM on Linux NVIDIA or
-vLLM Metal on macOS Apple Silicon. Individual extractors can instead use Ollama,
-OpenAI, Microsoft Foundry, or another OpenAI-compatible model server.
+vLLM Metal on macOS Apple Silicon. Individual extractors and parsers can instead
+use Ollama, OpenAI, Microsoft Foundry, or another OpenAI-compatible model server.
 
 <p align="center">
   <img src="docs/assets/parsehawk-demo.svg" alt="ParseHawk turns a document into validated structured JSON, 100% locally" width="820">
@@ -51,7 +52,7 @@ OpenAI, Microsoft Foundry, or another OpenAI-compatible model server.
 - Validated JSON stored with an asynchronous job record
 - Local files, SQLite state, model runtime, and Phoenix traces by default
 - One resource model across the Web UI, CLI, and OpenAPI 3.1 REST API
-- Per-extractor provider and model selection
+- Per-extractor and per-parser provider and model selection
 - Supported local runtimes for macOS Apple Silicon and Linux NVIDIA
 
 ## Requirements
@@ -121,19 +122,22 @@ parsehawk doctor
 parsehawk stop
 ```
 
-The complete guided path is in
-[Extract your first document](https://docs.parsehawk.com/tutorials/first-extraction/).
+For guided workflows, use
+[Parse your first document](https://docs.parsehawk.com/tutorials/document-to-markdown/)
+or [Extract your first document](https://docs.parsehawk.com/tutorials/first-extraction/).
 
 ## Documentation
 
 | Goal | Guide |
 | --- | --- |
-| Learn the end-to-end workflow | [Extraction](https://docs.parsehawk.com/tutorials/first-extraction/) · [Document to Markdown](https://docs.parsehawk.com/tutorials/document-to-markdown/) |
+| Learn the end-to-end workflow | [Document to Markdown](https://docs.parsehawk.com/tutorials/document-to-markdown/) · [Extraction](https://docs.parsehawk.com/tutorials/first-extraction/) |
+| Choose parsing or extraction | [Workflow explanation](https://docs.parsehawk.com/explanation/parsing-and-extraction/) |
 | Install on supported hardware | [macOS](https://docs.parsehawk.com/how-to/install-macos/) · [Linux NVIDIA](https://docs.parsehawk.com/how-to/install-linux-nvidia/) |
 | Choose a model provider | [Bundled vLLM](https://docs.parsehawk.com/how-to/bundled-runtime/) · [Ollama](https://docs.parsehawk.com/how-to/ollama/) · [OpenAI](https://docs.parsehawk.com/how-to/openai/) · [Microsoft Foundry](https://docs.parsehawk.com/how-to/microsoft-foundry/) · [Compatible APIs](https://docs.parsehawk.com/how-to/openai-compatible/) |
 | Integrate over HTTP | [REST tutorial](https://docs.parsehawk.com/tutorials/rest-api/) · [API reference](https://docs.parsehawk.com/reference/api/) · [OpenAPI YAML](https://docs.parsehawk.com/openapi.yaml) |
 | Automate with the CLI | [CLI reference](https://docs.parsehawk.com/reference/cli/) |
 | Define output contracts | [Schema guide](https://docs.parsehawk.com/how-to/schemas/) · [Schema reference](https://docs.parsehawk.com/reference/extraction-schema/) |
+| Customize Markdown parsing | [Parser guide](https://docs.parsehawk.com/how-to/customize-parsing/) · [Parsing reference](https://docs.parsehawk.com/reference/parsing/) |
 | Operate and troubleshoot | [Jobs](https://docs.parsehawk.com/how-to/jobs/) · [Backups and upgrades](https://docs.parsehawk.com/how-to/upgrades-backups/) · [Troubleshooting](https://docs.parsehawk.com/how-to/troubleshooting/) |
 | Understand the system | [Architecture](https://docs.parsehawk.com/explanation/architecture/) · [Local-first trust model](https://docs.parsehawk.com/explanation/local-first/) |
 
