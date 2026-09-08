@@ -36,6 +36,20 @@ inspect them first:
 parsehawk migrate status
 ```
 
+## Recover from missing CLI dependencies
+
+An editable install uses the current checkout's source code, but pulling new
+source does not install new Python dependencies. If startup reports a missing
+Python dependency such as `httpx` or `sqlalchemy`, run the reinstall command
+above from the ParseHawk source checkout, not from your data directory. If you
+use `uv run parsehawk`, run `uv sync` in that checkout instead.
+
+`start`, `dev`, and `restart` check the host-side bootstrap imports before
+changing startup state or applying migrations. If a dependency is missing, they
+exit with repair instructions. A failed check during `restart` leaves existing
+services running. After refreshing the environment, retry your original command,
+including the same `--data-dir` value. You do not need to delete the database.
+
 ## Control migration timing
 
 Operators who need a maintenance window can opt out of startup migrations:
