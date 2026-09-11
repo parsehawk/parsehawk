@@ -18,18 +18,20 @@ overrides:
   # GHSA-g6gw-c38x-mqfc, GHSA-crvj-82cr-hjcx, GHSA-jqff-g426-hqxp,
   # GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-5jgf-p345-68v8,
   # GHSA-4vpr-x523-8j87, GHSA-w27v-7q3p-w38r, GHSA-4mjr-xmp4-gh2g,
-  # GHSA-x5fp-wj9c-mxmx);
+  # GHSA-x5fp-wj9c-mxmx, GHSA-c83g-rgw3-j3cx, GHSA-73wf-gq98-2v4g);
   # all reach us via dev tooling (shadcn CLI, vite, astro, and friends)
   # or, for ip-address, via express-rate-limit. The lockfile holds a
   # single major of each, so a blanket floor at the first patched
   # release is safe.
   # @hono/node-server 2.x is a major bump, but its dependent
   # (@modelcontextprotocol/sdk) accepts "^1.19.9 || ^2.0.5" as of 1.30.0.
-  # fast-uri, js-yaml, nanoid, qs, svgo, and undici use caret ranges
-  # to stay on the major their dependents (ajv, postcss, express,
-  # astro, @dotenvx/dotenvx, and friends) actually declare.
+  # browserslist, fast-uri, js-yaml, nanoid, qs, svgo, and undici use
+  # caret ranges to stay on the major their dependents (@babel/core,
+  # ajv, postcss, express, astro, @dotenvx/dotenvx, and friends)
+  # actually declare.
   "@hono/node-server": ">=2.0.5"
   brace-expansion: ">=5.0.9"
+  browserslist: "^4.28.7"
   fast-uri: "^3.1.6"
   form-data: ">=4.0.6"
   hono: ">=4.13.5"
