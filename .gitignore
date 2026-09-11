@@ -15,3 +15,6 @@ test-results/
 .env
 phoenix.env
 .cache/
+
+# Claude Code configuration and automation are local; they stay out of the public repository
+.claude/
