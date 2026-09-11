@@ -16,16 +16,17 @@ overrides:
   # GHSA-v3r7-h72x-cjcm, GHSA-jr45-8vmc-qm54, GHSA-m8rv-5g2x-5cg5,
   # GHSA-5p4m-2wfm-xmqj, GHSA-2v37-7h3g-55p8, GHSA-gqvv-2mrq-wpjv,
   # GHSA-g6gw-c38x-mqfc, GHSA-crvj-82cr-hjcx, GHSA-jqff-g426-hqxp,
-  # GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-5jgf-p345-68v8);
+  # GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-5jgf-p345-68v8,
+  # GHSA-4vpr-x523-8j87, GHSA-w27v-7q3p-w38r);
   # all reach us via dev tooling (shadcn CLI, vite, astro, and friends)
   # or, for ip-address, via express-rate-limit. The lockfile holds a
   # single major of each, so a blanket floor at the first patched
   # release is safe.
   # @hono/node-server 2.x is a major bump, but its dependent
   # (@modelcontextprotocol/sdk) accepts "^1.19.9 || ^2.0.5" as of 1.30.0.
-  # fast-uri, js-yaml, nanoid, and undici use caret ranges to stay on
-  # the major their dependents (ajv, postcss, @dotenvx/dotenvx, and
-  # friends) actually declare.
+  # fast-uri, js-yaml, nanoid, svgo, and undici use caret ranges to
+  # stay on the major their dependents (ajv, postcss, astro,
+  # @dotenvx/dotenvx, and friends) actually declare.
   "@hono/node-server": ">=2.0.5"
   brace-expansion: ">=5.0.9"
   fast-uri: "^3.1.6"
@@ -35,6 +36,7 @@ overrides:
   js-yaml: "^4.3.1"
   nanoid: "^3.3.18"
   postcss: ">=8.5.18"
+  svgo: "^4.1.0"
   undici: "^7.29.0"
 
 # systeminformation is a transitive dep (shadcn -> @dotenvx/dotenvx) whose 5.31.8
