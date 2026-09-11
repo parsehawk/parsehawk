@@ -742,6 +742,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "jsonschema" },
     { name = "openai" },
     { name = "pillow" },
@@ -763,7 +764,6 @@ tracing = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "openapi-spec-validator" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -777,6 +777,7 @@ dev = [
 requires-dist = [
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "jsonschema", specifier = ">=4.23.0" },
     { name = "openai", specifier = ">=2.44.0" },
     { name = "openinference-instrumentation-openai", marker = "extra == 'tracing'", specifier = ">=0.1.0" },
@@ -795,7 +796,6 @@ provides-extras = ["tracing"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27.0" },
     { name = "openapi-spec-validator", specifier = ">=0.7.2" },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pytest", specifier = ">=8.3.0" },

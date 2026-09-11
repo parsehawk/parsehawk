@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import http.client
+import importlib
 import json
 import mimetypes
 import os
@@ -1017,6 +1018,23 @@ def start(args: argparse.Namespace) -> None:
     start_docker(args)
 
 
+def _check_startup_dependencies() -> None:
+    """Check host-side bootstrap imports before startup changes local state."""
+    try:
+        importlib.import_module("parsehawk.server.bootstrap.seeds")
+    except ModuleNotFoundError as exc:
+        # Missing project modules are code defects, not installation advice.
+        if not exc.name or exc.name == "parsehawk" or exc.name.startswith("parsehawk."):
+            raise
+        raise SystemExit(
+            f"ParseHawk cannot start: missing Python dependency '{exc.name}'. "
+            "The CLI environment may be out of date after a source update. "
+            "From the ParseHawk source checkout (not the data directory), run "
+            "`uv tool install --force --editable .` to refresh the installed CLI, "
+            "or `uv sync` if you use `uv run parsehawk`. Then retry startup."
+        ) from None
+
+
 def _progress(message: str) -> None:
     print(f"==> {message}", flush=True)
 
@@ -1062,6 +1080,7 @@ def _print_telemetry_notice(data_dir: Path) -> None:
 
 
 def dev(args: argparse.Namespace) -> None:
+    _check_startup_dependencies()
     if args.runtime == UNSUPPORTED_RUNTIME:
         raise SystemExit(
             "No bundled model runtime is available for this platform. ParseHawk's local "
@@ -1274,6 +1293,7 @@ def dev(args: argparse.Namespace) -> None:
 
 
 def start_docker(args: argparse.Namespace) -> None:
+    _check_startup_dependencies()
     if args.runtime == UNSUPPORTED_RUNTIME:
         raise SystemExit(
             "No bundled model runtime is available for this platform. ParseHawk's Docker "
@@ -1485,6 +1505,7 @@ def start_docker(args: argparse.Namespace) -> None:
 
 
 def restart(args: argparse.Namespace) -> None:
+    _check_startup_dependencies()
     data_dir = _resolve_data_dir(args.data_dir)
     if _state_path(data_dir).exists():
         stop(data_dir)
