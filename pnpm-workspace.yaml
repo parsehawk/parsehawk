@@ -19,7 +19,7 @@ overrides:
   # GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-5jgf-p345-68v8,
   # GHSA-4vpr-x523-8j87, GHSA-w27v-7q3p-w38r, GHSA-4mjr-xmp4-gh2g,
   # GHSA-x5fp-wj9c-mxmx, GHSA-c83g-rgw3-j3cx, GHSA-73wf-gq98-2v4g,
-  # GHSA-w5vr-8v7q-w6rv, GHSA-7w5x-hrqm-74c2);
+  # GHSA-w5vr-8v7q-w6rv, GHSA-7w5x-hrqm-74c2, GHSA-2883-xcg3-v3hh);
   # all reach us via dev tooling (shadcn CLI, vite, astro, and friends)
   # or, for ip-address, via express-rate-limit. The lockfile holds a
   # single major of each, so a blanket floor at the first patched
@@ -38,7 +38,7 @@ overrides:
   form-data: ">=4.0.6"
   hono: ">=4.13.5"
   ip-address: ">=10.3.1"
-  js-yaml: "^4.3.1"
+  js-yaml: "^4.3.2"
   nanoid: "^3.3.18"
   postcss: ">=8.5.18"
   qs: "^6.16.0"
