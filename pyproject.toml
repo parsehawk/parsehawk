@@ -11,6 +11,7 @@ classifiers = [
 dependencies = [
     "cryptography>=50.0.0",
     "fastapi>=0.115.0",
+    "httpx>=0.27.0",
     "jsonschema>=4.23.0",
     "openai>=2.44.0",
     "pillow>=12.3.0",
@@ -34,7 +35,6 @@ tracing = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.27.0",
     "openapi-spec-validator>=0.7.2",
     "pre-commit>=4.6.0",
     "pyyaml>=6.0.2",
