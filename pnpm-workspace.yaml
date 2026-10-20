@@ -25,7 +25,7 @@ overrides:
   # GHSA-rx4f-c7p8-82vq, GHSA-r53p-7pc4-xj5r, GHSA-rfgv-xxqx-mfg5,
   # GHSA-2jfj-6hjv-fm6j, GHSA-8436-99hf-9mmv, GHSA-2vr4-cq9g-pvrc,
   # GHSA-j6r3-76f7-8jcv, GHSA-6j4f-fj2g-mc7p, GHSA-6qxp-vccf-f47h,
-  # GHSA-jqcg-44mw-7w3h, GHSA-68fv-2mgg-jv7q);
+  # GHSA-jqcg-44mw-7w3h, GHSA-68fv-2mgg-jv7q, GHSA-rj75-hqrm-r3gf);
   # all reach us via dev tooling (shadcn CLI, vite, astro, and friends)
   # or, for ip-address, via express-rate-limit. The lockfile holds a
   # single major of each, so a blanket floor at the first patched
@@ -37,9 +37,12 @@ overrides:
   # source-map-js, and svgo use caret ranges to stay on the major their
   # dependents (shadcn, browserslist, @babel/core, ajv, postcss, express,
   # astro, and friends) actually declare.
-  # undici is the exception to the single-major rule: @dotenvx/dotenvx
-  # declares ^7 while unifont (astro) declares ^8, so each declared major
-  # gets its own floor instead of one caret range pinning both onto 7.x.
+  # postcss-selector-parser and undici are the exceptions to the
+  # single-major rule: postcss-nested declares postcss-selector-parser ^6
+  # while shadcn declares ^7, and @dotenvx/dotenvx declares undici ^7
+  # while unifont (astro) declares ^8. Each declared major gets its own
+  # floor, the first patched release on that line, instead of one caret
+  # range pinning every dependent onto a single major.
   "@hono/node-server": ">=2.0.5"
   "@modelcontextprotocol/sdk": "^1.31.0"
   baseline-browser-mapping: "^2.11.0"
@@ -53,6 +56,8 @@ overrides:
   js-yaml: "^4.3.2"
   nanoid: "^3.3.18"
   postcss: ">=8.5.18"
+  "postcss-selector-parser@^6": "^6.1.5"
+  "postcss-selector-parser@^7": "^7.1.6"
   proxy-addr: "^2.0.8"
   qs: "^6.16.0"
   smol-toml: "^1.7.1"
@@ -65,5 +70,11 @@ overrides:
 # release landed in our lockfile <24h after publish. Exempt only this reviewed
 # version; the age guard stays active for everything else. Remove the exemption
 # after the release ages in.
+# postcss-selector-parser 6.1.5 (published 2026-10-19) is the 6.x backport of
+# the GHSA-rj75-hqrm-r3gf fix that the override block requires. Its diff
+# against 6.1.4 is that parser.js fix plus version and changelog, with no new
+# dependencies or install scripts. Remove the entry after 2026-10-20 15:00 UTC,
+# when the release ages in.
 minimumReleaseAgeExclude:
   - systeminformation
+  - postcss-selector-parser@6.1.5
