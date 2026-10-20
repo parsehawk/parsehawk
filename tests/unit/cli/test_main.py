@@ -4,6 +4,8 @@ import argparse
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -2106,3 +2108,65 @@ def test_extractors_create_includes_provider_and_model(
     assert captured[0] is not None
     assert captured[0]["provider_name"] == "openai"
     assert captured[0]["model"] == "gpt-4o-mini"
+
+
+@pytest.mark.parametrize("command", ["start", "dev", "restart"])
+@pytest.mark.parametrize("missing_module", ["httpx", "sqlalchemy"])
+def test_startup_missing_dependency_fails_before_side_effects(
+    tmp_path: Path, command: str, missing_module: str
+) -> None:
+    # A fresh interpreter avoids modules already cached by the test suite.
+    # Block a real transitive bootstrap import to reproduce a stale tool install.
+    script = """
+import importlib.abc
+import sys
+
+class MissingDependency(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == sys.argv[2]:
+            raise ModuleNotFoundError(f"No module named '{fullname}'", name=fullname)
+
+sys.meta_path.insert(0, MissingDependency())
+from parsehawk.cli import main as cli
+
+def unexpected_side_effect(*args, **kwargs):
+    raise AssertionError("Startup changed state before checking dependencies")
+
+cli.stop = unexpected_side_effect
+cli._stop_state = unexpected_side_effect
+cli._ensure_docker_available = unexpected_side_effect
+cli._apply_migrations_at_start = unexpected_side_effect
+cli.main([sys.argv[1], "--data-dir", sys.argv[3], "-x", "runtime"])
+"""
+    data_dir = tmp_path / "data"
+    if command == "restart":
+        data_dir.mkdir()
+        cli._state_path(data_dir).write_text("existing service state")
+    result = subprocess.run(
+        [sys.executable, "-c", script, command, missing_module, str(data_dir)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert f"missing Python dependency '{missing_module}'" in result.stderr
+    assert "uv tool install --force --editable ." in result.stderr
+    assert "source checkout (not the data directory)" in result.stderr
+    assert "Traceback" not in result.stderr
+    if command == "restart":
+        assert cli._state_path(data_dir).read_text() == "existing service state"
+        assert list(data_dir.iterdir()) == [cli._state_path(data_dir)]
+    else:
+        assert not data_dir.exists()
+
+
+def test_startup_dependency_check_does_not_hide_missing_project_modules(monkeypatch) -> None:
+    error = ModuleNotFoundError("missing project module", name="parsehawk.server.broken")
+
+    def broken_import(name):
+        raise error
+
+    monkeypatch.setattr(cli.importlib, "import_module", broken_import)
+    with pytest.raises(ModuleNotFoundError) as caught:
+        cli._check_startup_dependencies()
+    assert caught.value is error
