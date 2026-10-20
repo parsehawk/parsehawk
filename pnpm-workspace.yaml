@@ -20,7 +20,10 @@ overrides:
   # GHSA-4vpr-x523-8j87, GHSA-w27v-7q3p-w38r, GHSA-4mjr-xmp4-gh2g,
   # GHSA-x5fp-wj9c-mxmx, GHSA-c83g-rgw3-j3cx, GHSA-73wf-gq98-2v4g,
   # GHSA-w5vr-8v7q-w6rv, GHSA-7w5x-hrqm-74c2, GHSA-2883-xcg3-v3hh,
-  # GHSA-9rgm-9g3h-6x36);
+  # GHSA-9rgm-9g3h-6x36, GHSA-3wwx-pv8p-q78v, GHSA-w293-vg96-wgc3,
+  # GHSA-3xpg-4rpp-hhhm, GHSA-pmjh-fq2x-6v4x, GHSA-2gqq-gqf2-x968,
+  # GHSA-rx4f-c7p8-82vq, GHSA-r53p-7pc4-xj5r, GHSA-rfgv-xxqx-mfg5,
+  # GHSA-2jfj-6hjv-fm6j, GHSA-8436-99hf-9mmv);
   # all reach us via dev tooling (shadcn CLI, vite, astro, and friends)
   # or, for ip-address, via express-rate-limit. The lockfile holds a
   # single major of each, so a blanket floor at the first patched
@@ -28,9 +31,12 @@ overrides:
   # @hono/node-server 2.x is a major bump, but its dependent
   # (@modelcontextprotocol/sdk) accepts "^1.19.9 || ^2.0.5" as of 1.30.0.
   # baseline-browser-mapping, browserslist, devalue, fast-uri, js-yaml,
-  # nanoid, qs, smol-toml, svgo, and undici use caret ranges to stay on the
+  # nanoid, qs, smol-toml, and svgo use caret ranges to stay on the
   # major their dependents (browserslist, @babel/core, ajv, postcss,
-  # express, astro, @dotenvx/dotenvx, and friends) actually declare.
+  # express, astro, and friends) actually declare.
+  # undici is the exception to the single-major rule: @dotenvx/dotenvx
+  # declares ^7 while unifont (astro) declares ^8, so each declared major
+  # gets its own floor instead of one caret range pinning both onto 7.x.
   "@hono/node-server": ">=2.0.5"
   baseline-browser-mapping: "^2.11.0"
   brace-expansion: ">=5.0.9"
@@ -46,7 +52,8 @@ overrides:
   qs: "^6.16.0"
   smol-toml: "^1.7.1"
   svgo: "^4.1.0"
-  undici: "^7.29.0"
+  "undici@^7": "^7.29.1"
+  "undici@^8": "^8.10.2"
 
 # systeminformation is a transitive dep (shadcn -> @dotenvx/dotenvx) whose 5.31.8
 # release landed in our lockfile <24h after publish. Exempt only this reviewed
