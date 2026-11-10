@@ -2728,7 +2728,14 @@ def upload_file(api_url: str, file_path: str) -> Any:
 
 
 def read_json_file(path: str) -> Any:
-    return json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    try:
+        text = Path(path).expanduser().read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"Cannot read JSON file {path!r}: {exc.strerror or exc}") from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid JSON in {path!r}: {exc}") from exc
 
 
 def write_json_file(path: str, payload: Any) -> None:

@@ -2106,3 +2106,21 @@ def test_extractors_create_includes_provider_and_model(
     assert captured[0] is not None
     assert captured[0]["provider_name"] == "openai"
     assert captured[0]["model"] == "gpt-4o-mini"
+
+
+def test_read_json_file_missing_path_exits_cleanly(tmp_path: Path) -> None:
+    """A missing JSON file is a clean CLI error, not a traceback."""
+    with pytest.raises(SystemExit) as excinfo:
+        cli.read_json_file(str(tmp_path / "no-such-schema.json"))
+    assert excinfo.value.code != 0
+    assert "no-such-schema.json" in str(excinfo.value.code)
+
+
+def test_read_json_file_invalid_json_exits_cleanly(tmp_path: Path) -> None:
+    """Malformed JSON names the file instead of dumping a bare traceback."""
+    bad = tmp_path / "bad-schema.json"
+    bad.write_text("{not valid json", encoding="utf-8")
+    with pytest.raises(SystemExit) as excinfo:
+        cli.read_json_file(str(bad))
+    assert excinfo.value.code != 0
+    assert "bad-schema.json" in str(excinfo.value.code)
